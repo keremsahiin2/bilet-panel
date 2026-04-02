@@ -261,6 +261,10 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   var currentSoldCount = parseInt(req.body.currentSoldCount) || 0; // şu ana kadar satılan
   var cStr            = toCookieStr(ideasoftCookies);
 
+  // İdeasoft'a gönderilecek gerçek stok = kalan + satılan
+  // Böylece İdeasoft satılanları düşünce kullanıcının istediği kalan değer çıkar
+  var stockToSet = newStock + currentSoldCount;
+
   try {
     var productRes = await axios.get(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
@@ -270,17 +274,15 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     var m3  = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
-    // İdeasoft'a direkt "kalan kontenjan" gönder (stockAmount = kalan)
     await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
-      Object.assign({}, productRes.data, { stockAmount:newStock }),
+      Object.assign({}, productRes.data, { stockAmount:stockToSet }),
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
 
-    // Baseline = yeni kalan + mevcut satılan
-    // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
+    // Baseline = gerçek kapasite (satılan + kalan), satış hesabı buradan yapılır
     var baseline = loadJson(STOCK_BASELINE_FILE) || {};
-    baseline[seanceId] = newStock + currentSoldCount;
+    baseline[seanceId] = stockToSet;
     saveJson(STOCK_BASELINE_FILE, baseline);
 
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
