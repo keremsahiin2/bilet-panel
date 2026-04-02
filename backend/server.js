@@ -33,7 +33,12 @@ const IDEASOFT_PRODUCTS = {
 
 // ─── Yardımcı ──────────────────────────────────────────────────────────────────
 function loadJson(file) {
-  try { if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file,'utf8')); } catch(e){}
+  try {
+    if (fs.existsSync(file)) {
+      var raw = fs.readFileSync(file,'utf8').trim();
+      if (raw) return JSON.parse(raw);
+    }
+  } catch(e){}
   return null;
 }
 function saveJson(file, data) {
@@ -310,7 +315,7 @@ app.get('/api/sales', function(req, res) {
     ideasoftSales = ideasoftData.map(function(s) {
       if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
       if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
-      var base = baseline[s.seanceId];
+      var base = baseline[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
       return Object.assign({},s,{
         baselineStock: base,
         soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
