@@ -223,15 +223,26 @@ function buildSeanceMap(data) {
     map[key].categories[cat].bubilet += (s.biletAdet || 0);
   });
 
-  // Şu andan 2 saat öncesi — seanslar genelde 2 saat sürer, bitmişleri gizle
+  // Filtreleme kuralı:
+  // - Bir günün tüm seansları o günün 21:00'ında uygulamadan kalkar.
+  // - Gün henüz 21:00'a gelmemişse, o günün seansları gösterilir.
+  // - Geçmiş günler (21:00'ı geçmiş) tamamen gizlenir.
   const _now = new Date();
-  const _cutoff = new Date(_now.getTime() - 2 * 60 * 60 * 1000);
-  // Geçmiş günleri de gösterme — en erken bugünün 05:00'ı
-  const _today5 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 5, 0, 0);
-  const _from = _cutoff > _today5 ? _cutoff : _today5;
+  // Bugünün 21:00'ı
+  const _today21 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 21, 0, 0);
 
   return Object.values(map)
-    .filter(s => s.sortDate >= _from)
+    .filter(s => {
+      // Seansin ait olduğu günün 21:00'ını hesapla
+      const seanceDay21 = new Date(
+        s.sortDate.getFullYear(),
+        s.sortDate.getMonth(),
+        s.sortDate.getDate(),
+        21, 0, 0
+      );
+      // Günün 21:00'ı henüz geçmediyse göster; geçtiyse gizle
+      return _now < seanceDay21;
+    })
     .sort((a,b) => a.sortDate - b.sortDate);
 }
 
