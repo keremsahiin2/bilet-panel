@@ -315,9 +315,12 @@ export default function App() {
     setStockUpdating(p => ({...p,[seanceId]:true}));
     setStockMsg(p => ({...p,[seanceId]:''}));
     try {
+      // Mevcut satış sayısını bul — backend bu değeri koruyarak stok hesabı yapar
+      const seanceData = (salesData?.ideasoft || []).find(s => s.seanceId === seanceId);
+      const currentSoldCount = seanceData?.soldCount ?? 0;
       const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, newStock:parseInt(val)})
+        body:JSON.stringify({seanceId, newStock:parseInt(val), currentSoldCount})
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);

@@ -109,6 +109,13 @@ function buildSeanceMap(data) {
     const key = ensureSeance(dateKey, timeSlot, null);
     ensureCat(key, cat);
     map[key].categories[cat].ideasoft += (s.soldCount || 0);
+    // seanceId ve status'u satış panelinde toggle için sakla
+    if (s.seanceId) {
+      if (!map[key]._seanceIds) map[key]._seanceIds = [];
+      if (!map[key]._seanceIds.includes(s.seanceId)) map[key]._seanceIds.push(s.seanceId);
+      if (!map[key]._seanceStatus) map[key]._seanceStatus = {};
+      map[key]._seanceStatus[s.seanceId] = s.status;
+    }
     // Her seans için Quiz Night ise hangi konsept olduğunu kaydet (biletinial eşleştirmesi için)
     if (!map[key]._quizCat && cat.startsWith('Quiz Night')) {
       map[key]._quizCat = cat;
@@ -247,6 +254,7 @@ export default function App() {
   const [stockUpdating, setStockUpdating]   = useState({});
   const [stockMsg, setStockMsg]             = useState({});
   const [showIdeasoftReport, setShowIdeasoftReport] = useState(false);
+  const [toggling, setToggling]                   = useState({});
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
@@ -315,12 +323,9 @@ export default function App() {
     setStockUpdating(p => ({...p,[seanceId]:true}));
     setStockMsg(p => ({...p,[seanceId]:''}));
     try {
-      // Mevcut satış sayısını bul — backend bu değeri koruyarak stok hesabı yapar
-      const seanceData = (salesData?.ideasoft || []).find(s => s.seanceId === seanceId);
-      const currentSoldCount = seanceData?.soldCount ?? 0;
       const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, newStock:parseInt(val), currentSoldCount})
+        body:JSON.stringify({seanceId, newStock:parseInt(val)})
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -329,6 +334,20 @@ export default function App() {
       if (salesData) fetchSales();
     } catch(e) { setStockMsg(p => ({...p,[seanceId]:'✗'})); }
     finally { setStockUpdating(p => ({...p,[seanceId]:false})); }
+  };
+
+  const handleToggleSeance = async (seanceId, currentlyActive) => {
+    setToggling(p => ({...p,[seanceId]:true}));
+    try {
+      const res  = await fetch("/api/ideasoft/toggle-seance", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({seanceId, active:!currentlyActive})
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      if (salesData) fetchSales();
+    } catch(e) { alert('Hata: ' + e.message); }
+    finally { setToggling(p => ({...p,[seanceId]:false})); }
   };
 
   const getIdeasoftForCat = (cat) => (salesData?.ideasoft || []).filter(s => s.category === cat);
@@ -465,6 +484,18 @@ export default function App() {
                     <span style={{...S.totalPill,...(total>0?{color:'#b47cff',background:'#1a0f2e',border:'1px solid #b47cff44'}:{})}}>
                       {total} bilet
                     </span>
+                    {s._seanceIds && s._seanceIds.map(sid => {
+                      const isActive = s._seanceStatus?.[sid] === 1;
+                      return (
+                        <button key={sid} onClick={e=>{e.stopPropagation();handleToggleSeance(sid,isActive);}}
+                          disabled={toggling[sid]}
+                          style={{background:'none',border:'none',cursor:'pointer',fontSize:15,padding:'0 2px',
+                            color:isActive?'#ef4444':'#4ade80',opacity:toggling[sid]?0.5:1}}
+                          title={isActive?'Seansı kapat':'Seansı aç'}>
+                          {toggling[sid]?'⟳':isActive?'🚫':'✅'}
+                        </button>
+                      );
+                    })}
                     <span style={{...S.chevron,...(open?{transform:'rotate(90deg)',color:'#94a3b8'}:{})}}>›</span>
                   </div>
                 </div>
@@ -561,6 +592,15 @@ export default function App() {
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
+                                <button
+                                  disabled={toggling[s.seanceId]}
+                                  onClick={()=>handleToggleSeance(s.seanceId, s.status===1)}
+                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
+                                    background:s.status===1?'#1f0f0f':'#0f1f0f',
+                                    color:s.status===1?'#ef4444':'#4ade80',
+                                    opacity:toggling[s.seanceId]?0.5:1}}>
+                                  {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
+                                </button>
                               </div>
                             )}
                           </div>
