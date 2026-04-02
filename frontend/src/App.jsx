@@ -247,13 +247,13 @@ export default function App() {
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
-    fetch('http://192.168.0.15:3001/api/auto-login', { method:'POST' })
+    fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
       .then(json => {
         if (json.success) setLoggedIn(true);
         else {
           // Kayıtlı bilgileri forma doldur
-          fetch('http://192.168.0.15:3001/api/saved-credentials')
+          fetch('/api/saved-credentials')
             .then(r=>r.json())
             .then(d => {
               if (d.exists) {
@@ -284,7 +284,7 @@ export default function App() {
       rememberMe
     };
     try {
-      const res  = await fetch("http://192.168.0.15:3001/api/login", {
+      const res  = await fetch("/api/login", {
         method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)
       });
       const json = await res.json();
@@ -297,7 +297,7 @@ export default function App() {
   const fetchSales = async () => {
     setSalesLoading(true); setSalesError(null);
     try {
-      const res  = await fetch("http://192.168.0.15:3001/api/sales");
+      const res  = await fetch("/api/sales");
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setSalesData(json);
@@ -312,7 +312,7 @@ export default function App() {
     setStockUpdating(p => ({...p,[seanceId]:true}));
     setStockMsg(p => ({...p,[seanceId]:''}));
     try {
-      const res  = await fetch("http://192.168.0.15:3001/api/ideasoft/update-stock", {
+      const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({seanceId, newStock:parseInt(val)})
       });
