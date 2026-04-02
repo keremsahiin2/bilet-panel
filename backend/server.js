@@ -31,52 +31,30 @@ const IDEASOFT_PRODUCTS = {
   4243:'Bez Çanta', 4241:'Resim', 4234:'3D Figür'
 };
 
-// ─── JSONBin — kalıcı storage (baseline + gizli seanslar) ────────────────────
+// ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
 
-async function loadBin() {
+async function loadBaseline() {
   try {
     var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
       headers: { 'X-Master-Key': JSONBIN_API_KEY }
     });
-    return res.data.record || {};
+    return res.data.record.baseline || {};
   } catch(e) {
     console.error('JSONBin okuma hatasi:', e.message);
     return {};
   }
 }
 
-async function saveBin(data) {
+async function saveBaseline(baseline) {
   try {
-    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, data, {
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline }, {
       headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
     });
   } catch(e) {
     console.error('JSONBin yazma hatasi:', e.message);
   }
-}
-
-async function loadBaseline() {
-  var bin = await loadBin();
-  return bin.baseline || {};
-}
-
-async function saveBaseline(baseline) {
-  var bin = await loadBin();
-  bin.baseline = baseline;
-  await saveBin(bin);
-}
-
-async function loadHidden() {
-  var bin = await loadBin();
-  return bin.hidden || [];
-}
-
-async function saveHidden(hidden) {
-  var bin = await loadBin();
-  bin.hidden = hidden;
-  await saveBin(bin);
 }
 
 // ─── Yardımcı ──────────────────────────────────────────────────────────────────
@@ -311,32 +289,11 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// Seans gizle / göster
-app.post('/api/ideasoft/hide-seance', async function(req, res) {
-  var seanceId = req.body.seanceId;
-  var hide     = req.body.hide; // true = gizle, false = göster
-  try {
-    var hidden = await loadHidden();
-    if (hide) {
-      if (!hidden.includes(seanceId)) hidden.push(seanceId);
-    } else {
-      hidden = hidden.filter(function(id) { return id !== seanceId; });
-    }
-    await saveHidden(hidden);
-    ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
-    lastFetch    = new Date().toISOString();
-    res.json({ success:true, hidden });
-  } catch(err) {
-    console.error('Hide-seance hatasi:', err.message);
-    res.status(500).json({ error:err.message });
-  }
-});
-
 // Seans deaktif et / aktif et
 app.post('/api/ideasoft/toggle-seance', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var seanceId = req.body.seanceId;
-  var active   = req.body.active;
+  var active   = req.body.active; // true = aktif, false = pasif
   var cStr     = toCookieStr(ideasoftCookies);
   try {
     var productRes = await axios.get(
@@ -346,16 +303,18 @@ app.post('/api/ideasoft/toggle-seance', async function(req, res) {
     var sc = (productRes.headers['set-cookie']||[]).join(' ');
     var m  = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (m) { ideasoftCsrfToken=m[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
+
     await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
       Object.assign({}, productRes.data, { status: active ? 1 : 0 }),
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
+
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
     lastFetch    = new Date().toISOString();
     res.json({ success:true });
   } catch(err) {
-    console.error('Toggle-seance hatasi:', err.message);
+    console.error('Seans toggle hatasi:', err.message);
     if (err.response && (err.response.status===401||err.response.status===403))
       return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
     res.status(500).json({ error:err.message });
@@ -410,19 +369,16 @@ app.get('/api/sales', async function(req, res) {
   var ideasoftSales = null;
   if (ideasoftData) {
     var baseline = await loadBaseline();
-    var hidden   = await loadHidden();
     var changed  = false;
-    ideasoftSales = ideasoftData
-      .filter(function(s) { return !hidden.includes(s.seanceId); })
-      .map(function(s) {
-        if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
-        if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
-        var base = baseline[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
-        return Object.assign({},s,{
-          baselineStock: base,
-          soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
-        });
+    ideasoftSales = ideasoftData.map(function(s) {
+      if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
+      if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
+      var base = baseline[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
+      return Object.assign({},s,{
+        baselineStock: base,
+        soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
       });
+    });
     if (changed) await saveBaseline(baseline);
   }
 

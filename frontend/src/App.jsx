@@ -109,6 +109,7 @@ function buildSeanceMap(data) {
     const key = ensureSeance(dateKey, timeSlot, null);
     ensureCat(key, cat);
     map[key].categories[cat].ideasoft += (s.soldCount || 0);
+    // seanceId ve status'u satış panelinde toggle için sakla
     if (s.seanceId) {
       if (!map[key]._seanceIds) map[key]._seanceIds = [];
       if (!map[key]._seanceIds.includes(s.seanceId)) map[key]._seanceIds.push(s.seanceId);
@@ -254,8 +255,6 @@ export default function App() {
   const [stockMsg, setStockMsg]             = useState({});
   const [showIdeasoftReport, setShowIdeasoftReport] = useState(false);
   const [toggling, setToggling]                   = useState({});
-  const [hiding, setHiding]                       = useState({});
-  const [showHidden, setShowHidden]               = useState(false);
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
@@ -351,24 +350,7 @@ export default function App() {
     finally { setToggling(p => ({...p,[seanceId]:false})); }
   };
 
-  const handleHideSeance = async (seanceId, hide) => {
-    setHiding(p => ({...p,[seanceId]:true}));
-    try {
-      const res  = await fetch("/api/ideasoft/hide-seance", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, hide})
-      });
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      if (salesData) fetchSales();
-    } catch(e) { alert('Hata: ' + e.message); }
-    finally { setHiding(p => ({...p,[seanceId]:false})); }
-  };
-
-  const getIdeasoftForCat = (cat) => {
-    const list = (salesData?.ideasoft || []).filter(s => s.category === cat);
-    return showHidden ? list : list; // hidden filtresi backend'de
-  };
+  const getIdeasoftForCat = (cat) => (salesData?.ideasoft || []).filter(s => s.category === cat);
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
   if (autoLoginLoading) {
@@ -449,14 +431,9 @@ export default function App() {
         <div style={S.panel}>
           <div style={S.panelHeader}>
             <span style={S.panelTitle}>📊 Seans Bazlı Satışlar</span>
-            <div style={{display:'flex',gap:8}}>
-              <button style={{...S.refreshBtn,fontSize:11}} onClick={()=>setShowHidden(p=>!p)}>
-                {showHidden?'🙈 Gizlileri Gizle':'👁 Gizlileri Göster'}
-              </button>
-              <button style={S.refreshBtn} onClick={fetchSales} disabled={salesLoading}>
-                {salesLoading ? '⟳ Yükleniyor…' : '⟳ Yenile'}
-              </button>
-            </div>
+            <button style={S.refreshBtn} onClick={fetchSales} disabled={salesLoading}>
+              {salesLoading ? '⟳ Yükleniyor…' : '⟳ Yenile'}
+            </button>
           </div>
 
           {salesData && (() => {
@@ -488,7 +465,6 @@ export default function App() {
             const open  = expandedSeance === key;
             const cats  = Object.entries(s.categories);
             const total = cats.reduce((a,[,v])=>a+v.bubilet+v.biletinial+v.ideasoft, 0);
-            const seanceIds = s._seanceIds || [];
 
             return (
               <div key={key} style={{...S.seanceCard,...(total>0?{borderColor:'#1e293b'}:{})}}>
@@ -508,14 +484,18 @@ export default function App() {
                     <span style={{...S.totalPill,...(total>0?{color:'#b47cff',background:'#1a0f2e',border:'1px solid #b47cff44'}:{})}}>
                       {total} bilet
                     </span>
-                    {seanceIds.map(sid => (
-                      <button key={sid} onClick={e=>{e.stopPropagation();if(window.confirm('Bu seansı gizlemek istiyor musun?'))handleHideSeance(sid,true);}}
-                        disabled={hiding[sid]}
-                        style={{background:'none',border:'1px solid #374151',borderRadius:6,cursor:'pointer',fontSize:12,padding:'2px 7px',color:'#64748b',opacity:hiding[sid]?0.5:1}}
-                        title="Seansı gizle">
-                        {hiding[sid]?'⟳':'🗑'}
-                      </button>
-                    ))}
+                    {s._seanceIds && s._seanceIds.map(sid => {
+                      const isActive = s._seanceStatus?.[sid] === 1;
+                      return (
+                        <button key={sid} onClick={e=>{e.stopPropagation();handleToggleSeance(sid,isActive);}}
+                          disabled={toggling[sid]}
+                          style={{background:'none',border:'none',cursor:'pointer',fontSize:15,padding:'0 2px',
+                            color:isActive?'#ef4444':'#4ade80',opacity:toggling[sid]?0.5:1}}
+                          title={isActive?'Seansı kapat':'Seansı aç'}>
+                          {toggling[sid]?'⟳':isActive?'🚫':'✅'}
+                        </button>
+                      );
+                    })}
                     <span style={{...S.chevron,...(open?{transform:'rotate(90deg)',color:'#94a3b8'}:{})}}>›</span>
                   </div>
                 </div>
@@ -613,11 +593,13 @@ export default function App() {
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
                                 <button
-                                  disabled={hiding[s.seanceId]}
-                                  onClick={()=>{if(window.confirm('Bu seansı gizlemek istiyor musun?'))handleHideSeance(s.seanceId,true);}}
-                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'1px solid #374151',
-                                    background:'#1f0f0f',color:'#ef4444',opacity:hiding[s.seanceId]?0.5:1}}>
-                                  {hiding[s.seanceId]?'⟳ Gizleniyor…':'🗑 Seansı Gizle'}
+                                  disabled={toggling[s.seanceId]}
+                                  onClick={()=>handleToggleSeance(s.seanceId, s.status===1)}
+                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
+                                    background:s.status===1?'#1f0f0f':'#0f1f0f',
+                                    color:s.status===1?'#ef4444':'#4ade80',
+                                    opacity:toggling[s.seanceId]?0.5:1}}>
+                                  {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
                                 </button>
                               </div>
                             )}
