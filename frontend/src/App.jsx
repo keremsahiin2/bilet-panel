@@ -21,12 +21,15 @@ function parseIdeasoftName(fullName) {
 }
 
 function parseDateStr(isoStr) {
+  // Türkiye saati UTC+3 — getHours() locale bağımlı olduğu için toLocaleString kullanıyoruz
   const d = new Date(isoStr);
-  const day   = d.getDate();
-  const month = TR_MONTHS[d.getMonth()];
-  const dow   = TR_DAYS[d.getDay()];
-  const hh    = String(d.getHours()).padStart(2,'0');
-  const mm    = String(d.getMinutes()).padStart(2,'0');
+  // UTC+3 offseti manuel ekle
+  const tr = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+  const day   = tr.getUTCDate();
+  const month = TR_MONTHS[tr.getUTCMonth()];
+  const dow   = TR_DAYS[tr.getUTCDay()];
+  const hh    = String(tr.getUTCHours()).padStart(2,'0');
+  const mm    = String(tr.getUTCMinutes()).padStart(2,'0');
   return { dateKey: `${day} ${month} ${dow}`, time: `${hh}:${mm}` };
 }
 
@@ -87,16 +90,7 @@ function buildSeanceMap(data) {
   // "Tunalı: Ara Sokak Pub - 5 Nisan Pazar 19:30 - Genel Kültür" → "Quiz Night - Genel Kültür"
   (data.ideasoft || []).forEach(s => {
     const parsed = parseIdeasoftName(s.fullName);
-    if (!parsed) {
-      // Parse edilemeyen seanslar (örn. Seramik farklı format):
-      // Sadece kategori bazlı bir placeholder oluştur
-      const cat = s.category;
-      const fbKey = '__noparsed__' + cat;
-      if (!map[fbKey]) map[fbKey] = { dateKey:'?', timeSlot:cat, sortDate:new Date(0), categories:{}, _sorted:false, _noparsed:true };
-      if (!map[fbKey].categories[cat]) map[fbKey].categories[cat] = { bubilet:0, biletinial:0, ideasoft:0 };
-      map[fbKey].categories[cat].ideasoft += (s.soldCount || 0);
-      return;
-    }
+    if (!parsed) return;
     const { dateKey, timeSlot } = parsed;
 
     // Quiz Night için konsept adını fullName'den çıkar
@@ -129,10 +123,11 @@ function buildSeanceMap(data) {
         if (dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
       const startH = parseInt(timeSlot.split(':')[0]);
-      const _n = new Date();
-      const nowMonth = _n.getMonth();
-      const nowDay = _n.getDate();
-      const nowYear = _n.getFullYear();
+      // UTC+3 Türkiye saatini kullan
+      const _n = new Date(new Date().getTime() + 3 * 60 * 60 * 1000);
+      const nowMonth = _n.getUTCMonth();
+      const nowDay = _n.getUTCDate();
+      const nowYear = _n.getUTCFullYear();
       let year = nowYear;
       if (monIdx < nowMonth || (monIdx === nowMonth && dayNum < nowDay)) {
         year = nowYear + 1;
@@ -175,24 +170,11 @@ function buildSeanceMap(data) {
         const [kDate] = k.split('|');
         return kDate === dateKey && map[k].categories[cat] !== undefined;
       });
-      if (!matchKey) {
-        matchKey = Object.keys(map).find(k => k.startsWith(dateKey + '|'));
-      }
-      if (matchKey) {
-        map[matchKey]._allDay = map[matchKey]._allDay || {};
-        map[matchKey]._allDay[cat] = (map[matchKey]._allDay[cat] || 0) + (s.SalesTicketTotalCount || 0);
-      }
     }
 
     // Quiz için kategori adını İdeasoft'takiyle eşitle
     if (isQuiz && matchKey && map[matchKey]._quizCat) {
       cat = map[matchKey]._quizCat;
-    }
-
-    // Parse edilemeyen İdeasoft seansı varsa (örn. Seramik) oraya ekle
-    if (!matchKey) {
-      const fbKey = '__noparsed__' + cat;
-      if (map[fbKey]) { matchKey = fbKey; }
     }
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.SeanceDate));
@@ -207,7 +189,7 @@ function buildSeanceMap(data) {
     let cat = isQuiz ? 'Quiz Night' : bubiletToCategory(s.etkinlikAdi);
     if (!cat) return;
 
-    // Tam eşleşme
+    // Tam eşleşme: aynı gün + aynı saat
     let matchKey = Object.keys(map).find(k => {
       const [kDate, kSlot] = k.split('|');
       return kDate === dateKey && kSlot.startsWith(time);
@@ -221,15 +203,17 @@ function buildSeanceMap(data) {
       });
     }
 
+    // Saat eşleşmedi (UTC offset farkı vb.) — aynı günde aynı kategoriyi bul
+    if (!matchKey && !isQuiz) {
+      matchKey = Object.keys(map).find(k => {
+        const [kDate] = k.split('|');
+        return kDate === dateKey && map[k].categories[cat] !== undefined;
+      });
+    }
+
     // Quiz için kategori adını İdeasoft'takiyle eşitle
     if (isQuiz && matchKey && map[matchKey]._quizCat) {
       cat = map[matchKey]._quizCat;
-    }
-
-    // Parse edilemeyen İdeasoft seansı varsa (örn. Seramik) oraya ekle
-    if (!matchKey) {
-      const fbKey = '__noparsed__' + cat;
-      if (map[fbKey]) { matchKey = fbKey; }
     }
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.tarih));
@@ -240,17 +224,13 @@ function buildSeanceMap(data) {
   // Şu andan 2 saat öncesi — seanslar genelde 2 saat sürer, bitmişleri gizle
   const _now = new Date();
   const _cutoff = new Date(_now.getTime() - 2 * 60 * 60 * 1000);
-  // Ama geçmiş günleri de gösterme — en erken bugünün 05:00'ı
+  // Geçmiş günleri de gösterme — en erken bugünün 05:00'ı
   const _today5 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 5, 0, 0);
   const _from = _cutoff > _today5 ? _cutoff : _today5;
 
-  const parsed_seances = Object.values(map)
-    .filter(s => !s._noparsed && s.sortDate >= _from)
+  return Object.values(map)
+    .filter(s => s.sortDate >= _from)
     .sort((a,b) => a.sortDate - b.sortDate);
-  // Parse edilemeyen seansları (Seramik vb.) ayrıca ekle — toplam satış varsa göster
-  const noparsed_seances = Object.values(map)
-    .filter(s => s._noparsed && Object.values(s.categories).some(c => c.bubilet+c.biletinial+c.ideasoft > 0));
-  return [...parsed_seances, ...noparsed_seances];
 }
 
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
@@ -473,8 +453,8 @@ export default function App() {
               <div key={key} style={{...S.seanceCard,...(total>0?{borderColor:'#1e293b'}:{})}}>
                 <div style={S.seanceHeader} onClick={()=>setExpandedSeance(open?null:key)}>
                   <div style={S.seanceLeft}>
-                    <span style={S.seanceDate}>{s._noparsed ? '📋 Tarihsiz Seans' : s.dateKey}</span>
-                    {!s._noparsed && <span style={S.seanceTime}>{s.timeSlot}</span>}
+                    <span style={S.seanceDate}>{s.dateKey}</span>
+                    <span style={S.seanceTime}>{s.timeSlot}</span>
                   </div>
                   <div style={S.seanceRight}>
                     <div style={S.seanceSummary}>
