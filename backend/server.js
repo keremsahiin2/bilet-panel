@@ -31,6 +31,32 @@ const IDEASOFT_PRODUCTS = {
   4243:'Bez Çanta', 4241:'Resim', 4234:'3D Figür'
 };
 
+// ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
+const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
+const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
+
+async function loadBaseline() {
+  try {
+    var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    return res.data.record.baseline || {};
+  } catch(e) {
+    console.error('JSONBin okuma hatasi:', e.message);
+    return {};
+  }
+}
+
+async function saveBaseline(baseline) {
+  try {
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline }, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
+    });
+  } catch(e) {
+    console.error('JSONBin yazma hatasi:', e.message);
+  }
+}
+
 // ─── Yardımcı ──────────────────────────────────────────────────────────────────
 function loadJson(file) {
   try {
@@ -289,9 +315,9 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 
     // Baseline = yeni kalan + mevcut satılan
     // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
-    var baseline = loadJson(STOCK_BASELINE_FILE) || {};
+    var baseline = await loadBaseline();
     baseline[seanceId] = newStock + currentSoldCount;
-    saveJson(STOCK_BASELINE_FILE, baseline);
+    await saveBaseline(baseline);
 
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
     lastFetch    = new Date().toISOString();
@@ -305,12 +331,12 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 });
 
 // Satış verileri
-app.get('/api/sales', function(req, res) {
+app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
   var ideasoftSales = null;
   if (ideasoftData) {
-    var baseline = loadJson(STOCK_BASELINE_FILE) || {};
+    var baseline = await loadBaseline();
     var changed  = false;
     ideasoftSales = ideasoftData.map(function(s) {
       if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
@@ -321,7 +347,7 @@ app.get('/api/sales', function(req, res) {
         soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
       });
     });
-    if (changed) saveJson(STOCK_BASELINE_FILE, baseline);
+    if (changed) await saveBaseline(baseline);
   }
 
   res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch });
