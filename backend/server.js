@@ -289,6 +289,38 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
+// Seans deaktif et / aktif et
+app.post('/api/ideasoft/toggle-seance', async function(req, res) {
+  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
+  var seanceId = req.body.seanceId;
+  var active   = req.body.active; // true = aktif, false = pasif
+  var cStr     = toCookieStr(ideasoftCookies);
+  try {
+    var productRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
+      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+    );
+    var sc = (productRes.headers['set-cookie']||[]).join(' ');
+    var m  = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (m) { ideasoftCsrfToken=m[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
+
+    await axios.put(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
+      Object.assign({}, productRes.data, { status: active ? 1 : 0 }),
+      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+    );
+
+    ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
+    lastFetch    = new Date().toISOString();
+    res.json({ success:true });
+  } catch(err) {
+    console.error('Seans toggle hatasi:', err.message);
+    if (err.response && (err.response.status===401||err.response.status===403))
+      return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
+    res.status(500).json({ error:err.message });
+  }
+});
+
 // Stok güncelle
 app.post('/api/ideasoft/update-stock', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });

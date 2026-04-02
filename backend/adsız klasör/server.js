@@ -19,6 +19,11 @@ const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
 const SAVED_CREDS_FILE    = path.join(__dirname, 'saved_credentials.json');
 const DEFAULT_BASELINE    = 8;
+const CATEGORY_BASELINE = {
+  'Heykel': 10, 'Bez Çanta': 10, 'Resim': 10, '3D Figür': 10,
+  'Maske': 10, 'Plak Boyama': 10, 'Seramik': 8, 'Cupcake Mum': 8,
+  'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10
+};
 
 const IDEASOFT_PRODUCTS = {
   12671:'Seramik', 5135:'Mekanda Seç', 4278:'Punch', 4252:'Cupcake Mum',
@@ -26,9 +31,40 @@ const IDEASOFT_PRODUCTS = {
   4243:'Bez Çanta', 4241:'Resim', 4234:'3D Figür'
 };
 
+// ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
+const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
+const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
+
+async function loadBaseline() {
+  try {
+    var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    return res.data.record.baseline || {};
+  } catch(e) {
+    console.error('JSONBin okuma hatasi:', e.message);
+    return {};
+  }
+}
+
+async function saveBaseline(baseline) {
+  try {
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline }, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
+    });
+  } catch(e) {
+    console.error('JSONBin yazma hatasi:', e.message);
+  }
+}
+
 // ─── Yardımcı ──────────────────────────────────────────────────────────────────
 function loadJson(file) {
-  try { if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file,'utf8')); } catch(e){}
+  try {
+    if (fs.existsSync(file)) {
+      var raw = fs.readFileSync(file,'utf8').trim();
+      if (raw) return JSON.parse(raw);
+    }
+  } catch(e){}
   return null;
 }
 function saveJson(file, data) {
@@ -261,10 +297,6 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   var currentSoldCount = parseInt(req.body.currentSoldCount) || 0; // şu ana kadar satılan
   var cStr            = toCookieStr(ideasoftCookies);
 
-  // İdeasoft'a gönderilecek gerçek stok = kalan + satılan
-  // Böylece İdeasoft satılanları düşünce kullanıcının istediği kalan değer çıkar
-  var stockToSet = newStock + currentSoldCount;
-
   try {
     var productRes = await axios.get(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
@@ -274,16 +306,18 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     var m3  = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
+    // İdeasoft'a direkt "kalan kontenjan" gönder (stockAmount = kalan)
     await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
-      Object.assign({}, productRes.data, { stockAmount:stockToSet }),
+      Object.assign({}, productRes.data, { stockAmount:newStock }),
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
 
-    // Baseline = gerçek kapasite (satılan + kalan), satış hesabı buradan yapılır
-    var baseline = loadJson(STOCK_BASELINE_FILE) || {};
-    baseline[seanceId] = stockToSet;
-    saveJson(STOCK_BASELINE_FILE, baseline);
+    // Baseline = yeni kalan + mevcut satılan
+    // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
+    var baseline = await loadBaseline();
+    baseline[seanceId] = newStock + currentSoldCount;
+    await saveBaseline(baseline);
 
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
     lastFetch    = new Date().toISOString();
@@ -297,23 +331,23 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 });
 
 // Satış verileri
-app.get('/api/sales', function(req, res) {
+app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
   var ideasoftSales = null;
   if (ideasoftData) {
-    var baseline = loadJson(STOCK_BASELINE_FILE) || {};
+    var baseline = await loadBaseline();
     var changed  = false;
     ideasoftSales = ideasoftData.map(function(s) {
       if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
-      if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=DEFAULT_BASELINE; changed=true; }
-      var base = baseline[s.seanceId];
+      if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
+      var base = baseline[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
       return Object.assign({},s,{
         baselineStock: base,
         soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
       });
     });
-    if (changed) saveJson(STOCK_BASELINE_FILE, baseline);
+    if (changed) await saveBaseline(baseline);
   }
 
   res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch });
