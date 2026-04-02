@@ -19,6 +19,11 @@ const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
 const SAVED_CREDS_FILE    = path.join(__dirname, 'saved_credentials.json');
 const DEFAULT_BASELINE    = 8;
+const CATEGORY_BASELINE = {
+  'Heykel': 10, 'Bez Çanta': 10, 'Resim': 10, '3D Figür': 10,
+  'Maske': 10, 'Plak Boyama': 10, 'Seramik': 8, 'Cupcake Mum': 8,
+  'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10
+};
 
 const IDEASOFT_PRODUCTS = {
   12671:'Seramik', 5135:'Mekanda Seç', 4278:'Punch', 4252:'Cupcake Mum',
@@ -304,7 +309,7 @@ app.get('/api/sales', function(req, res) {
     var changed  = false;
     ideasoftSales = ideasoftData.map(function(s) {
       if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
-      if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=DEFAULT_BASELINE; changed=true; }
+      if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
       var base = baseline[s.seanceId];
       return Object.assign({},s,{
         baselineStock: base,
