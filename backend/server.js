@@ -1,11 +1,8 @@
 const express = require('express');
 const cors    = require('cors');
 const axios   = require('axios');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs   = require('fs');
 const path = require('path');
-puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(cors());
@@ -43,38 +40,21 @@ function toCookieStr(cookies) {
 
 // ─── Bubilet ───────────────────────────────────────────────────────────────────
 async function fetchBubilet(username, password) {
-  const browser = await puppeteer.launch({ headless: false });
-  const page    = await browser.newPage();
-  try {
-    await page.goto('https://panel.bubilet.com.tr', { waitUntil:'networkidle2', timeout:60000 });
-    await page.waitForSelector('#email', { timeout:30000 });
-    await page.type('#email', username);
-    await page.type('#password', password);
-    await page.click('button[mat-flat-button]');
-    await page.waitForNavigation({ waitUntil:'networkidle2', timeout:30000 });
+  const tokenRes = await axios.post('https://oldpanel.api.bubilet.com.tr/token',
+    { username, password },
+    { headers: { 'Content-Type':'application/json', 'origin':'https://panel.bubilet.com.tr', 'referer':'https://panel.bubilet.com.tr/' }}
+  );
+  const token = tokenRes.data.access_token;
+  if (!token) throw new Error('Bubilet token alinamadi');
 
-    const token = await page.evaluate(function() {
-      for (var i=0; i<Object.keys(localStorage).length; i++) {
-        var val = localStorage.getItem(Object.keys(localStorage)[i]);
-        if (val && val.indexOf('eyJ')===0) return val;
-      }
-      return null;
-    });
-    if (!token) throw new Error('Bubilet token bulunamadi');
-
-    const result = await page.evaluate(async function(tok) {
-      var res = await fetch('https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars', {
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok},
-        body:JSON.stringify({ page:0, perPage:100000, order:'tarih', descending:false,
-          filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }})
-      });
-      return await res.json();
-    }, token);
-
-    await browser.close();
-    return result.data || [];
-  } catch(err) { await browser.close(); throw err; }
+  const result = await axios.post(
+    'https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars',
+    { page:0, perPage:100000, order:'tarih', descending:false,
+      filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
+    { headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token,
+        'origin':'https://panel.bubilet.com.tr', 'referer':'https://panel.bubilet.com.tr/' }}
+  );
+  return result.data.data || [];
 }
 
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
@@ -136,62 +116,9 @@ async function fetchIdeasoftSeances(cookies, csrf) {
   return allSeances;
 }
 
-// ─── İdeasoft: Puppeteer girişi ────────────────────────────────────────────────
+// ─── İdeasoft: Puppeteer girişi (sadece lokalden çalışır) ─────────────────────
 async function loginIdeasoftPuppeteer(username, password) {
-  var browser = await puppeteer.launch({ headless:false });
-  var page    = await browser.newPage();
-  var capturedCsrf = null;
-  page.on('response', function(response) {
-    var sc = response.headers()['set-cookie']||'';
-    var m  = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (m) capturedCsrf = m[1];
-  });
-  try {
-    await page.goto('https://berkayalabalik.myideasoft.com/panel/auth/login',
-      { waitUntil:'networkidle2', timeout:60000 });
-    await page.waitForSelector('#username', { timeout:15000 });
-    await page.type('#username', username, { delay:60 });
-    await page.type('#password', password, { delay:60 });
-    await page.click('button[type="submit"]');
-    console.log('İdeasoft: mail kodunu tarayiciya girin (2 dakika)...');
-    await page.waitForFunction(
-      function() { return !window.location.href.includes('/login') && !window.location.href.includes('/auth'); },
-      { timeout:120000, polling:1000 }
-    );
-    var cookies   = await page.cookies();
-    var finalCsrf = capturedCsrf;
-    if (!finalCsrf) {
-      var xsrf = cookies.find(c=>c.name==='XSRF-TOKEN');
-      if (xsrf) finalCsrf = decodeURIComponent(xsrf.value);
-    }
-    if (!finalCsrf) {
-      finalCsrf = await page.evaluate(function() {
-        for (var k of Object.keys(localStorage)) {
-          var v = localStorage.getItem(k);
-          if (v && v.length===64 && /^[a-f0-9]+$/.test(v)) return v;
-        }
-        return null;
-      });
-    }
-    if (!finalCsrf) {
-      try {
-        var apiResp = await page.goto(
-          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/4241',
-          { waitUntil:'networkidle2', timeout:15000 });
-        var sc2 = apiResp.headers()['set-cookie']||'';
-        var m2  = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (m2) finalCsrf = m2[1];
-        if (!finalCsrf && capturedCsrf) finalCsrf = capturedCsrf;
-        cookies = await page.cookies();
-      } catch(e) {}
-    }
-    await browser.close();
-    saveJson(COOKIES_FILE, { cookies, csrfToken:finalCsrf });
-    ideasoftCookies   = cookies;
-    ideasoftCsrfToken = finalCsrf;
-    console.log('İdeasoft cookie kaydedildi. CSRF:', finalCsrf?'OK':'bulunamadi');
-    return { cookies, csrfToken:finalCsrf };
-  } catch(err) { await browser.close(); throw err; }
+  throw new Error('İdeasoft ilk girişi için uygulamayı lokalde çalıştırın ve cookie kaydedin.');
 }
 
 // ─── Ortak login işlevi ────────────────────────────────────────────────────────
