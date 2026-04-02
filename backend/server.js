@@ -58,20 +58,32 @@ async function fetchBubilet(username, password) {
 }
 
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
-async function fetchBiletinial(token) {
-  if (!token) return [];
-  var now = new Date();
-  var future = new Date();
-  future.setDate(future.getDate() + 30);
-  var res = await axios.get(
-    'https://reportapi2.biletinial.com/api/Report/GetActiveEventDetailList' +
-    '?FirstDate=' + encodeURIComponent(now.toUTCString()) +
-    '&LastDate=' + encodeURIComponent(future.toUTCString()) + '&lang=tr',
-    { headers:{ 'Authorization':'Bearer '+token, 'xapikey':'TPJDtRG0cP',
-        'allow-origin':'http://localhost:3000', 'origin':'https://partner.biletinial.com',
-        'referer':'https://partner.biletinial.com/' }}
+async function fetchBubilet(username, password) {
+  const BUBILET_HEADERS = {
+    'Content-Type':   'application/json',
+    'Origin':         'https://panel.bubilet.com.tr',
+    'Referer':        'https://panel.bubilet.com.tr/',
+    'User-Agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':         'application/json, text/plain, */*',
+    'Accept-Language':'tr-TR,tr;q=0.9,en;q=0.8',
+    'Accept-Encoding':'gzip, deflate, br',
+  };
+
+  const tokenRes = await axios.post(
+    'https://oldpanel.api.bubilet.com.tr/token',
+    { username, password },
+    { headers: BUBILET_HEADERS }
   );
-  return res.data.Data || [];
+  const token = tokenRes.data.access_token;
+  if (!token) throw new Error('Bubilet token alinamadi');
+
+  const result = await axios.post(
+    'https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars',
+    { page:0, perPage:100000, order:'tarih', descending:false,
+      filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
+    { headers: { ...BUBILET_HEADERS, 'Authorization': 'Bearer ' + token } }
+  );
+  return result.data.data || [];
 }
 
 // ─── İdeasoft: seansları çek ───────────────────────────────────────────────────
