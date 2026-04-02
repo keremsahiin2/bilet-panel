@@ -703,9 +703,9 @@ function SBadge({label,value,color}){
 }
 
 const CAT_ICON = {
-  'Heykel':'🗿','Resim':'🖼','3D Figür':'🧊','Maske':'🎭','Bez Çanta':'👜',
-  'Seramik':'🏺','Plak Boyama':'💿','Quiz Night':'🎯','Cupcake Mum':'🧁',
-  'Punch':'🥊','Mekanda Seç':'📍'
+  'Heykel':'🗿','Resim':'🧑‍🎨','3D Figür':'🪆','Maske':'🎭','Bez Çanta':'👜',
+  'Seramik':'☕️','Plak Boyama':'💿','Quiz Night':'🏆','Cupcake Mum':'🧁',
+  'Punch':'🧶','Mekanda Seç':'📍'
 };
 
 // Kategori adı "Quiz Night - Konsept" formatında olabilir, önce tam eşleşme, sonra prefix
