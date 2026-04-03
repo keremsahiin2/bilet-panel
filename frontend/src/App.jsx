@@ -464,32 +464,78 @@ export default function App() {
 
     // Pin isteniyor
     if (rolePinTarget) {
+      const numpadPress = (digit) => {
+        if (rolePin.length >= 6) return;
+        const next = rolePin + digit;
+        setRolePin(next);
+        setRolePinError(false);
+      };
+      const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
+      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
           <div style={S.loginWrap}>
-            <div style={{...S.loginCard, maxWidth:340, textAlign:'center'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
               </div>
               <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>
                 {rolePinTarget === 'admin' ? 'Yönetici Girişi' : 'Çalışan Girişi'}
               </div>
-              <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Şifrenizi girin</div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
               {rolePinError && (
-                <div style={{...S.errBox, marginBottom:16}}>❌ Yanlış şifre, tekrar deneyin</div>
+                <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
               )}
-              <input
-                type="password"
-                placeholder="Şifre"
-                value={rolePin}
-                onChange={e => { setRolePin(e.target.value); setRolePinError(false); }}
-                onKeyDown={e => e.key === 'Enter' && handleRolePin()}
-                style={{...S.input, textAlign:'center', fontSize:22, letterSpacing:6, marginBottom:14}}
-                autoFocus
-              />
-              <button style={S.loginBtn} onClick={handleRolePin}>Giriş →</button>
+              <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{
+                    width:16, height:16, borderRadius:'50%',
+                    background: rolePin.length > i
+                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
+                      : '#1a2035',
+                    border: '2px solid ' + (rolePin.length > i
+                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
+                      : '#374151'),
+                    transition:'background 0.15s'
+                  }}/>
+                ))}
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
+                {NUMPAD.flat().map((k, i) => (
+                  k === '' ? <div key={i}/> :
+                  k === '⌫' ? (
+                    <button key={i}
+                      onClick={numpadDel}
+                      style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:20,
+                        cursor:'pointer', fontWeight:600}}>⌫</button>
+                  ) : (
+                    <button key={i}
+                      onClick={() => numpadPress(k)}
+                      style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:22,
+                        cursor:'pointer', fontWeight:700, transition:'background 0.1s'}}>
+                      {k}
+                    </button>
+                  )
+                ))}
+              </div>
               <button
-                style={{...S.smallBtn, width:'100%', marginTop:10, textAlign:'center'}}
+                style={{...S.loginBtn,
+                  background: rolePin.length >= 4
+                    ? (rolePinTarget==='admin'
+                        ? 'linear-gradient(135deg,#b47cff,#7c3aff)'
+                        : 'linear-gradient(135deg,#0ea5e9,#0284c7)')
+                    : '#1a2035',
+                  color: rolePin.length >= 4 ? '#fff' : '#374151',
+                  cursor: rolePin.length >= 4 ? 'pointer' : 'default',
+                  marginBottom:8
+                }}
+                onClick={handleRolePin}
+                disabled={rolePin.length < 4}
+              >Giriş →</button>
+              <button
+                style={{...S.smallBtn, width:'100%', textAlign:'center'}}
                 onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}
               >← Geri</button>
             </div>
@@ -599,7 +645,7 @@ export default function App() {
       {/* Ana Butonlar */}
       {role === 'staff' ? (
         /* Çalışan: tek geniş yatay buton */
-        <div style={{padding:'28px 18px 18px',maxWidth:720,margin:'0 auto'}}>
+        <div style={{padding:'18px',maxWidth:720,margin:'0 auto'}}>
           <button
             style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
               padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
@@ -953,7 +999,7 @@ function getCatIcon(cat) {
 
 const S = {
   page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60},
-  loginWrap:  {display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',padding:20,paddingTop:80},
+  loginWrap:  {display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',padding:20},
   loginCard:  {width:'100%',maxWidth:420,background:'#0d1120',border:'1px solid #1a2035',borderRadius:20,padding:'36px 32px'},
   brand:      {display:'flex',alignItems:'center',gap:10,marginBottom:4},
   brandIcon:  {fontSize:24},
@@ -964,13 +1010,13 @@ const S = {
   textarea:   {width:'100%',height:68,padding:'10px 14px',background:'#07090f',color:'#e2e8f0',border:'1px solid #1a2035',borderRadius:10,fontSize:12,marginBottom:10,boxSizing:'border-box',resize:'vertical'},
   loginBtn:   {width:'100%',padding:'13px',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:'pointer',marginTop:8},
   errBox:     {background:'#1f0f0f',border:'1px solid #7f1d1d',borderRadius:10,padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:16},
-  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'54px 20px 14px 20px',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
+  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
   headerLeft: {display:'flex',alignItems:'center',gap:8},
   headerTitle:{fontSize:13,fontWeight:800,letterSpacing:3,color:'#fff'},
   headerRight:{display:'flex',alignItems:'center',gap:10},
   ts:         {fontSize:11,color:'#374151'},
   smallBtn:   {background:'#111827',color:'#94a3b8',border:'1px solid #1a2035',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontSize:12,fontWeight:600},
-  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',paddingTop:'24px',maxWidth:720,margin:'0 auto'},
+  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',maxWidth:720,margin:'0 auto'},
   actionCard: {background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'20px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',transition:'all 0.2s',position:'relative',overflow:'hidden'},
   panel:      {maxWidth:720,margin:'0 auto',padding:'0 18px'},
   panelHeader:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12},
