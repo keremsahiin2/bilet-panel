@@ -285,6 +285,11 @@ function buildSeanceMap(data) {
 export default function App() {
   const [loggedIn, setLoggedIn]             = useState(false);
   const [autoLoginLoading, setAutoLoginLoading] = useState(true); // başlangıçta deniyor
+  const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
+  const [role, setRole]                     = useState(null);   // 'admin' | 'staff'
+  const [rolePin, setRolePin]               = useState('');
+  const [rolePinTarget, setRolePinTarget]   = useState(null);   // hangi rol için pin isteniyor
+  const [rolePinError, setRolePinError]     = useState(false);
   const [form, setForm]                     = useState({ bubiletUser:'', bubiletPass:'', biletinialToken:'', ideasoftUser:'', ideasoftPass:'' });
   const [rememberMe, setRememberMe]         = useState(true);
   const [loginLoading, setLoginLoading]     = useState(false);
@@ -307,7 +312,7 @@ export default function App() {
     fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
       .then(json => {
-        if (json.success) setLoggedIn(true);
+        if (json.success) { setLoggedIn(true); setRoleScreen(true); }
         else {
           // Kayıtlı bilgileri forma doldur
           fetch('/api/saved-credentials')
@@ -347,6 +352,7 @@ export default function App() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setLoggedIn(true);
+      setRoleScreen(true);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
@@ -440,6 +446,98 @@ export default function App() {
     );
   }
 
+  // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
+  if (loggedIn && roleScreen && !role) {
+    const PINS = { admin: '2580', staff: '1525' };
+    const handleRolePin = () => {
+      if (rolePin === PINS[rolePinTarget]) {
+        setRole(rolePinTarget);
+        setRoleScreen(false);
+        setRolePin('');
+        setRolePinTarget(null);
+        setRolePinError(false);
+      } else {
+        setRolePinError(true);
+        setRolePin('');
+      }
+    };
+
+    // Pin isteniyor
+    if (rolePinTarget) {
+      return (
+        <div style={S.page}>
+          <div style={S.loginWrap}>
+            <div style={{...S.loginCard, maxWidth:340, textAlign:'center'}}>
+              <div style={{fontSize:36, marginBottom:12}}>
+                {rolePinTarget === 'admin' ? '🔐' : '👤'}
+              </div>
+              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>
+                {rolePinTarget === 'admin' ? 'Yönetici Girişi' : 'Çalışan Girişi'}
+              </div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Şifrenizi girin</div>
+              {rolePinError && (
+                <div style={{...S.errBox, marginBottom:16}}>❌ Yanlış şifre, tekrar deneyin</div>
+              )}
+              <input
+                type="password"
+                placeholder="Şifre"
+                value={rolePin}
+                onChange={e => { setRolePin(e.target.value); setRolePinError(false); }}
+                onKeyDown={e => e.key === 'Enter' && handleRolePin()}
+                style={{...S.input, textAlign:'center', fontSize:22, letterSpacing:6, marginBottom:14}}
+                autoFocus
+              />
+              <button style={S.loginBtn} onClick={handleRolePin}>Giriş →</button>
+              <button
+                style={{...S.smallBtn, width:'100%', marginTop:10, textAlign:'center'}}
+                onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}
+              >← Geri</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Rol seçim butonları
+    return (
+      <div style={S.page}>
+        <div style={S.loginWrap}>
+          <div style={{...S.loginCard, maxWidth:400, textAlign:'center'}}>
+            <div style={{fontSize:30, marginBottom:8}}>🎟</div>
+            <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
+            <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
+            <div style={{display:'flex', flexDirection:'column', gap:12}}>
+              <button
+                style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('admin')}
+              >
+                <span style={{fontSize:32}}>🔐</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Yönetici</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Satışlar + Stok yönetimi</div>
+                </div>
+              </button>
+              <button
+                style={{background:'linear-gradient(135deg,#0ea5e9,#0284c7)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('staff')}
+              >
+                <span style={{fontSize:32}}>👤</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Çalışan</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
@@ -486,7 +584,15 @@ export default function App() {
         <div style={S.headerLeft}><span style={S.brandIcon}>🎟</span><span style={S.headerTitle}>BİLET PANELİ</span></div>
         <div style={S.headerRight}>
           {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
-          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);}}>Çıkış</button>
+          {role && (
+            <span style={{fontSize:11, color: role==='admin'?'#b47cff':'#0ea5e9',
+              background: role==='admin'?'#1a0a2e':'#0a1a2e',
+              border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
+              borderRadius:6, padding:'3px 10px', fontWeight:700}}>
+              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
+            </span>
+          )}
+          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
         </div>
       </div>
 
@@ -495,9 +601,11 @@ export default function App() {
         <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
           color="#b47cff" active={mode==='sales'} loading={salesLoading}
           onClick={()=>{ setMode('sales'); fetchSales(); }} />
-        <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
-          color="#4fc9ff" active={mode==='stock'}
-          onClick={()=>setMode(mode==='stock'?null:'stock')} />
+        {role === 'admin' && (
+          <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
+            color="#4fc9ff" active={mode==='stock'}
+            onClick={()=>setMode(mode==='stock'?null:'stock')} />
+        )}
       </div>
 
       {/* ── SATIŞ PANELİ ── */}
