@@ -128,14 +128,14 @@ function buildSeanceMap(data) {
       }
       const startH = parseInt(timeSlot.split(':')[0]);
       const _n = new Date();
-      const nowMonth = _n.getMonth();
-      const nowDay = _n.getDate();
       const nowYear = _n.getFullYear();
+      // Önce bu yıl için tarihi dene; o günün 21:00'ı geçmişse gelecek yıla at
       let year = nowYear;
-      if (monIdx < nowMonth || (monIdx === nowMonth && dayNum < nowDay)) {
+      const candidateDay21 = new Date(nowYear, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, 21, 0, 0);
+      if (_n >= candidateDay21) {
         year = nowYear + 1;
       }
-      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : nowMonth, dayNum || 1, startH);
+      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, startH);
       map[key]._sorted = true;
     }
   });
@@ -361,7 +361,23 @@ export default function App() {
     finally { setToggling(p => ({...p,[seanceId]:false})); }
   };
 
-  const getIdeasoftForCat = (cat) => (salesData?.ideasoft || []).filter(s => s.category === cat);
+  const getIdeasoftForCat = (cat) => {
+    const now = new Date();
+    return (salesData?.ideasoft || []).filter(s => {
+      if (s.category !== cat) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return true;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+      }
+      if (monIdx === -1) return true;
+      // O günün 21:00'ı geçti mi kontrol et (yıl taşması olmadan)
+      const seanceDay21 = new Date(now.getFullYear(), monIdx, dayNum, 21, 0, 0);
+      return now < seanceDay21;
+    });
+  };
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
   if (autoLoginLoading) {
@@ -495,18 +511,6 @@ export default function App() {
                     <span style={{...S.totalPill,...(total>0?{color:'#b47cff',background:'#1a0f2e',border:'1px solid #b47cff44'}:{})}}>
                       {total} bilet
                     </span>
-                    {s._seanceIds && s._seanceIds.map(sid => {
-                      const isActive = s._seanceStatus?.[sid] === 1;
-                      return (
-                        <button key={sid} onClick={e=>{e.stopPropagation();handleToggleSeance(sid,isActive);}}
-                          disabled={toggling[sid]}
-                          style={{background:'none',border:'none',cursor:'pointer',fontSize:15,padding:'0 2px',
-                            color:isActive?'#ef4444':'#4ade80',opacity:toggling[sid]?0.5:1}}
-                          title={isActive?'Seansı kapat':'Seansı aç'}>
-                          {toggling[sid]?'⟳':isActive?'🚫':'✅'}
-                        </button>
-                      );
-                    })}
                     <span style={{...S.chevron,...(open?{transform:'rotate(90deg)',color:'#94a3b8'}:{})}}>›</span>
                   </div>
                 </div>
