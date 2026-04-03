@@ -596,17 +596,40 @@ export default function App() {
         </div>
       </div>
 
-      {/* İki Ana Buton */}
-      <div style={S.mainActions}>
-        <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
-          color="#b47cff" active={mode==='sales'} loading={salesLoading}
-          onClick={()=>{ setMode('sales'); fetchSales(); }} />
-        {role === 'admin' && (
+      {/* Ana Butonlar */}
+      {role === 'staff' ? (
+        /* Çalışan: tek geniş yatay buton */
+        <div style={{padding:'28px 18px 18px',maxWidth:720,margin:'0 auto'}}>
+          <button
+            style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
+              padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
+              background: mode==='sales'
+                ? 'linear-gradient(135deg,#7c3aff,#b47cff)'
+                : 'linear-gradient(135deg,#b47cff,#7c3aff)',
+              boxShadow: mode==='sales' ? '0 0 24px #b47cff44' : 'none',
+              transition:'all 0.2s'}}
+            onClick={()=>{ setMode('sales'); fetchSales(); }}
+          >
+            <span style={{fontSize:32}}>📊</span>
+            <div style={{textAlign:'left'}}>
+              <div style={{fontSize:16,fontWeight:800,color:'#fff',marginBottom:2}}>
+                {salesLoading ? '⟳ Yükleniyor…' : 'Satışları Getir'}
+              </div>
+              <div style={{fontSize:12,color:'#e2e8f0',opacity:0.75}}>3 platformdaki seans satışlarını listele</div>
+            </div>
+          </button>
+        </div>
+      ) : (
+        /* Yönetici: iki kart yan yana */
+        <div style={S.mainActions}>
+          <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
+            color="#b47cff" active={mode==='sales'} loading={salesLoading}
+            onClick={()=>{ setMode('sales'); fetchSales(); }} />
           <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
             color="#4fc9ff" active={mode==='stock'}
             onClick={()=>setMode(mode==='stock'?null:'stock')} />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── SATIŞ PANELİ ── */}
       {mode==='sales' && (
@@ -676,7 +699,7 @@ export default function App() {
                       const t = v.bubilet+v.biletinial+v.ideasoft;
                       const isAllDay = s._allDay && s._allDay[cat];
                       return (
-                        <div key={cat} style={{...S.detailRow,...(t>0?{background:'#0f1525',border:'1px solid #1e293b'}:{})}}>
+                        <div key={cat} style={{...S.detailRow,...(t>0?{background:'#1e2d45',border:'1px solid #2d4060'}:{})}}>
                           <span style={S.detailCat}>
                             {getCatIcon(cat)} {cat}
                             {isAllDay && <span style={{fontSize:10,color:'#ff9f4a',marginLeft:6,fontWeight:600}}>(tüm gün)</span>}
@@ -947,7 +970,7 @@ const S = {
   headerRight:{display:'flex',alignItems:'center',gap:10},
   ts:         {fontSize:11,color:'#374151'},
   smallBtn:   {background:'#111827',color:'#94a3b8',border:'1px solid #1a2035',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontSize:12,fontWeight:600},
-  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',maxWidth:720,margin:'0 auto'},
+  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',paddingTop:'28px',maxWidth:720,margin:'0 auto'},
   actionCard: {background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'20px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',transition:'all 0.2s',position:'relative',overflow:'hidden'},
   panel:      {maxWidth:720,margin:'0 auto',padding:'0 18px'},
   panelHeader:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12},
@@ -963,8 +986,8 @@ const S = {
   catPill:    {fontSize:11,color:'#64748b',background:'#0a0e1a',borderRadius:6,padding:'2px 8px',border:'1px solid #1e293b'},
   totalPill:  {fontSize:13,fontWeight:700,color:'#374151',background:'#0a0e1a',border:'1px solid #1e293b',borderRadius:8,padding:'3px 10px',flexShrink:0},
   chevron:    {fontSize:18,color:'#374151',transition:'transform 0.2s',display:'inline-block',flexShrink:0},
-  detailWrap: {borderTop:'1px solid #0f1525',padding:'10px 14px',background:'#090d18',display:'flex',flexDirection:'column',gap:6},
-  detailRow:  {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:8,background:'#0a0e1a',border:'1px solid #0f1525',flexWrap:'wrap',gap:8},
+  detailWrap: {borderTop:'1px solid #0f1525',padding:'10px 14px',background:'#131929',display:'flex',flexDirection:'column',gap:6},
+  detailRow:  {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:8,background:'#1a2236',border:'1px solid #243050',flexWrap:'wrap',gap:8},
   detailCat:  {fontSize:13,color:'#475569',minWidth:120,fontWeight:600},
   platforms:  {display:'flex',alignItems:'center',gap:14},
   loadMsg:    {color:'#374151',fontSize:13,padding:'24px 0',textAlign:'center'},
