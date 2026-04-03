@@ -414,19 +414,6 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   }
 });
 
-// Debug: seramik ham veri
-app.get('/api/debug/seramik', async function(req, res) {
-  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok' });
-  var cStr = toCookieStr(ideasoftCookies);
-  try {
-    var r = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/12671',
-      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
-    );
-    res.json({ status: r.status, data: r.data });
-  } catch(e) { res.status(500).json({ error: e.message, response: e.response?.data }); }
-});
-
 // Satış verileri
 app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
