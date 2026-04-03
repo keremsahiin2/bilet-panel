@@ -295,16 +295,16 @@ async function fetchIdeasoftSeances(cookies, csrf) {
   // (Aynı anda 11 istek → İdeasoft'un pencere sayacı tek seferde dolabilir)
   // Bu yüzden 2'li gruplar halinde gönderiyoruz: hız + rate limit dengesi
   var allEntries = [];
-  var BATCH = 2; // aynı anda kaç istek
+  var BATCH = 3; // aynı anda kaç istek — 429 cache ile korunuyor, 3 güvenli
   for (var i = 0; i < IDEASOFT_PRODUCTS.length; i += BATCH) {
     var batch = IDEASOFT_PRODUCTS.slice(i, i + BATCH);
     var results = await Promise.all(
       batch.map(([pid, cat]) => fetchOneIdeasoftProduct(pid, cat, { ...headers, 'X-CSRF-TOKEN': ideasoftCsrfToken || csrf || '' }))
     );
     results.forEach(r => allEntries.push(...r));
-    // Gruplar arası kısa bekleme
+    // Gruplar arası bekleme
     if (i + BATCH < IDEASOFT_PRODUCTS.length) {
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
     }
   }
   return allEntries;
