@@ -25,11 +25,21 @@ const CATEGORY_BASELINE = {
   'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10
 };
 
-const IDEASOFT_PRODUCTS = {
-  12671:'Seramik', 5135:'Mekanda Seç', 4278:'Punch', 4252:'Cupcake Mum',
-  4251:'Quiz Night', 4249:'Plak Boyama', 4247:'Heykel', 4245:'Maske',
-  4243:'Bez Çanta', 4241:'Resim', 4234:'3D Figür'
-};
+// Array kullanıyoruz — object key'leri numerik olunca JS küçükten büyüğe sıralar
+// ve Seramik (12671) hep sona kalıp rate limit yiyordu. Array sırayı korur.
+const IDEASOFT_PRODUCTS = [
+  [12671,'Seramik'],   // önce çek — en büyük ID, object'te hep sona düşüyordu
+  [4234,'3D Figür'],
+  [4241,'Resim'],
+  [4243,'Bez Çanta'],
+  [4245,'Maske'],
+  [4247,'Heykel'],
+  [4249,'Plak Boyama'],
+  [4251,'Quiz Night'],
+  [4252,'Cupcake Mum'],
+  [4278,'Punch'],
+  [5135,'Mekanda Seç'],
+];
 
 // ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
@@ -217,6 +227,62 @@ function ideasoftSeanceToEntry(seance, categoryName, productId) {
     price: seance.price1 || '0', status: seance.status };
 }
 
+// Ürün başına son başarılı veriyi tutan cache
+// 429 gelince bu kullanılır — hiç göstermemekten iyidir
+var ideasoftProductCache = {};
+
+async function fetchOneIdeasoftProduct(productId, categoryName, headers) {
+  try {
+    var res = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
+      { headers, timeout: 10000 }
+    );
+    // CSRF token güncelle (paralel isteklerde her biri kendi token'ını alır)
+    var sc = (res.headers['set-cookie'] || []).join(' ');
+    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cm) { ideasoftCsrfToken = cm[1]; }
+
+    var body = res.data;
+    var entries = [];
+    if (body && body.data && Array.isArray(body.data)) {
+      entries = body.data.map(s => ideasoftSeanceToEntry(s, categoryName, productId));
+    } else if (body && body.data && typeof body.data === 'object') {
+      entries = [ideasoftSeanceToEntry(body.data, categoryName, productId)];
+    } else if (body && body.stockAmount !== undefined) {
+      entries = [ideasoftSeanceToEntry(body, categoryName, productId)];
+    } else {
+      console.warn('Ideasoft', categoryName, 'beklenmeyen format:', JSON.stringify(body).slice(0,100));
+      // Cache varsa onu döndür
+      if (ideasoftProductCache[productId]) {
+        console.log('Ideasoft', categoryName, '— beklenmeyen format, cache kullanıldı');
+        return ideasoftProductCache[productId];
+      }
+      return [];
+    }
+
+    // Başarılı — cache'e kaydet
+    ideasoftProductCache[productId] = entries;
+    console.log('Ideasoft', categoryName, '(' + productId + '):', entries.length, 'seans');
+    return entries;
+
+  } catch (err) {
+    var status = err.response && err.response.status;
+    if (status === 429) {
+      // 429: cache varsa onu kullan, yoksa boş döndür
+      if (ideasoftProductCache[productId]) {
+        console.warn('Ideasoft 429 (' + categoryName + ') — önceki cache kullanıldı (' + ideasoftProductCache[productId].length + ' seans)');
+        return ideasoftProductCache[productId];
+      }
+      console.warn('Ideasoft 429 (' + categoryName + ') — cache yok, atlanıyor');
+      return [];
+    }
+    console.error('Ideasoft', categoryName, 'hatasi:', err.message);
+    if (ideasoftProductCache[productId]) return ideasoftProductCache[productId];
+    return [{ seanceId: null, productId: parseInt(productId), category: categoryName,
+      fullName: categoryName, stockAmount: null, error: true }];
+  }
+}
+
 async function fetchIdeasoftSeances(cookies, csrf) {
   var cStr = toCookieStr(cookies);
   var headers = {
@@ -224,70 +290,24 @@ async function fetchIdeasoftSeances(cookies, csrf) {
     'x-ideasoft-locale': 'tr', 'navigate-on-error': 'false',
     'disabled-success-toastr': 'false', 'disabled-error-toastr': 'false'
   };
-  var allSeances = [];
 
-  // Tek bir ürünü çekip parse eden yardımcı — 429'da retry yapar
-  async function fetchOneProduct(productId, categoryName) {
-    var maxRetries = 4;
-    var delay = 500; // başlangıç bekleme (ms)
-    for (var attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        var res = await axios.get(
-          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
-          { headers, timeout: 10000 }
-        );
-        // CSRF token'ı güncelle
-        var sc = (res.headers['set-cookie'] || []).join(' ');
-        var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (cm) { csrf = cm[1]; ideasoftCsrfToken = csrf; headers['X-CSRF-TOKEN'] = csrf; }
-
-        var body = res.data;
-        var entries = [];
-
-        if (body && body.data && Array.isArray(body.data)) {
-          entries = body.data.map(s => ideasoftSeanceToEntry(s, categoryName, productId));
-          console.log('Ideasoft', categoryName, '('+productId+'):', entries.length, 'seans');
-        } else if (body && body.data && typeof body.data === 'object') {
-          entries = [ideasoftSeanceToEntry(body.data, categoryName, productId)];
-          console.log('Ideasoft', categoryName, '('+productId+'): 1 seans (obje)');
-        } else if (body && body.stockAmount !== undefined) {
-          entries = [ideasoftSeanceToEntry(body, categoryName, productId)];
-          console.log('Ideasoft', categoryName, '('+productId+'): 1 seans (direkt)');
-        } else {
-          console.warn('Ideasoft', categoryName, '('+productId+'): beklenmeyen format', JSON.stringify(body).slice(0,150));
-        }
-        return entries;
-
-      } catch (err) {
-        var status = err.response && err.response.status;
-        if (status === 429) {
-          // Retry-After header varsa onu kullan, yoksa exponential backoff
-          var retryAfter = err.response.headers && err.response.headers['retry-after'];
-          var waitMs = retryAfter ? parseInt(retryAfter) * 1000 : delay * attempt;
-          console.warn('Ideasoft 429 (' + categoryName + ') — ' + waitMs + 'ms beklenip retry #' + attempt);
-          await new Promise(r => setTimeout(r, waitMs));
-        } else {
-          // 429 dışı hata — retry yapma
-          console.error('Ideasoft urun ' + productId + ' (' + categoryName + ') hatasi:', err.message);
-          return [{ seanceId: null, productId: parseInt(productId), category: categoryName,
-            fullName: categoryName, stockAmount: null, error: true }];
-        }
-      }
+  // Tüm ürünleri PARALEL çek — seri bekleme yok, rate limit riski azalır
+  // (Aynı anda 11 istek → İdeasoft'un pencere sayacı tek seferde dolabilir)
+  // Bu yüzden 2'li gruplar halinde gönderiyoruz: hız + rate limit dengesi
+  var allEntries = [];
+  var BATCH = 2; // aynı anda kaç istek
+  for (var i = 0; i < IDEASOFT_PRODUCTS.length; i += BATCH) {
+    var batch = IDEASOFT_PRODUCTS.slice(i, i + BATCH);
+    var results = await Promise.all(
+      batch.map(([pid, cat]) => fetchOneIdeasoftProduct(pid, cat, { ...headers, 'X-CSRF-TOKEN': ideasoftCsrfToken || csrf || '' }))
+    );
+    results.forEach(r => allEntries.push(...r));
+    // Gruplar arası kısa bekleme
+    if (i + BATCH < IDEASOFT_PRODUCTS.length) {
+      await new Promise(r => setTimeout(r, 600));
     }
-    // Tüm retry'lar tükendi
-    console.error('Ideasoft ' + categoryName + ' max retry doldu, atlanıyor');
-    return [{ seanceId: null, productId: parseInt(productId), category: categoryName,
-      fullName: categoryName, stockAmount: null, error: true }];
   }
-
-  for (var productId of Object.keys(IDEASOFT_PRODUCTS)) {
-    var categoryName = IDEASOFT_PRODUCTS[productId];
-    var entries = await fetchOneProduct(productId, categoryName);
-    allSeances.push(...entries);
-    // İstekler arası bekleme — rate limit'e girmemek için
-    await new Promise(r => setTimeout(r, 400));
-  }
-  return allSeances;
+  return allEntries;
 }
 
 // ─── İdeasoft: Puppeteer girişi (sadece lokalden çalışır) ─────────────────────
