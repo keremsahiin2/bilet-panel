@@ -188,94 +188,85 @@ async function fetchBiletinial(token) {
 }
 
 // ─── İdeasoft: seansları çek ───────────────────────────────────────────────────
+// Tek bir seansı fullName string'e çeviren yardımcı
+function ideasoftSeanceToEntry(seance, categoryName, productId) {
+  var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  var TR_DAYS_SRV   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+  var fname = seance.name || '';
+  if (!fname || fname.trim() === categoryName) {
+    var startField = seance.startDate || seance.beginDate || seance.start_date || seance.begin_date || '';
+    if (startField) {
+      var sd = new Date(startField);
+      var hh = String(sd.getHours()).padStart(2,'0');
+      var mm = String(sd.getMinutes()).padStart(2,'0');
+      var endField = seance.endDate || seance.finishDate || seance.end_date || '';
+      var timeSlotStr = hh + ':' + mm;
+      if (endField) {
+        var ed = new Date(endField);
+        timeSlotStr += ' - ' + String(ed.getHours()).padStart(2,'0') + ':' + String(ed.getMinutes()).padStart(2,'0');
+      }
+      fname = 'Farabi Sokak: Sosyal Sanathane - ' +
+        sd.getDate() + ' ' + TR_MONTHS_SRV[sd.getMonth()] + ' ' + TR_DAYS_SRV[sd.getDay()] +
+        ' ' + timeSlotStr;
+    } else {
+      fname = categoryName + ' #' + seance.id;
+    }
+  }
+  return { seanceId: seance.id, productId: parseInt(productId), category: categoryName,
+    fullName: fname, stockAmount: seance.stockAmount,
+    price: seance.price1 || '0', status: seance.status };
+}
+
 async function fetchIdeasoftSeances(cookies, csrf) {
   var cStr = toCookieStr(cookies);
   var headers = {
-    'Cookie':cStr, 'X-CSRF-TOKEN':csrf||'', 'Accept':'application/json',
-    'x-ideasoft-locale':'tr', 'navigate-on-error':'false',
-    'disabled-success-toastr':'false', 'disabled-error-toastr':'false'
+    'Cookie': cStr, 'X-CSRF-TOKEN': csrf || '', 'Accept': 'application/json',
+    'x-ideasoft-locale': 'tr', 'navigate-on-error': 'false',
+    'disabled-success-toastr': 'false', 'disabled-error-toastr': 'false'
   };
   var allSeances = [];
+
   for (var productId of Object.keys(IDEASOFT_PRODUCTS)) {
     var categoryName = IDEASOFT_PRODUCTS[productId];
     try {
       var res = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+productId,
-        { headers }
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
+        { headers, timeout: 10000 }
       );
-      var sc = (res.headers['set-cookie']||[]).join(' ');
+
+      // CSRF token'ı her yanıtta güncelle
+      var sc = (res.headers['set-cookie'] || []).join(' ');
       var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { csrf=cm[1]; ideasoftCsrfToken=csrf; headers['X-CSRF-TOKEN']=csrf; }
+      if (cm) { csrf = cm[1]; ideasoftCsrfToken = csrf; headers['X-CSRF-TOKEN'] = csrf; }
 
       var body = res.data;
+
+      // Durum 1: body.data array — birden fazla seans (veya tek seans array içinde)
       if (body && body.data && Array.isArray(body.data)) {
         for (var seance of body.data) {
-          var fname = seance.name || '';
-          // name yoksa ya da sadece kategori adıysa startDate'den tarih üret
-          if (!fname || fname.trim() === categoryName) {
-            var startField = seance.startDate || seance.beginDate || seance.start_date || seance.begin_date || '';
-            if (startField) {
-              var sd = new Date(startField);
-              var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-              var TR_DAYS_SRV   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
-              var hh = String(sd.getHours()).padStart(2,'0');
-              var mm = String(sd.getMinutes()).padStart(2,'0');
-              // Bitiş saatini de ekle (genellikle +2 saat)
-              var endField = seance.endDate || seance.finishDate || seance.end_date || '';
-              var timeSlotStr = hh + ':' + mm;
-              if (endField) {
-                var ed = new Date(endField);
-                var ehh = String(ed.getHours()).padStart(2,'0');
-                var emm = String(ed.getMinutes()).padStart(2,'0');
-                timeSlotStr += ' - ' + ehh + ':' + emm;
-              }
-              fname = 'Farabi Sokak: Sosyal Sanathane - ' +
-                sd.getDate() + ' ' + TR_MONTHS_SRV[sd.getMonth()] + ' ' + TR_DAYS_SRV[sd.getDay()] +
-                ' ' + timeSlotStr;
-            } else {
-              fname = categoryName + ' #' + seance.id;
-            }
-          }
-          allSeances.push({ seanceId:seance.id, productId:parseInt(productId), category:categoryName,
-            fullName:fname, stockAmount:seance.stockAmount,
-            price:seance.price1||'0', status:seance.status,
-            _rawFields: Object.keys(seance) }); // debug için
+          allSeances.push(ideasoftSeanceToEntry(seance, categoryName, productId));
         }
+        console.log('İdeasoft', categoryName, '('+productId+'):', body.data.length, 'seans');
+
+      // Durum 2: body.data obje — tek seans, array değil
+      } else if (body && body.data && typeof body.data === 'object') {
+        allSeances.push(ideasoftSeanceToEntry(body.data, categoryName, productId));
+        console.log('İdeasoft', categoryName, '('+productId+'): 1 seans (obje)');
+
+      // Durum 3: body direkt seans objesi (eski API formatı)
       } else if (body && body.stockAmount !== undefined) {
-        var fname2 = body.name || '';
-        if (!fname2 || fname2.trim() === categoryName) {
-          var startField2 = body.startDate || body.beginDate || body.start_date || body.begin_date || '';
-          if (startField2) {
-            var sd2 = new Date(startField2);
-            var TR_MONTHS_SRV2 = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-            var TR_DAYS_SRV2   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
-            var hh2 = String(sd2.getHours()).padStart(2,'0');
-            var mm2 = String(sd2.getMinutes()).padStart(2,'0');
-            var endField2 = body.endDate || body.finishDate || body.end_date || '';
-            var timeSlotStr2 = hh2 + ':' + mm2;
-            if (endField2) {
-              var ed2 = new Date(endField2);
-              var ehh2 = String(ed2.getHours()).padStart(2,'0');
-              var emm2 = String(ed2.getMinutes()).padStart(2,'0');
-              timeSlotStr2 += ' - ' + ehh2 + ':' + emm2;
-            }
-            fname2 = 'Farabi Sokak: Sosyal Sanathane - ' +
-              sd2.getDate() + ' ' + TR_MONTHS_SRV2[sd2.getMonth()] + ' ' + TR_DAYS_SRV2[sd2.getDay()] +
-              ' ' + timeSlotStr2;
-          } else {
-            fname2 = categoryName + ' #' + body.id;
-          }
-        }
-        allSeances.push({ seanceId:body.id, productId:parseInt(productId), category:categoryName,
-          fullName:fname2, stockAmount:body.stockAmount,
-          price:body.price1||'0', status:body.status,
-          _rawFields: Object.keys(body) });
+        allSeances.push(ideasoftSeanceToEntry(body, categoryName, productId));
+        console.log('İdeasoft', categoryName, '('+productId+'): 1 seans (direkt)');
+
+      } else {
+        console.warn('İdeasoft', categoryName, '('+productId+'): beklenmeyen yanıt formatı', JSON.stringify(body).slice(0,200));
       }
-      await new Promise(r=>setTimeout(r,150));
-    } catch(err) {
-      console.error('İdeasoft urun '+productId+' hatasi:', err.message);
-      allSeances.push({ seanceId:null, productId:parseInt(productId), category:categoryName,
-        fullName:categoryName, stockAmount:null, error:true });
+
+      await new Promise(r => setTimeout(r, 150));
+    } catch (err) {
+      console.error('İdeasoft urun ' + productId + ' (' + categoryName + ') hatasi:', err.message);
+      allSeances.push({ seanceId: null, productId: parseInt(productId), category: categoryName,
+        fullName: categoryName, stockAmount: null, error: true });
     }
   }
   return allSeances;
