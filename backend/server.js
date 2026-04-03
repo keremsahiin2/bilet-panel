@@ -75,6 +75,24 @@ function toCookieStr(cookies) {
 }
 
 // ─── Bubilet ───────────────────────────────────────────────────────────────────
+
+// Bubilet biletAdi → kategori adı eşleştirmesi (ticket-list detayı için)
+function bubiletBiletAdiToCategory(biletAdi) {
+  if (!biletAdi) return null;
+  if (biletAdi.includes('3D') || biletAdi.toLowerCase().includes('3d figür')) return '3D Figür';
+  if (biletAdi.includes('Punch') || biletAdi.toLowerCase().includes('punch')) return 'Punch';
+  if (biletAdi.includes('Seramik')) return 'Seramik';
+  if (biletAdi.includes('Cupcake') || biletAdi.includes('Mum')) return 'Cupcake Mum';
+  if (biletAdi.includes('Quiz')) return 'Quiz Night';
+  if (biletAdi.includes('Plak')) return 'Plak Boyama';
+  if (biletAdi.includes('Maske')) return 'Maske';
+  if (biletAdi.includes('Heykel')) return 'Heykel';
+  if (biletAdi.includes('Bez')) return 'Bez Çanta';
+  if (biletAdi.includes('Resim')) return 'Resim';
+  if (biletAdi.includes('Mekanda')) return 'Mekanda Seç';
+  return biletAdi; // tanınmıyorsa biletAdi'ni olduğu gibi döndür
+}
+
 async function fetchBubilet(username, password) {
   const BUBILET_HEADERS = {
     'Content-Type':    'application/json',
@@ -94,13 +112,62 @@ async function fetchBubilet(username, password) {
   const token = tokenRes.data.access_token;
   if (!token) throw new Error('Bubilet token alinamadi');
 
+  const authHeaders = { ...BUBILET_HEADERS, 'Authorization': 'Bearer ' + token };
+
   const result = await axios.post(
     'https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars',
     { page:0, perPage:100000, order:'tarih', descending:false,
       filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
-    { headers: { ...BUBILET_HEADERS, 'Authorization': 'Bearer ' + token } }
+    { headers: authHeaders }
   );
-  return result.data.data || [];
+  const seanslar = result.data.data || [];
+
+  // Workshop etkinlikleri için alt kırılımları çek
+  // etkinlikAdi'nde "Workshop" geçen ve biletAdet > 0 olan seanslar
+  const expandedSeanslar = [];
+  for (const s of seanslar) {
+    const isWorkshop = s.etkinlikAdi && s.etkinlikAdi.toLowerCase().includes('workshop');
+    if (isWorkshop && s.biletAdet > 0 && s.seansId) {
+      try {
+        // ticket-list API'si seansId ile çağrılıyor
+        const detayRes = await axios.get(
+          'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + s.seansId,
+          { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' } }
+        );
+        const detay = detayRes.data;
+        if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
+          // Her bilet türü için ayrı bir kayıt üret
+          for (const bilet of detay.data.detaySatisRaporlar) {
+            if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
+            const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
+            expandedSeanslar.push({
+              ...s,
+              // Orijinal etkinlikAdi'ni saklıyoruz, ama kategori bilgisini _workshopCat olarak ekliyoruz
+              _workshopCat: cat,
+              _workshopBiletAdi: bilet.biletAdi,
+              biletAdet: bilet.biletAdet,
+              // Workshop satışları bu kırılımda geldiği için etkinlikAdi'ni de cat olarak set ediyoruz
+              etkinlikAdi: cat,
+            });
+          }
+          console.log('Workshop detay cekildi:', s.seansId, '→', detay.data.detaySatisRaporlar.length, 'bilet türü');
+        } else {
+          // Detay gelmezse orijinali ekle
+          expandedSeanslar.push(s);
+        }
+        // Rate limit için kısa bekleme
+        await new Promise(r => setTimeout(r, 100));
+      } catch (err) {
+        console.error('Workshop ticket-list hatasi seansId=' + s.seansId + ':', err.message);
+        // Hata olursa orijinali ekle
+        expandedSeanslar.push(s);
+      }
+    } else {
+      expandedSeanslar.push(s);
+    }
+  }
+
+  return expandedSeanslar;
 }
 
 // ─── Biletini Al ───────────────────────────────────────────────────────────────

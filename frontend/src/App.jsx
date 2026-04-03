@@ -51,10 +51,10 @@ function eventNameToCategory(name) {
 
 function bubiletToCategory(name) {
   if (!name) return null;
-  if (name.includes('3D Figür') || name.includes('3d')) return '3D Figür';
+  if (name.includes('3D Figür') || name.includes('3d') || name.includes('3D')) return '3D Figür';
   if (name.includes('Punch')) return 'Punch';
   if (name.includes('Seramik')) return 'Seramik';
-  if (name.includes('Cupcake')) return 'Cupcake Mum';
+  if (name.includes('Cupcake') || (name.includes('Mum') && !name.includes('Workshop'))) return 'Cupcake Mum';
   if (name.includes('Quiz')) {
     const m = name.match(/Quiz[^\n]*?[:\-]\s*(.+?)(?:\s*[\|\-]\s*Sosyal|\s*$)/i);
     if (m && m[1] && m[1].trim().length > 1 && !m[1].includes('Sanathane')) return 'Quiz Night - ' + m[1].trim();
@@ -64,6 +64,7 @@ function bubiletToCategory(name) {
   if (name.includes('Maske')) return 'Maske';
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
+  if (name.includes('Resim')) return 'Resim';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -196,7 +197,17 @@ function buildSeanceMap(data) {
   (data.bubilet || []).forEach(s => {
     const { dateKey, time } = parseDateStr(s.tarih);
     const isQuiz = s.etkinlikAdi && s.etkinlikAdi.includes('Quiz');
-    let cat = isQuiz ? 'Quiz Night' : bubiletToCategory(s.etkinlikAdi);
+
+    // Workshop alt kırılımı server tarafında zaten çözüldü:
+    // _workshopCat varsa direkt kullan (ör. "Mekanda Seç", "Seramik" vb.)
+    let cat;
+    if (s._workshopCat) {
+      cat = s._workshopCat;
+    } else if (isQuiz) {
+      cat = 'Quiz Night';
+    } else {
+      cat = bubiletToCategory(s.etkinlikAdi);
+    }
     if (!cat) return;
 
     // Tam eşleşme
