@@ -126,7 +126,7 @@ function buildSeanceMap(data) {
       for (let i = 0; i < TR_MONTHS.length; i++) {
         if (dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
-      const [startH, startM] = timeSlot.split(':').map(Number);
+      const startH = parseInt(timeSlot.split(':')[0]);
       const _n = new Date();
       const nowYear = _n.getFullYear();
       // Önce bu yıl için tarihi dene; o günün 21:00'ı geçmişse gelecek yıla at
@@ -135,7 +135,7 @@ function buildSeanceMap(data) {
       if (_n >= candidateDay21) {
         year = nowYear + 1;
       }
-      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, startH, startM || 0);
+      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, startH);
       map[key]._sorted = true;
     }
   });
@@ -382,11 +382,8 @@ export default function App() {
         if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
       if (monIdx === -1) return true;
-      // O günün 21:00'ı geçti mi kontrol et (yıl taşması dahil)
-      let seanceYear = now.getFullYear();
-      const candidateSeanceDay21 = new Date(seanceYear, monIdx, dayNum, 21, 0, 0);
-      if (now >= candidateSeanceDay21) seanceYear = seanceYear + 1;
-      const seanceDay21 = new Date(seanceYear, monIdx, dayNum, 21, 0, 0);
+      // O günün 21:00'ı geçti mi kontrol et (yıl taşması olmadan)
+      const seanceDay21 = new Date(now.getFullYear(), monIdx, dayNum, 21, 0, 0);
       return now < seanceDay21;
     });
   };
