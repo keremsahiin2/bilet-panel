@@ -454,7 +454,7 @@ export default function App() {
                 strokeDasharray={CIRC}
                 strokeDashoffset="0"
                 style={{
-                  animation:'loginTimer 8.5s linear forwards',
+                  animation:'loginTimer 6.5s linear forwards',
                 }}
               />
             </svg>
