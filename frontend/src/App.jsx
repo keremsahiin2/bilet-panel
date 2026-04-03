@@ -436,11 +436,14 @@ export default function App() {
   if (autoLoginLoading) {
     return (
       <div style={S.page}>
-        <div style={S.loginWrap}>
-          <div style={{textAlign:'center',color:'#475569'}}>
-            <div style={{fontSize:32,marginBottom:16}}>🎟</div>
-            <div style={{fontSize:14,color:'#475569'}}>Giriş yapılıyor…</div>
-          </div>
+        {/* İkon + yazı üstte */}
+        <div style={{textAlign:'center',paddingTop:'calc(env(safe-area-inset-top,0px) + 80px)',color:'#475569'}}>
+          <div style={{fontSize:32,marginBottom:10}}>🎟</div>
+          <div style={{fontSize:14,color:'#475569'}}>Giriş yapılıyor…</div>
+        </div>
+        {/* Kart ekran ortasında */}
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',flex:1,marginTop:'25vh'}}>
+          <div style={{width:120,height:100,background:'#0d1120',border:'1px solid #1a2035',borderRadius:16}}/>
         </div>
       </div>
     );
@@ -474,8 +477,8 @@ export default function App() {
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
-          <div style={S.loginWrap}>
-            <div style={{...S.loginCard, maxWidth:320, textAlign:'center'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'calc(env(safe-area-inset-top,0px) + 80px)'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
               </div>
@@ -547,8 +550,8 @@ export default function App() {
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={S.loginWrap}>
-          <div style={{...S.loginCard, maxWidth:400, textAlign:'center'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'calc(env(safe-area-inset-top,0px) + 80px)'}}>
+          <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
             <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
@@ -587,9 +590,9 @@ export default function App() {
   // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
-      <div style={S.page}>
-        <div style={S.loginWrap}>
-          <div style={S.loginCard}>
+      <div style={{...S.page, overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'calc(env(safe-area-inset-top,0px) + 60px)',paddingBottom:40}}>
+          <div style={{...S.loginCard, width:'100%'}}>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
             {loginError && <div style={S.errBox}>{loginError}</div>}
