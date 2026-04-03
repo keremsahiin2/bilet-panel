@@ -75,6 +75,52 @@ function toCookieStr(cookies) {
 }
 
 // ─── Bubilet ───────────────────────────────────────────────────────────────────
+// Workshop kategorisi Bubilet'te tek üst satır olarak geliyor.
+// İçindeki kırılımları (Heykel, Resim, Plak, vb.) çekmek için
+// her Workshop seansı için ayrıca bilet sorgusu yapıyoruz.
+
+// GET /api/v2/ticket-list/{seansId} — detaySatisRaporlar[] içinde biletAdi + biletAdet
+async function fetchBubiletWorkshopDetail(token, seansId, bubiletHeaders) {
+  try {
+    const res = await axios.get(
+      'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + seansId,
+      { headers: { ...bubiletHeaders, 'Authorization': 'Bearer ' + token } }
+    );
+    // { data: { detaySatisRaporlar: [{ biletAdi, biletAdet, ... }] } }
+    return (res.data && res.data.data && res.data.data.detaySatisRaporlar) || [];
+  } catch(e) {
+    console.error('Bubilet workshop detay hatasi seansId=' + seansId + ':', e.message);
+    return [];
+  }
+}
+
+function biletAdiToCategory(biletAdi) {
+  if (!biletAdi) return null;
+  if (biletAdi.includes('Heykel'))                          return 'Heykel';
+  if (biletAdi.includes('Resim'))                           return 'Resim';
+  if (biletAdi.includes('Plak'))                            return 'Plak Boyama';
+  if (biletAdi.includes('Bez') || biletAdi.includes('Çanta')) return 'Bez Çanta';
+  if (biletAdi.includes('Maske'))                           return 'Maske';
+  if (biletAdi.includes('Mekanda') || biletAdi.includes('Seç')) return 'Mekanda Seç';
+  if (biletAdi.includes('3D') || biletAdi.includes('Figür'))  return '3D Figür';
+  if (biletAdi.includes('Seramik'))                         return 'Seramik';
+  if (biletAdi.includes('Cupcake') || biletAdi.includes('Mum')) return 'Cupcake Mum';
+  if (biletAdi.includes('Punch'))                           return 'Punch';
+  if (biletAdi.includes('Quiz'))                            return 'Quiz Night';
+  return biletAdi || null; // bilinmeyen ama dolu olan adı olduğu gibi döndür
+}
+
+function expandWorkshopDetails(detaylar) {
+  // detaySatisRaporlar[] → { kategori: biletAdet } map'i
+  const counts = {};
+  for (var d of detaylar) {
+    if (!d.biletAdet || d.biletAdet === 0) continue;
+    var cat = biletAdiToCategory(d.biletAdi);
+    if (cat) counts[cat] = (counts[cat] || 0) + d.biletAdet;
+  }
+  return counts;
+}
+
 async function fetchBubilet(username, password) {
   const BUBILET_HEADERS = {
     'Content-Type':    'application/json',
@@ -100,7 +146,38 @@ async function fetchBubilet(username, password) {
       filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
     { headers: { ...BUBILET_HEADERS, 'Authorization': 'Bearer ' + token } }
   );
-  return result.data.data || [];
+  const rows = result.data.data || [];
+
+  // Workshop seansları için alt kırılım çek
+  var finalRows = [];
+  for (var row of rows) {
+    var name = (row.etkinlikAdi || '').toLowerCase();
+    var isWorkshop = name.includes('workshop');
+    if (isWorkshop && row.biletAdet > 0) {
+      var bilets = await fetchBubiletWorkshopDetail(token, row.seansId, BUBILET_HEADERS);
+      console.log('Workshop seansId=' + row.seansId + ' tarih=' + row.tarih + ' toplam=' + bilets.length + ' bilet');
+      if (bilets.length > 0) {
+        var catCounts = expandWorkshopDetails(bilets);
+        console.log('Workshop kategori dagilimi:', catCounts);
+        if (Object.keys(catCounts).length > 0) {
+          // Her kategori için orijinal satırı kopyalayıp biletAdet'i güncelle
+          for (var cat of Object.keys(catCounts)) {
+            finalRows.push(Object.assign({}, row, {
+              etkinlikAdi:       cat,
+              biletAdet:         catCounts[cat],
+              _workshopExpanded: true
+            }));
+          }
+          continue; // orijinal 'Workshop' satırını ekleme
+        }
+        // Kategori çıkarılamazsa: logla, orijinal satırı ekle
+        console.warn('Workshop detay kategorisi bulunamadi, detaylar:', JSON.stringify(bilets).slice(0,800));
+      }
+    }
+    finalRows.push(row);
+  }
+
+  return finalRows;
 }
 
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
