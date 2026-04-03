@@ -330,6 +330,30 @@ app.get('/api/saved-credentials', function(req, res) {
   });
 });
 
+// DEBUG: Seramik ham yanıtını göster
+app.get('/api/debug/seramik', async function(req, res) {
+  if (!ideasoftCookies) return res.json({ error: 'Ideasoft oturumu yok, once giris yapin' });
+  try {
+    var cStr = toCookieStr(ideasoftCookies);
+    var response = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/12671',
+      { headers: { 'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+          'Accept': 'application/json', 'x-ideasoft-locale': 'tr' }, timeout: 10000 }
+    );
+    var body = response.data;
+    res.json({
+      httpStatus: response.status,
+      isDataArray: Array.isArray(body && body.data),
+      isDataObject: !!(body && body.data && typeof body.data === 'object' && !Array.isArray(body.data)),
+      hasDirectStockAmount: !!(body && body.stockAmount !== undefined),
+      dataLength: Array.isArray(body && body.data) ? body.data.length : null,
+      rawBody: body
+    });
+  } catch(e) {
+    res.json({ error: e.message, httpStatus: e.response && e.response.status });
+  }
+});
+
 // Credentials kaydet
 app.post('/api/save-credentials', function(req, res) {
   try {
