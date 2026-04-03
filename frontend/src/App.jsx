@@ -472,7 +472,7 @@ export default function App() {
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
-          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
             <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
@@ -545,7 +545,7 @@ export default function App() {
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
