@@ -414,14 +414,22 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   }
 });
 
-// Debug: seramik ham veri
+// Debug: seramik ham veri (cookie dosyasından okur, oturum gerektirmez)
 app.get('/api/debug/seramik', async function(req, res) {
-  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok' });
-  var cStr = toCookieStr(ideasoftCookies);
+  var cookies = ideasoftCookies;
+  var csrf    = ideasoftCsrfToken;
+  // RAM'de yoksa dosyadan yükle
+  if (!cookies) {
+    var saved = loadJson(COOKIES_FILE);
+    if (!saved) return res.status(401).json({ error:'Cookie dosyası bulunamadı, önce giriş yapın' });
+    cookies = saved.cookies;
+    csrf    = saved.csrfToken;
+  }
+  var cStr = toCookieStr(cookies);
   try {
     var r = await axios.get(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/12671',
-      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':csrf||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
     res.json({ status: r.status, data: r.data });
   } catch(e) { res.status(500).json({ error: e.message, response: e.response?.data }); }
