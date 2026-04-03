@@ -317,38 +317,48 @@ async function loginIdeasoftPuppeteer(username, password) {
 
 // ─── Ortak login işlevi ────────────────────────────────────────────────────────
 async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass) {
-  console.log('Bubilet giris yapiliyor...');
-  bubiletData = await fetchBubilet(bubiletUser, bubiletPass);
-  console.log('Bubilet tamamlandi:', bubiletData.length, 'kayit');
+  // Bubilet + Biletinial + İdeasoft paralel başlat
+  const t0 = Date.now();
 
-  console.log('Biletini Al token kullaniliyor...');
-  biletinialData = await fetchBiletinial(biletToken);
-  console.log('Biletini Al tamamlandi:', biletinialData.length, 'kayit');
-
+  // İdeasoft fetch promise'i hazırla
+  let ideasoftPromise = Promise.resolve(null);
   if (ideasoftUser && ideasoftPass) {
     var savedCookies = loadJson(COOKIES_FILE);
     if (savedCookies && savedCookies.cookies && savedCookies.cookies.length > 0) {
-      console.log('İdeasoft: kayitli cookie deneniyor...');
-      try {
-        ideasoftCookies   = savedCookies.cookies;
-        ideasoftCsrfToken = savedCookies.csrfToken;
-        var seances = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
-        var hasReal = seances.some(s => s.stockAmount !== null && !s.error);
-        if (!hasReal && seances.every(s => s.error)) throw new Error('Cookie gecersiz');
-        ideasoftData = seances;
-        console.log('İdeasoft: cookie ile cekildi,', seances.length, 'seans');
-      } catch(e) {
-        console.log('İdeasoft: yeniden giris yapiliyor...');
-        var lg = await loginIdeasoftPuppeteer(ideasoftUser, ideasoftPass);
-        ideasoftData = await fetchIdeasoftSeances(lg.cookies, lg.csrfToken);
-      }
+      ideasoftCookies   = savedCookies.cookies;
+      ideasoftCsrfToken = savedCookies.csrfToken;
+      ideasoftPromise = fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken)
+        .then(seances => {
+          var hasReal = seances.some(s => s.stockAmount !== null && !s.error);
+          if (!hasReal && seances.every(s => s.error)) throw new Error('Cookie gecersiz');
+          console.log('Ideasoft: cookie ile cekildi,', seances.length, 'seans');
+          return seances;
+        })
+        .catch(async e => {
+          console.log('Ideasoft: cookie gecersiz, puppeteer deneniyor...');
+          var lg = await loginIdeasoftPuppeteer(ideasoftUser, ideasoftPass);
+          return fetchIdeasoftSeances(lg.cookies, lg.csrfToken);
+        });
     } else {
-      console.log('İdeasoft: ilk giris...');
-      var lg2 = await loginIdeasoftPuppeteer(ideasoftUser, ideasoftPass);
-      ideasoftData = await fetchIdeasoftSeances(lg2.cookies, lg2.csrfToken);
+      ideasoftPromise = loginIdeasoftPuppeteer(ideasoftUser, ideasoftPass)
+        .then(lg => fetchIdeasoftSeances(lg.cookies, lg.csrfToken));
     }
   }
 
+  // Üçünü paralel çalıştır
+  const [bubilet, biletinial, ideasoft] = await Promise.all([
+    fetchBubilet(bubiletUser, bubiletPass)
+      .then(d => { console.log('Bubilet tamamlandi:', d.length, 'kayit'); return d; }),
+    fetchBiletinial(biletToken)
+      .then(d => { console.log('Biletini Al tamamlandi:', d.length, 'kayit'); return d; }),
+    ideasoftPromise
+  ]);
+
+  bubiletData    = bubilet;
+  biletinialData = biletinial;
+  if (ideasoft) ideasoftData = ideasoft;
+
+  console.log('Toplam login suresi:', Date.now() - t0, 'ms');
   lastFetch = new Date().toISOString();
 }
 
