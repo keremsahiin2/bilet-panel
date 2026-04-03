@@ -147,7 +147,24 @@ function buildSeanceMap(data) {
   // Eşleştirme: aynı gün + saat → İdeasoft'taki _quizCat kategori adını kullan.
   (data.biletinial || []).forEach(s => {
     if (!s.SalesTicketTotalCount || s.SalesTicketTotalCount === 0) return;
-    const { dateKey, time } = parseDateStr(s.SeanceDate);
+
+    // Workshop satırlarında FilmName "... - 2026-04-04 12:00" formatında lokal tarih içerir.
+    // SeanceDate UTC olabilir → timezone kayması riski. FilmName'deki saati önceliklendir.
+    let dateKey, time;
+    if (s._workshopCat && s.FilmName) {
+      const fm = s.FilmName.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+      if (fm) {
+        const [, datePart, timePart] = fm;
+        const d = new Date(datePart + 'T' + timePart + ':00');
+        dateKey = `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${TR_DAYS[d.getDay()]}`;
+        time = timePart;
+      }
+    }
+    if (!dateKey) {
+      const parsed = parseDateStr(s.SeanceDate);
+      dateKey = parsed.dateKey;
+      time = parsed.time;
+    }
 
     // Workshop alt kırılımı server tarafında zaten çözüldü:
     // _workshopCat varsa direkt kullan (ör. "Bez Çanta", "Heykel" vb.)
@@ -175,6 +192,19 @@ function buildSeanceMap(data) {
         const [kDate] = k.split('|');
         return kDate === dateKey && map[k]._quizCat;
       });
+    }
+
+    // Workshop için: tam eşleşme yoksa aynı günde ilgili kategoriyi ara
+    // (Biletini Al saat/timezone farkı olabilir; _workshopCat ile kategori eşleştir)
+    if (!matchKey && s._workshopCat) {
+      matchKey = Object.keys(map).find(k => {
+        const [kDate] = k.split('|');
+        return kDate === dateKey && map[k].categories[cat] !== undefined;
+      });
+      // Hâlâ bulunamadıysa aynı günün herhangi bir seansına ekle
+      if (!matchKey) {
+        matchKey = Object.keys(map).find(k => k.startsWith(dateKey + '|'));
+      }
     }
 
     // Quiz değilse ve workshop değilse: tam eşleşme yoksa aynı günde aynı kategoriyi bul

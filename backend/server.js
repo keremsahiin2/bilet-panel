@@ -186,6 +186,8 @@ function biletinialTicketTypeToCategory(ticketTypeName) {
   // Yok sayılacak bilet tipleri (davetli, kupon, toplu satış vb.)
   const ignored = ['davetli','kupon','toplu satış'];
   if (ignored.some(i => ticketTypeName.toLowerCase().includes(i))) return null;
+  // "Bez Çanta Boyama Workshop", "Heykel Workshop", "Resim Workshop" vb. — suffix Workshop var
+  // Önce spesifik eşleşmeleri yap, suffix önemli değil
   if (ticketTypeName.includes('3D Figür') || ticketTypeName.toLowerCase().includes('3d')) return '3D Figür';
   if (ticketTypeName.includes('Punch')) return 'Punch';
   if (ticketTypeName.includes('Seramik')) return 'Seramik';
