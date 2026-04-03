@@ -924,8 +924,8 @@ function ActionCard({icon,title,desc,color,active,onClick,loading}){
 function Chip({label,value,color}){
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:48}}>
-      <span style={{fontSize:9,color:'#374151',marginBottom:1,textTransform:'uppercase',letterSpacing:1}}>{label}</span>
-      <span style={{fontSize:15,fontWeight:700,color:value>0?color:'#1e293b'}}>{value}</span>
+      <span style={{fontSize:9,color:'#64748b',marginBottom:1,textTransform:'uppercase',letterSpacing:1}}>{label}</span>
+      <span style={{fontSize:15,fontWeight:700,color:value>0?color:'#334155'}}>{value}</span>
     </div>
   );
 }
@@ -952,7 +952,7 @@ function getCatIcon(cat) {
 }
 
 const S = {
-  page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60},
+  page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60,paddingTop:'env(safe-area-inset-top, 0px)'},
   loginWrap:  {display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',padding:20},
   loginCard:  {width:'100%',maxWidth:420,background:'#0d1120',border:'1px solid #1a2035',borderRadius:20,padding:'36px 32px'},
   brand:      {display:'flex',alignItems:'center',gap:10,marginBottom:4},
@@ -964,7 +964,7 @@ const S = {
   textarea:   {width:'100%',height:68,padding:'10px 14px',background:'#07090f',color:'#e2e8f0',border:'1px solid #1a2035',borderRadius:10,fontSize:12,marginBottom:10,boxSizing:'border-box',resize:'vertical'},
   loginBtn:   {width:'100%',padding:'13px',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:'pointer',marginTop:8},
   errBox:     {background:'#1f0f0f',border:'1px solid #7f1d1d',borderRadius:10,padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:16},
-  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
+  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',paddingTop:'env(safe-area-inset-top, 14px)',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
   headerLeft: {display:'flex',alignItems:'center',gap:8},
   headerTitle:{fontSize:13,fontWeight:800,letterSpacing:3,color:'#fff'},
   headerRight:{display:'flex',alignItems:'center',gap:10},
@@ -988,7 +988,7 @@ const S = {
   chevron:    {fontSize:18,color:'#374151',transition:'transform 0.2s',display:'inline-block',flexShrink:0},
   detailWrap: {borderTop:'1px solid #0f1525',padding:'10px 14px',background:'#131929',display:'flex',flexDirection:'column',gap:6},
   detailRow:  {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:8,background:'#1a2236',border:'1px solid #243050',flexWrap:'wrap',gap:8},
-  detailCat:  {fontSize:13,color:'#475569',minWidth:120,fontWeight:600},
+  detailCat:  {fontSize:13,color:'#94a3b8',minWidth:120,fontWeight:600},
   platforms:  {display:'flex',alignItems:'center',gap:14},
   loadMsg:    {color:'#374151',fontSize:13,padding:'24px 0',textAlign:'center'},
   empty:      {color:'#374151',fontSize:13,padding:'24px 0',textAlign:'center'},
