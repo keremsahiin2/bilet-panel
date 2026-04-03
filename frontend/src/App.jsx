@@ -142,16 +142,25 @@ function buildSeanceMap(data) {
   });
 
   // Biletini Al — sadece satışı > 0 olan seansları ekle
+  // Workshop seansları: server tarafında _workshopCat ile kırılım çözüldü.
   // Quiz seansları: Biletini Al'da konsept adı yok, sadece "Quiz Night" geliyor.
   // Eşleştirme: aynı gün + saat → İdeasoft'taki _quizCat kategori adını kullan.
   (data.biletinial || []).forEach(s => {
     if (!s.SalesTicketTotalCount || s.SalesTicketTotalCount === 0) return;
     const { dateKey, time } = parseDateStr(s.SeanceDate);
 
-    // Quiz mi?
+    // Workshop alt kırılımı server tarafında zaten çözüldü:
+    // _workshopCat varsa direkt kullan (ör. "Bez Çanta", "Heykel" vb.)
     const isQuiz = s.EventName && s.EventName.includes('Quiz');
 
-    let cat = isQuiz ? 'Quiz Night' : eventNameToCategory(s.EventName);
+    let cat;
+    if (s._workshopCat) {
+      cat = s._workshopCat;
+    } else if (isQuiz) {
+      cat = 'Quiz Night';
+    } else {
+      cat = eventNameToCategory(s.EventName);
+    }
     if (!cat) return;
 
     // Önce tam eşleşme ara (aynı gün + saat)
@@ -168,8 +177,8 @@ function buildSeanceMap(data) {
       });
     }
 
-    // Quiz değilse: tam eşleşme yoksa aynı günde aynı kategoriyi bul
-    if (!matchKey && !isQuiz) {
+    // Quiz değilse ve workshop değilse: tam eşleşme yoksa aynı günde aynı kategoriyi bul
+    if (!matchKey && !isQuiz && !s._workshopCat) {
       matchKey = Object.keys(map).find(k => {
         const [kDate] = k.split('|');
         return kDate === dateKey && map[k].categories[cat] !== undefined;
