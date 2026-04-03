@@ -226,48 +226,66 @@ async function fetchIdeasoftSeances(cookies, csrf) {
   };
   var allSeances = [];
 
+  // Tek bir ürünü çekip parse eden yardımcı — 429'da retry yapar
+  async function fetchOneProduct(productId, categoryName) {
+    var maxRetries = 4;
+    var delay = 500; // başlangıç bekleme (ms)
+    for (var attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        var res = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
+          { headers, timeout: 10000 }
+        );
+        // CSRF token'ı güncelle
+        var sc = (res.headers['set-cookie'] || []).join(' ');
+        var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+        if (cm) { csrf = cm[1]; ideasoftCsrfToken = csrf; headers['X-CSRF-TOKEN'] = csrf; }
+
+        var body = res.data;
+        var entries = [];
+
+        if (body && body.data && Array.isArray(body.data)) {
+          entries = body.data.map(s => ideasoftSeanceToEntry(s, categoryName, productId));
+          console.log('Ideasoft', categoryName, '('+productId+'):', entries.length, 'seans');
+        } else if (body && body.data && typeof body.data === 'object') {
+          entries = [ideasoftSeanceToEntry(body.data, categoryName, productId)];
+          console.log('Ideasoft', categoryName, '('+productId+'): 1 seans (obje)');
+        } else if (body && body.stockAmount !== undefined) {
+          entries = [ideasoftSeanceToEntry(body, categoryName, productId)];
+          console.log('Ideasoft', categoryName, '('+productId+'): 1 seans (direkt)');
+        } else {
+          console.warn('Ideasoft', categoryName, '('+productId+'): beklenmeyen format', JSON.stringify(body).slice(0,150));
+        }
+        return entries;
+
+      } catch (err) {
+        var status = err.response && err.response.status;
+        if (status === 429) {
+          // Retry-After header varsa onu kullan, yoksa exponential backoff
+          var retryAfter = err.response.headers && err.response.headers['retry-after'];
+          var waitMs = retryAfter ? parseInt(retryAfter) * 1000 : delay * attempt;
+          console.warn('Ideasoft 429 (' + categoryName + ') — ' + waitMs + 'ms beklenip retry #' + attempt);
+          await new Promise(r => setTimeout(r, waitMs));
+        } else {
+          // 429 dışı hata — retry yapma
+          console.error('Ideasoft urun ' + productId + ' (' + categoryName + ') hatasi:', err.message);
+          return [{ seanceId: null, productId: parseInt(productId), category: categoryName,
+            fullName: categoryName, stockAmount: null, error: true }];
+        }
+      }
+    }
+    // Tüm retry'lar tükendi
+    console.error('Ideasoft ' + categoryName + ' max retry doldu, atlanıyor');
+    return [{ seanceId: null, productId: parseInt(productId), category: categoryName,
+      fullName: categoryName, stockAmount: null, error: true }];
+  }
+
   for (var productId of Object.keys(IDEASOFT_PRODUCTS)) {
     var categoryName = IDEASOFT_PRODUCTS[productId];
-    try {
-      var res = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
-        { headers, timeout: 10000 }
-      );
-
-      // CSRF token'ı her yanıtta güncelle
-      var sc = (res.headers['set-cookie'] || []).join(' ');
-      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { csrf = cm[1]; ideasoftCsrfToken = csrf; headers['X-CSRF-TOKEN'] = csrf; }
-
-      var body = res.data;
-
-      // Durum 1: body.data array — birden fazla seans (veya tek seans array içinde)
-      if (body && body.data && Array.isArray(body.data)) {
-        for (var seance of body.data) {
-          allSeances.push(ideasoftSeanceToEntry(seance, categoryName, productId));
-        }
-        console.log('İdeasoft', categoryName, '('+productId+'):', body.data.length, 'seans');
-
-      // Durum 2: body.data obje — tek seans, array değil
-      } else if (body && body.data && typeof body.data === 'object') {
-        allSeances.push(ideasoftSeanceToEntry(body.data, categoryName, productId));
-        console.log('İdeasoft', categoryName, '('+productId+'): 1 seans (obje)');
-
-      // Durum 3: body direkt seans objesi (eski API formatı)
-      } else if (body && body.stockAmount !== undefined) {
-        allSeances.push(ideasoftSeanceToEntry(body, categoryName, productId));
-        console.log('İdeasoft', categoryName, '('+productId+'): 1 seans (direkt)');
-
-      } else {
-        console.warn('İdeasoft', categoryName, '('+productId+'): beklenmeyen yanıt formatı', JSON.stringify(body).slice(0,200));
-      }
-
-      await new Promise(r => setTimeout(r, 150));
-    } catch (err) {
-      console.error('İdeasoft urun ' + productId + ' (' + categoryName + ') hatasi:', err.message);
-      allSeances.push({ seanceId: null, productId: parseInt(productId), category: categoryName,
-        fullName: categoryName, stockAmount: null, error: true });
-    }
+    var entries = await fetchOneProduct(productId, categoryName);
+    allSeances.push(...entries);
+    // İstekler arası bekleme — rate limit'e girmemek için
+    await new Promise(r => setTimeout(r, 400));
   }
   return allSeances;
 }
