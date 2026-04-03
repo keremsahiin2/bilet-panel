@@ -74,53 +74,38 @@ function toCookieStr(cookies) {
   return cookies.map(c => c.name+'='+c.value).join('; ');
 }
 
-// ─── Bubilet ───────────────────────────────────────────────────────────────────
-// Workshop kategorisi Bubilet'te tek üst satır olarak geliyor.
-// İçindeki kırılımları (Heykel, Resim, Plak, vb.) çekmek için
-// her Workshop seansı için ayrıca bilet sorgusu yapıyoruz.
-
-// GET /api/v2/ticket-list/{seansId} — detaySatisRaporlar[] içinde biletAdi + biletAdet
-async function fetchBubiletWorkshopDetail(token, seansId, bubiletHeaders) {
+// ─── Bubilet workshop yardımcıları ────────────────────────────────────────────
+// GET /api/v2/ticket-list/{seansId} → data.detaySatisRaporlar[{biletAdi, biletAdet}]
+async function fetchBubiletWorkshopDetail(token, seansId, headers) {
   try {
-    const res = await axios.get(
+    var res = await axios.get(
       'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + seansId,
-      { headers: { ...bubiletHeaders, 'Authorization': 'Bearer ' + token } }
+      { headers: Object.assign({}, headers, { 'Authorization': 'Bearer ' + token }) }
     );
-    // { data: { detaySatisRaporlar: [{ biletAdi, biletAdet, ... }] } }
     return (res.data && res.data.data && res.data.data.detaySatisRaporlar) || [];
   } catch(e) {
-    console.error('Bubilet workshop detay hatasi seansId=' + seansId + ':', e.message);
+    console.error('Workshop detay hatasi seansId=' + seansId + ':', e.message);
     return [];
   }
 }
 
 function biletAdiToCategory(biletAdi) {
   if (!biletAdi) return null;
-  if (biletAdi.includes('Heykel'))                          return 'Heykel';
-  if (biletAdi.includes('Resim'))                           return 'Resim';
-  if (biletAdi.includes('Plak'))                            return 'Plak Boyama';
-  if (biletAdi.includes('Bez') || biletAdi.includes('Çanta')) return 'Bez Çanta';
-  if (biletAdi.includes('Maske'))                           return 'Maske';
+  if (biletAdi.includes('Heykel'))                              return 'Heykel';
+  if (biletAdi.includes('Resim'))                               return 'Resim';
+  if (biletAdi.includes('Plak'))                                return 'Plak Boyama';
+  if (biletAdi.includes('Bez') || biletAdi.includes('Çanta'))   return 'Bez Çanta';
+  if (biletAdi.includes('Maske'))                               return 'Maske';
   if (biletAdi.includes('Mekanda') || biletAdi.includes('Seç')) return 'Mekanda Seç';
-  if (biletAdi.includes('3D') || biletAdi.includes('Figür'))  return '3D Figür';
-  if (biletAdi.includes('Seramik'))                         return 'Seramik';
+  if (biletAdi.includes('3D') || biletAdi.includes('Figür'))    return '3D Figür';
+  if (biletAdi.includes('Seramik'))                             return 'Seramik';
   if (biletAdi.includes('Cupcake') || biletAdi.includes('Mum')) return 'Cupcake Mum';
-  if (biletAdi.includes('Punch'))                           return 'Punch';
-  if (biletAdi.includes('Quiz'))                            return 'Quiz Night';
-  return biletAdi || null; // bilinmeyen ama dolu olan adı olduğu gibi döndür
+  if (biletAdi.includes('Punch'))                               return 'Punch';
+  if (biletAdi.includes('Quiz'))                                return 'Quiz Night';
+  return null;
 }
 
-function expandWorkshopDetails(detaylar) {
-  // detaySatisRaporlar[] → { kategori: biletAdet } map'i
-  const counts = {};
-  for (var d of detaylar) {
-    if (!d.biletAdet || d.biletAdet === 0) continue;
-    var cat = biletAdiToCategory(d.biletAdi);
-    if (cat) counts[cat] = (counts[cat] || 0) + d.biletAdet;
-  }
-  return counts;
-}
-
+// ─── Bubilet ───────────────────────────────────────────────────────────────────
 async function fetchBubilet(username, password) {
   const BUBILET_HEADERS = {
     'Content-Type':    'application/json',
@@ -148,31 +133,25 @@ async function fetchBubilet(username, password) {
   );
   const rows = result.data.data || [];
 
-  // Workshop seansları için alt kırılım çek
+  // Workshop seanslarını genişlet: her biri için /api/v2/ticket-list/{seansId} çağır
   var finalRows = [];
   for (var row of rows) {
-    var name = (row.etkinlikAdi || '').toLowerCase();
-    var isWorkshop = name.includes('workshop');
+    var isWorkshop = (row.etkinlikAdi || '').toLowerCase().includes('workshop');
     if (isWorkshop && row.biletAdet > 0) {
-      var bilets = await fetchBubiletWorkshopDetail(token, row.seansId, BUBILET_HEADERS);
-      console.log('Workshop seansId=' + row.seansId + ' tarih=' + row.tarih + ' toplam=' + bilets.length + ' bilet');
-      if (bilets.length > 0) {
-        var catCounts = expandWorkshopDetails(bilets);
-        console.log('Workshop kategori dagilimi:', catCounts);
-        if (Object.keys(catCounts).length > 0) {
-          // Her kategori için orijinal satırı kopyalayıp biletAdet'i güncelle
-          for (var cat of Object.keys(catCounts)) {
-            finalRows.push(Object.assign({}, row, {
-              etkinlikAdi:       cat,
-              biletAdet:         catCounts[cat],
-              _workshopExpanded: true
-            }));
+      var detaylar = await fetchBubiletWorkshopDetail(token, row.seansId, BUBILET_HEADERS);
+      if (detaylar.length > 0) {
+        var expanded = false;
+        for (var d of detaylar) {
+          if (!d.biletAdet || d.biletAdet === 0) continue;
+          var cat = biletAdiToCategory(d.biletAdi);
+          if (cat) {
+            finalRows.push(Object.assign({}, row, { etkinlikAdi: cat, biletAdet: d.biletAdet, _workshopExpanded: true }));
+            expanded = true;
           }
-          continue; // orijinal 'Workshop' satırını ekleme
         }
-        // Kategori çıkarılamazsa: logla, orijinal satırı ekle
-        console.warn('Workshop detay kategorisi bulunamadi, detaylar:', JSON.stringify(bilets).slice(0,800));
+        if (expanded) continue; // orijinal 'Workshop' satırını ekleme
       }
+      // detay gelmezse veya kategori çıkaramazsa: orijinal satırı ekle
     }
     finalRows.push(row);
   }
@@ -221,7 +200,6 @@ async function fetchIdeasoftSeances(cookies, csrf) {
       if (body && body.data && Array.isArray(body.data)) {
         for (var seance of body.data) {
           var fname = seance.name || '';
-          // name yoksa ya da sadece kategori adıysa startDate'den tarih üret
           if (!fname || fname.trim() === categoryName) {
             var startField = seance.startDate || seance.beginDate || seance.start_date || seance.begin_date || '';
             if (startField) {
@@ -230,7 +208,6 @@ async function fetchIdeasoftSeances(cookies, csrf) {
               var TR_DAYS_SRV   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
               var hh = String(sd.getHours()).padStart(2,'0');
               var mm = String(sd.getMinutes()).padStart(2,'0');
-              // Bitiş saatini de ekle (genellikle +2 saat)
               var endField = seance.endDate || seance.finishDate || seance.end_date || '';
               var timeSlotStr = hh + ':' + mm;
               if (endField) {
@@ -249,7 +226,7 @@ async function fetchIdeasoftSeances(cookies, csrf) {
           allSeances.push({ seanceId:seance.id, productId:parseInt(productId), category:categoryName,
             fullName:fname, stockAmount:seance.stockAmount,
             price:seance.price1||'0', status:seance.status,
-            _rawFields: Object.keys(seance) }); // debug için
+            _rawFields: Object.keys(seance) });
         }
       } else if (body && body.stockAmount !== undefined) {
         var fname2 = body.name || '';
@@ -335,7 +312,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
 
 // ─── Endpoints ─────────────────────────────────────────────────────────────────
 
-// Kayıtlı credentials var mı kontrol et
 app.get('/api/saved-credentials', function(req, res) {
   const creds = loadJson(SAVED_CREDS_FILE);
   if (!creds || !creds.bubiletUser) return res.json({ exists:false });
@@ -349,7 +325,6 @@ app.get('/api/saved-credentials', function(req, res) {
   });
 });
 
-// Credentials kaydet
 app.post('/api/save-credentials', function(req, res) {
   try {
     const existing = loadJson(SAVED_CREDS_FILE) || {};
@@ -364,7 +339,6 @@ app.post('/api/save-credentials', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// Credentials sil
 app.post('/api/clear-credentials', function(req, res) {
   try {
     if (fs.existsSync(SAVED_CREDS_FILE)) fs.unlinkSync(SAVED_CREDS_FILE);
@@ -372,7 +346,6 @@ app.post('/api/clear-credentials', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// Otomatik login — uygulama açılınca kaydedilmiş bilgilerle giriş yap
 app.post('/api/auto-login', async function(req, res) {
   const creds = loadJson(SAVED_CREDS_FILE);
   if (!creds || !creds.bubiletUser || !creds.bubiletPass) {
@@ -387,7 +360,6 @@ app.post('/api/auto-login', async function(req, res) {
   }
 });
 
-// Manuel login
 app.post('/api/login', async function(req, res) {
   try {
     const saved = loadJson(SAVED_CREDS_FILE) || {};
@@ -409,7 +381,6 @@ app.post('/api/login', async function(req, res) {
   }
 });
 
-// İdeasoft oturumu sıfırla
 app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
@@ -418,11 +389,10 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-// Seans deaktif et / aktif et
 app.post('/api/ideasoft/toggle-seance', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var seanceId = req.body.seanceId;
-  var active   = req.body.active; // true = aktif, false = pasif
+  var active   = req.body.active;
   var cStr     = toCookieStr(ideasoftCookies);
   try {
     var productRes = await axios.get(
@@ -450,12 +420,11 @@ app.post('/api/ideasoft/toggle-seance', async function(req, res) {
   }
 });
 
-// Stok güncelle
 app.post('/api/ideasoft/update-stock', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var seanceId        = req.body.seanceId;
-  var newStock        = parseInt(req.body.newStock);        // kullanıcının girdiği "kalan kontenjan"
-  var currentSoldCount = parseInt(req.body.currentSoldCount) || 0; // şu ana kadar satılan
+  var newStock        = parseInt(req.body.newStock);
+  var currentSoldCount = parseInt(req.body.currentSoldCount) || 0;
   var cStr            = toCookieStr(ideasoftCookies);
 
   try {
@@ -467,15 +436,12 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     var m3  = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
-    // İdeasoft'a direkt "kalan kontenjan" gönder (stockAmount = kalan)
     await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
       Object.assign({}, productRes.data, { stockAmount:newStock }),
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
 
-    // Baseline = yeni kalan + mevcut satılan
-    // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
     var baseline = await loadBaseline();
     baseline[seanceId] = newStock + currentSoldCount;
     await saveBaseline(baseline);
@@ -491,11 +457,9 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   }
 });
 
-// Debug: seramik ham veri (cookie dosyasından okur, oturum gerektirmez)
 app.get('/api/debug/seramik', async function(req, res) {
   var cookies = ideasoftCookies;
   var csrf    = ideasoftCsrfToken;
-  // RAM'de yoksa dosyadan yükle
   if (!cookies) {
     var saved = loadJson(COOKIES_FILE);
     if (!saved) return res.status(401).json({ error:'Cookie dosyası bulunamadı, önce giriş yapın' });
@@ -512,7 +476,6 @@ app.get('/api/debug/seramik', async function(req, res) {
   } catch(e) { res.status(500).json({ error: e.message, response: e.response?.data }); }
 });
 
-// Satış verileri
 app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
@@ -535,7 +498,6 @@ app.get('/api/sales', async function(req, res) {
   res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch });
 });
 
-// Frontend dist klasörünü servis et (PWA için)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('/{*path}', function(req, res) {
   if (!req.path.startsWith('/api')) {
