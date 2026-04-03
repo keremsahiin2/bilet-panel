@@ -223,12 +223,13 @@ async function fetchBiletinial(token) {
   };
   const allSeances = res.data.Data || [];
 
-  // Workshop seanslarını bul: FilmName "Workshop:" ile başlıyor
+  // Workshop kırılım seanslarını bul: sadece "Workshop: Etkinlik Takvimi" ile başlayanlar
+  // Punch Workshop, Seramik Workshop vb. ayrı etkinlikler — onlara kırılım gerekmez
   const workshopSeances = allSeances.filter(s =>
-    s.FilmName && s.FilmName.startsWith('Workshop:')
+    s.EventName && s.EventName.startsWith('Workshop: Etkinlik Takvimi')
   );
   const normalSeances = allSeances.filter(s =>
-    !s.FilmName || !s.FilmName.startsWith('Workshop:')
+    !s.EventName || !s.EventName.startsWith('Workshop: Etkinlik Takvimi')
   );
 
   console.log('Biletini Al: Workshop seans sayisi:', workshopSeances.length);

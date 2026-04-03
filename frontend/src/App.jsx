@@ -148,23 +148,8 @@ function buildSeanceMap(data) {
   (data.biletinial || []).forEach(s => {
     if (!s.SalesTicketTotalCount || s.SalesTicketTotalCount === 0) return;
 
-    // Workshop satırlarında FilmName "... - 2026-04-04 12:00" formatında lokal tarih içerir.
-    // SeanceDate UTC olabilir → timezone kayması riski. FilmName'deki saati önceliklendir.
-    let dateKey, time;
-    if (s._workshopCat && s.FilmName) {
-      const fm = s.FilmName.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
-      if (fm) {
-        const [, datePart, timePart] = fm;
-        const d = new Date(datePart + 'T' + timePart + ':00');
-        dateKey = `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${TR_DAYS[d.getDay()]}`;
-        time = timePart;
-      }
-    }
-    if (!dateKey) {
-      const parsed = parseDateStr(s.SeanceDate);
-      dateKey = parsed.dateKey;
-      time = parsed.time;
-    }
+    // SeanceDate "2026-04-04T12:00:00" formatında lokal saat olarak geliyor — direkt parse et
+    const { dateKey, time } = parseDateStr(s.SeanceDate);
 
     // Workshop alt kırılımı server tarafında zaten çözüldü:
     // _workshopCat varsa direkt kullan (ör. "Bez Çanta", "Heykel" vb.)
