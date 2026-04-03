@@ -143,14 +143,66 @@ async function fetchIdeasoftSeances(cookies, csrf) {
       var body = res.data;
       if (body && body.data && Array.isArray(body.data)) {
         for (var seance of body.data) {
+          var fname = seance.name || '';
+          // name yoksa ya da sadece kategori adıysa startDate'den tarih üret
+          if (!fname || fname.trim() === categoryName) {
+            var startField = seance.startDate || seance.beginDate || seance.start_date || seance.begin_date || '';
+            if (startField) {
+              var sd = new Date(startField);
+              var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+              var TR_DAYS_SRV   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+              var hh = String(sd.getHours()).padStart(2,'0');
+              var mm = String(sd.getMinutes()).padStart(2,'0');
+              // Bitiş saatini de ekle (genellikle +2 saat)
+              var endField = seance.endDate || seance.finishDate || seance.end_date || '';
+              var timeSlotStr = hh + ':' + mm;
+              if (endField) {
+                var ed = new Date(endField);
+                var ehh = String(ed.getHours()).padStart(2,'0');
+                var emm = String(ed.getMinutes()).padStart(2,'0');
+                timeSlotStr += ' - ' + ehh + ':' + emm;
+              }
+              fname = 'Farabi Sokak: Sosyal Sanathane - ' +
+                sd.getDate() + ' ' + TR_MONTHS_SRV[sd.getMonth()] + ' ' + TR_DAYS_SRV[sd.getDay()] +
+                ' ' + timeSlotStr;
+            } else {
+              fname = categoryName + ' #' + seance.id;
+            }
+          }
           allSeances.push({ seanceId:seance.id, productId:parseInt(productId), category:categoryName,
-            fullName:seance.name||categoryName, stockAmount:seance.stockAmount,
-            price:seance.price1||'0', status:seance.status });
+            fullName:fname, stockAmount:seance.stockAmount,
+            price:seance.price1||'0', status:seance.status,
+            _rawFields: Object.keys(seance) }); // debug için
         }
       } else if (body && body.stockAmount !== undefined) {
+        var fname2 = body.name || '';
+        if (!fname2 || fname2.trim() === categoryName) {
+          var startField2 = body.startDate || body.beginDate || body.start_date || body.begin_date || '';
+          if (startField2) {
+            var sd2 = new Date(startField2);
+            var TR_MONTHS_SRV2 = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+            var TR_DAYS_SRV2   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+            var hh2 = String(sd2.getHours()).padStart(2,'0');
+            var mm2 = String(sd2.getMinutes()).padStart(2,'0');
+            var endField2 = body.endDate || body.finishDate || body.end_date || '';
+            var timeSlotStr2 = hh2 + ':' + mm2;
+            if (endField2) {
+              var ed2 = new Date(endField2);
+              var ehh2 = String(ed2.getHours()).padStart(2,'0');
+              var emm2 = String(ed2.getMinutes()).padStart(2,'0');
+              timeSlotStr2 += ' - ' + ehh2 + ':' + emm2;
+            }
+            fname2 = 'Farabi Sokak: Sosyal Sanathane - ' +
+              sd2.getDate() + ' ' + TR_MONTHS_SRV2[sd2.getMonth()] + ' ' + TR_DAYS_SRV2[sd2.getDay()] +
+              ' ' + timeSlotStr2;
+          } else {
+            fname2 = categoryName + ' #' + body.id;
+          }
+        }
         allSeances.push({ seanceId:body.id, productId:parseInt(productId), category:categoryName,
-          fullName:body.name||categoryName, stockAmount:body.stockAmount,
-          price:body.price1||'0', status:body.status });
+          fullName:fname2, stockAmount:body.stockAmount,
+          price:body.price1||'0', status:body.status,
+          _rawFields: Object.keys(body) });
       }
       await new Promise(r=>setTimeout(r,150));
     } catch(err) {
@@ -287,6 +339,38 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// Seans deaktif et / aktif et
+app.post('/api/ideasoft/toggle-seance', async function(req, res) {
+  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
+  var seanceId = req.body.seanceId;
+  var active   = req.body.active; // true = aktif, false = pasif
+  var cStr     = toCookieStr(ideasoftCookies);
+  try {
+    var productRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
+      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+    );
+    var sc = (productRes.headers['set-cookie']||[]).join(' ');
+    var m  = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (m) { ideasoftCsrfToken=m[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
+
+    await axios.put(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
+      Object.assign({}, productRes.data, { status: active ? 1 : 0 }),
+      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+    );
+
+    ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
+    lastFetch    = new Date().toISOString();
+    res.json({ success:true });
+  } catch(err) {
+    console.error('Seans toggle hatasi:', err.message);
+    if (err.response && (err.response.status===401||err.response.status===403))
+      return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
+    res.status(500).json({ error:err.message });
+  }
 });
 
 // Stok güncelle
