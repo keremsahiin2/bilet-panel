@@ -240,7 +240,7 @@ async function fetchBiletinial(token) {
       if (!s.SeanceId) return [s];
       try {
         const detayRes = await axios.get(
-          'https://reportapi2.biletinial.com/api/Event/GetSeanceTicketTypeCounts?SeanceId=' + s.SeanceId,
+          'https://reportapi2.biletinial.com/api/Report/GetTicketTypeSalesReport?SeanceId=' + s.SeanceId + '&lang=tr',
           { headers: biletinialHeaders, timeout: 8000 }
         );
         const detay = detayRes.data;
@@ -248,14 +248,14 @@ async function fetchBiletinial(token) {
 
         const rows = [];
         for (const item of detay.Data) {
-          if (!item.Count || item.Count === 0) continue;
+          if (!item.TotalSoldTicketCount || item.TotalSoldTicketCount === 0) continue;
           const cat = biletinialTicketTypeToCategory(item.TicketTypeName);
           if (!cat) continue; // Davetli/Kupon/Toplu Satis vb. yoksay
           rows.push({
             ...s,
             _workshopCat: cat,
             _biletinialTicketTypeName: item.TicketTypeName,
-            SalesTicketTotalCount: item.Count
+            SalesTicketTotalCount: item.TotalSoldTicketCount
           });
         }
         console.log('Biletini Al Workshop SeanceId=' + s.SeanceId + ':', rows.length, 'tur');
@@ -449,6 +449,28 @@ app.get('/api/saved-credentials', function(req, res) {
     bubiletPassFilled:   !!(creds.bubiletPass),
     ideasoftPassFilled:  !!(creds.ideasoftPass)
   });
+});
+
+// DEBUG: Biletini Al workshop kırılım ham yanıtı
+app.get('/api/debug/workshop-counts', async function(req, res) {
+  var seanceId = req.query.seanceId || 17749527;
+  var creds = loadJson(SAVED_CREDS_FILE);
+  if (!creds || !creds.biletinialToken) return res.json({ error: 'Biletinial token yok' });
+  try {
+    var detayRes = await axios.get(
+      'https://reportapi2.biletinial.com/api/Report/GetTicketTypeSalesReport?SeanceId=' + seanceId + '&lang=tr',
+      { headers: {
+          'Authorization': 'Bearer ' + creds.biletinialToken,
+          'xapikey': 'TPJDtRG0cP',
+          'allow-origin': 'http://localhost:3000',
+          'origin': 'https://partner.biletinial.com',
+          'referer': 'https://partner.biletinial.com/'
+      }}
+    );
+    res.json(detayRes.data);
+  } catch(e) {
+    res.json({ error: e.message, status: e.response && e.response.status });
+  }
 });
 
 // DEBUG: Seramik ham yanıtını göster
