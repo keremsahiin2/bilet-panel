@@ -436,7 +436,7 @@ export default function App() {
   if (autoLoginLoading) {
     return (
       <div style={S.page}>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:'22vh'}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:'37vh'}}>
           <div style={{fontSize:32,marginBottom:10}}>🎟</div>
           <div style={{fontSize:14,color:'#475569'}}>Giriş yapılıyor…</div>
         </div>
@@ -472,7 +472,7 @@ export default function App() {
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
-          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'calc(env(safe-area-inset-top,0px) + 80px)'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh'}}>
             <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
@@ -545,7 +545,7 @@ export default function App() {
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'calc(env(safe-area-inset-top,0px) + 80px)'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh'}}>
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
@@ -586,7 +586,7 @@ export default function App() {
   if (!loggedIn) {
     return (
       <div style={{...S.page, overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'22vh',paddingBottom:40}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh',paddingBottom:40}}>
           <div style={{...S.loginCard, width:'100%'}}>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
