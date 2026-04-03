@@ -356,7 +356,16 @@ export default function App() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      if (salesData) fetchSales();
+      // Tüm veriyi yeniden çekmek yerine sadece o seansin status'unu local güncelle
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return {
+          ...prev,
+          ideasoft: prev.ideasoft.map(s =>
+            s.seanceId === seanceId ? { ...s, status: currentlyActive ? 0 : 1 } : s
+          )
+        };
+      });
     } catch(e) { alert('Hata: ' + e.message); }
     finally { setToggling(p => ({...p,[seanceId]:false})); }
   };
