@@ -122,52 +122,52 @@ async function fetchBubilet(username, password) {
   );
   const seanslar = result.data.data || [];
 
-  // Workshop etkinlikleri için alt kırılımları çek
-  // etkinlikAdi'nde "Workshop" geçen ve biletAdet > 0 olan seanslar
-  const expandedSeanslar = [];
-  for (const s of seanslar) {
-    const isWorkshop = s.etkinlikAdi && s.etkinlikAdi.toLowerCase().includes('workshop');
-    if (isWorkshop && s.biletAdet > 0 && s.seansId) {
+  // Bugünün başlangıcı — geçmiş seanslar için detay çekme
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  // Workshop: bugün/gelecek, biletAdet>0, seansId var
+  const workshopSeanslar = seanslar.filter(s => {
+    if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
+    if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
+    if (s.tarih && new Date(s.tarih) < todayStart) return false;
+    return true;
+  });
+
+  const normalSeanslar = seanslar.filter(s => !workshopSeanslar.includes(s));
+
+  console.log('Workshop detay cekilecek:', workshopSeanslar.length, 'seans (paralel)');
+
+  // Tüm workshop detaylarını PARALEL çek — seri değil!
+  const workshopDetaylar = await Promise.all(
+    workshopSeanslar.map(async (s) => {
       try {
-        // ticket-list API'si seansId ile çağrılıyor
         const detayRes = await axios.get(
           'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + s.seansId,
-          { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' } }
+          { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+            timeout: 8000 }
         );
         const detay = detayRes.data;
         if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
-          // Her bilet türü için ayrı bir kayıt üret
+          const rows = [];
           for (const bilet of detay.data.detaySatisRaporlar) {
             if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
             const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
-            expandedSeanslar.push({
-              ...s,
-              // Orijinal etkinlikAdi'ni saklıyoruz, ama kategori bilgisini _workshopCat olarak ekliyoruz
-              _workshopCat: cat,
-              _workshopBiletAdi: bilet.biletAdi,
-              biletAdet: bilet.biletAdet,
-              // Workshop satışları bu kırılımda geldiği için etkinlikAdi'ni de cat olarak set ediyoruz
-              etkinlikAdi: cat,
-            });
+            rows.push({ ...s, _workshopCat: cat, _workshopBiletAdi: bilet.biletAdi,
+              biletAdet: bilet.biletAdet, etkinlikAdi: cat });
           }
-          console.log('Workshop detay cekildi:', s.seansId, '→', detay.data.detaySatisRaporlar.length, 'bilet türü');
-        } else {
-          // Detay gelmezse orijinali ekle
-          expandedSeanslar.push(s);
+          console.log('Workshop OK:', s.seansId, rows.length, 'tur');
+          return rows.length > 0 ? rows : [s];
         }
-        // Rate limit için kısa bekleme
-        await new Promise(r => setTimeout(r, 100));
+        return [s];
       } catch (err) {
         console.error('Workshop ticket-list hatasi seansId=' + s.seansId + ':', err.message);
-        // Hata olursa orijinali ekle
-        expandedSeanslar.push(s);
+        return [s];
       }
-    } else {
-      expandedSeanslar.push(s);
-    }
-  }
+    })
+  );
 
-  return expandedSeanslar;
+  return [...normalSeanslar, ...workshopDetaylar.flat()];
 }
 
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
