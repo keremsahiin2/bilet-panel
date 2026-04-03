@@ -180,6 +180,26 @@ async function fetchBubilet(username, password) {
   return [...normalSeanslar, ...workshopDetaylar.flat()];
 }
 
+// Biletini Al TicketTypeName → kategori adı eşleştirmesi (workshop kırılımları için)
+function biletinialTicketTypeToCategory(ticketTypeName) {
+  if (!ticketTypeName) return null;
+  // Yok sayılacak bilet tipleri (davetli, kupon, toplu satış vb.)
+  const ignored = ['davetli','kupon','toplu satış'];
+  if (ignored.some(i => ticketTypeName.toLowerCase().includes(i))) return null;
+  if (ticketTypeName.includes('3D Figür') || ticketTypeName.toLowerCase().includes('3d')) return '3D Figür';
+  if (ticketTypeName.includes('Punch')) return 'Punch';
+  if (ticketTypeName.includes('Seramik')) return 'Seramik';
+  if (ticketTypeName.includes('Cupcake') || (ticketTypeName.includes('Mum') && !ticketTypeName.includes('Workshop'))) return 'Cupcake Mum';
+  if (ticketTypeName.includes('Quiz')) return 'Quiz Night';
+  if (ticketTypeName.includes('Plak')) return 'Plak Boyama';
+  if (ticketTypeName.includes('Maske')) return 'Maske';
+  if (ticketTypeName.includes('Heykel')) return 'Heykel';
+  if (ticketTypeName.includes('Bez')) return 'Bez Çanta';
+  if (ticketTypeName.includes('Resim')) return 'Resim';
+  if (ticketTypeName.includes('Mekanda')) return 'Mekanda Seç';
+  return null;
+}
+
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
 async function fetchBiletinial(token) {
   if (!token) return [];
@@ -194,7 +214,57 @@ async function fetchBiletinial(token) {
         'allow-origin':'http://localhost:3000', 'origin':'https://partner.biletinial.com',
         'referer':'https://partner.biletinial.com/' }}
   );
-  return res.data.Data || [];
+  const biletinialHeaders = {
+    'Authorization':'Bearer '+token, 'xapikey':'TPJDtRG0cP',
+    'allow-origin':'http://localhost:3000', 'origin':'https://partner.biletinial.com',
+    'referer':'https://partner.biletinial.com/'
+  };
+  const allSeances = res.data.Data || [];
+
+  // Workshop seanslarını bul: FilmName "Workshop:" ile başlıyor
+  const workshopSeances = allSeances.filter(s =>
+    s.FilmName && s.FilmName.startsWith('Workshop:')
+  );
+  const normalSeances = allSeances.filter(s =>
+    !s.FilmName || !s.FilmName.startsWith('Workshop:')
+  );
+
+  console.log('Biletini Al: Workshop seans sayisi:', workshopSeances.length);
+
+  // Workshop seansları için GetSeanceTicketTypeCounts çek (paralel)
+  const workshopExpanded = await Promise.all(
+    workshopSeances.map(async (s) => {
+      if (!s.SeanceId) return [s];
+      try {
+        const detayRes = await axios.get(
+          'https://reportapi2.biletinial.com/api/Event/GetSeanceTicketTypeCounts?SeanceId=' + s.SeanceId,
+          { headers: biletinialHeaders, timeout: 8000 }
+        );
+        const detay = detayRes.data;
+        if (!detay || !detay.Success || !Array.isArray(detay.Data)) return [s];
+
+        const rows = [];
+        for (const item of detay.Data) {
+          if (!item.Count || item.Count === 0) continue;
+          const cat = biletinialTicketTypeToCategory(item.TicketTypeName);
+          if (!cat) continue; // Davetli/Kupon/Toplu Satis vb. yoksay
+          rows.push({
+            ...s,
+            _workshopCat: cat,
+            _biletinialTicketTypeName: item.TicketTypeName,
+            SalesTicketTotalCount: item.Count
+          });
+        }
+        console.log('Biletini Al Workshop SeanceId=' + s.SeanceId + ':', rows.length, 'tur');
+        return rows.length > 0 ? rows : [s];
+      } catch (err) {
+        console.error('Biletini Al GetSeanceTicketTypeCounts hatasi SeanceId=' + s.SeanceId + ':', err.message);
+        return [s];
+      }
+    })
+  );
+
+  return [...normalSeances, ...workshopExpanded.flat()];
 }
 
 // ─── İdeasoft: seansları çek ───────────────────────────────────────────────────
