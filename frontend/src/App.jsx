@@ -434,11 +434,40 @@ export default function App() {
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
   if (autoLoginLoading) {
+    const RADIUS = 40;
+    const CIRC = 2 * Math.PI * RADIUS;
     return (
       <div style={S.page}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:'37vh'}}>
-          <div style={{fontSize:32,marginBottom:10}}>🎟</div>
-          <div style={{fontSize:14,color:'#475569'}}>Giriş yapılıyor…</div>
+          {/* SVG yuvarlak timer */}
+          <div style={{position:'relative',width:100,height:100,marginBottom:18}}>
+            <svg width="100" height="100" style={{transform:'rotate(-90deg)'}}>
+              {/* Arka halka */}
+              <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="#1a2035" strokeWidth="5"/>
+              {/* İlerleme halkası - CSS animasyonlu */}
+              <circle
+                cx="50" cy="50" r={RADIUS}
+                fill="none"
+                stroke="#b47cff"
+                strokeWidth="5"
+                strokeLinecap="round"
+                strokeDasharray={CIRC}
+                strokeDashoffset="0"
+                style={{
+                  animation:'loginTimer 12s linear forwards',
+                }}
+              />
+            </svg>
+            {/* Ortadaki ikon */}
+            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:28}}>🎟</div>
+          </div>
+          <div style={{fontSize:14,color:'#475569',letterSpacing:1}}>Giriş yapılıyor…</div>
+          <style>{`
+            @keyframes loginTimer {
+              from { stroke-dashoffset: 0; }
+              to   { stroke-dashoffset: ${CIRC}; }
+            }
+          `}</style>
         </div>
       </div>
     );
