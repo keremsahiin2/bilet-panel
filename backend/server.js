@@ -44,6 +44,9 @@ const IDEASOFT_PRODUCTS = [
 // ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
+const MONTHLY_SALES_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulacak
+// Not: monthly sales ayrı bir JSONBin bin'inde saklanır.
+// Eğer MONTHLY_SALES_BIN_ID boşsa baseline bin'i içinde "monthlySales" key'i kullanılır.
 
 async function loadBaseline() {
   try {
@@ -65,6 +68,76 @@ async function saveBaseline(baseline) {
   } catch(e) {
     console.error('JSONBin yazma hatasi:', e.message);
   }
+}
+
+// ─── Aylık satış arşivi (kalıcı — seanslar silinse bile korunur) ───────────────
+async function loadMonthlySales() {
+  try {
+    var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    return res.data.record.monthlySales || {};
+  } catch(e) {
+    console.error('JSONBin monthlySales okuma hatasi:', e.message);
+    return {};
+  }
+}
+
+async function saveMonthlySalesAndBaseline(baseline, monthlySales) {
+  try {
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline, monthlySales }, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
+    });
+  } catch(e) {
+    console.error('JSONBin yazma hatasi:', e.message);
+  }
+}
+
+// İdeasoft seanslarından aylık satış verisini çıkarıp mevcut arşivle birleştir
+function mergeIdeasoftIntoMonthlySales(existing, ideasoftSeances, baseline) {
+  var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  var merged = JSON.parse(JSON.stringify(existing)); // derin kopya
+
+  ideasoftSeances.forEach(function(s) {
+    if (!s.fullName || !s.seanceId) return;
+    // fullName'den ay bilgisini çıkar
+    var m = s.fullName.match(/- (\d+) (\w+) (\w+)/u);
+    if (!m) return;
+    var monthKey = m[2]; // "Nisan"
+    if (!TR_MONTHS_SRV.includes(monthKey)) return;
+
+    var cat = s.category;
+    var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
+    var sold = Math.max(0, base - (s.stockAmount !== null ? s.stockAmount : base));
+    if (sold === 0) return;
+
+    if (!merged[monthKey]) merged[monthKey] = {};
+    // Seansa özel key — her seans bir kez sayılır, üzerine yazılır (mevcut sold ile max alınır)
+    var seanceKey = '_s_' + s.seanceId;
+    var prevSold = (merged[monthKey][seanceKey] && merged[monthKey][seanceKey]._sold) || 0;
+    // Daha fazla satış varsa güncelle (azalmaz — seans silinse bile önceki değer korunur)
+    if (sold >= prevSold) {
+      if (!merged[monthKey][seanceKey]) merged[monthKey][seanceKey] = { cat, _sold: 0 };
+      merged[monthKey][seanceKey]._sold = sold;
+    }
+  });
+
+  return merged;
+}
+
+// monthlySales'i UI için düz { ay: { kategori: toplam } } formatına çevir
+function flattenMonthlySales(monthlySales) {
+  var result = {};
+  Object.keys(monthlySales).forEach(function(month) {
+    result[month] = {};
+    Object.keys(monthlySales[month]).forEach(function(seanceKey) {
+      var entry = monthlySales[month][seanceKey];
+      var cat  = entry.cat;
+      var sold = entry._sold || 0;
+      result[month][cat] = (result[month][cat] || 0) + sold;
+    });
+  });
+  return result;
 }
 
 // ─── Yardımcı ──────────────────────────────────────────────────────────────────
@@ -624,12 +697,30 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 
     // Baseline = yeni kalan + mevcut satılan
     // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
-    var baseline = await loadBaseline();
-    baseline[seanceId] = newStock + currentSoldCount;
-    await saveBaseline(baseline);
-
+    var record2 = {};
+    try {
+      var br2 = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+        headers: { 'X-Master-Key': JSONBIN_API_KEY }
+      });
+      record2 = br2.data.record || {};
+    } catch(e) {}
+    var baseline2      = record2.baseline      || {};
+    var monthlySales2  = record2.monthlySales  || {};
+    baseline2[seanceId] = newStock + currentSoldCount;
+    // Aylık arşivi de güncelle
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
     lastFetch    = new Date().toISOString();
+    var tmpSales = ideasoftData.map(function(s) {
+      if (!s.seanceId) return Object.assign({},s,{soldCount:null});
+      var base = baseline2[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
+      return Object.assign({},s,{ baselineStock:base, soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base)) });
+    });
+    var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, tmpSales, baseline2);
+    try {
+      await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+        { baseline: baseline2, monthlySales: updatedMonthly2 },
+        { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+    } catch(e) { console.error('JSONBin yazma hatasi:', e.message); }
     res.json({ success:true });
   } catch(err) {
     console.error('Stok guncelleme hatasi:', err.message);
@@ -644,9 +735,20 @@ app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
   var ideasoftSales = null;
+  var monthlySalesFlat = {};
   if (ideasoftData) {
-    var baseline = await loadBaseline();
-    var changed  = false;
+    var record = {};
+    try {
+      var binRes = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+        headers: { 'X-Master-Key': JSONBIN_API_KEY }
+      });
+      record = binRes.data.record || {};
+    } catch(e) { console.error('JSONBin okuma hatasi:', e.message); }
+
+    var baseline      = record.baseline      || {};
+    var monthlySales  = record.monthlySales  || {};
+    var changed = false;
+
     ideasoftSales = ideasoftData.map(function(s) {
       if (!s.seanceId) return Object.assign({},s,{baselineStock:null,soldCount:null});
       if (baseline[s.seanceId]===undefined) { baseline[s.seanceId]=CATEGORY_BASELINE[s.category]||DEFAULT_BASELINE; changed=true; }
@@ -656,10 +758,23 @@ app.get('/api/sales', async function(req, res) {
         soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base))
       });
     });
-    if (changed) await saveBaseline(baseline);
+
+    // Aylık satış arşivini güncelle — seanslar sonradan silinse bile korunur
+    var updatedMonthlySales = mergeIdeasoftIntoMonthlySales(monthlySales, ideasoftSales, baseline);
+    var monthlyChanged = JSON.stringify(updatedMonthlySales) !== JSON.stringify(monthlySales);
+
+    if (changed || monthlyChanged) {
+      try {
+        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+          { baseline, monthlySales: updatedMonthlySales },
+          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+      } catch(e) { console.error('JSONBin yazma hatasi:', e.message); }
+    }
+
+    monthlySalesFlat = flattenMonthlySales(updatedMonthlySales);
   }
 
-  res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch });
+  res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, monthlySales: monthlySalesFlat });
 });
 
 // Frontend dist klasörünü servis et (PWA için)
