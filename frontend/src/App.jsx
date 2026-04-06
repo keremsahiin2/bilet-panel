@@ -319,6 +319,8 @@ export default function App() {
   const [stockMsg, setStockMsg]             = useState({});
   const [showIdeasoftReport, setShowIdeasoftReport] = useState(false);
   const [toggling, setToggling]                   = useState({});
+  const [deleting, setDeleting]                   = useState({});
+  const [confirmDelete, setConfirmDelete]         = useState(null); // seanceId bekliyor
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
@@ -422,6 +424,24 @@ export default function App() {
       });
     } catch(e) { alert('Hata: ' + e.message); }
     finally { setToggling(p => ({...p,[seanceId]:false})); }
+  };
+
+  const handleDeleteSeance = async (seanceId, productId) => {
+    setDeleting(p => ({...p,[seanceId]:true}));
+    setConfirmDelete(null);
+    try {
+      const res  = await fetch("/api/ideasoft/delete-seance", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({seanceId, productId})
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => s.seanceId !== seanceId) };
+      });
+    } catch(e) { alert('Silme hatası: ' + e.message); }
+    finally { setDeleting(p => ({...p,[seanceId]:false})); }
   };
 
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
@@ -927,6 +947,28 @@ export default function App() {
                                     opacity:toggling[s.seanceId]?0.5:1}}>
                                   {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
                                 </button>
+                                {confirmDelete === s.seanceId ? (
+                                  <div style={{display:'flex',gap:6,marginTop:2}}>
+                                    <button
+                                      onClick={()=>handleDeleteSeance(s.seanceId, s.productId)}
+                                      disabled={deleting[s.seanceId]}
+                                      style={{flex:1,padding:'9px 0',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',background:'#7f1d1d',color:'#fca5a5'}}>
+                                      {deleting[s.seanceId]?'⟳ Siliniyor…':'Evet, Sil'}
+                                    </button>
+                                    <button
+                                      onClick={()=>setConfirmDelete(null)}
+                                      style={{flex:1,padding:'9px 0',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'1px solid #1a2035',background:'#111827',color:'#94a3b8'}}>
+                                      Vazgeç
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    disabled={deleting[s.seanceId]}
+                                    onClick={()=>setConfirmDelete(s.seanceId)}
+                                    style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'1px solid #3f1515',background:'#1a0a0a',color:'#dc2626',opacity:deleting[s.seanceId]?0.5:1}}>
+                                    🗑 Seansı Sil
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
