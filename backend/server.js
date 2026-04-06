@@ -708,12 +708,12 @@ app.get('/api/debug/seance-raw/:seanceId', async function(req, res) {
   }
 });
 
-// Seansı sil — doğru akış:
+// Seansı sil — İdeasoft'un kullandığı gerçek akış:
 // 1) seanceId ile ideasoftData'dan productId'yi bul
-// 2) GET optioned-products/{productId} → tüm seansları çek
-// 3) İçinden seanceId eşleşen seans objesini bul
-// 4) O objenin options[] array'indeki her option için DELETE /admin-app/options/{optionId}
-// 5) Local cache ve ideasoftData'dan da sil
+// 2) GET optioned-products/{productId} → seansları çek, seanceId eşleşeni bul
+// 3) O seans objesindeki alt ürün ID'lerini topla (products[] veya seanceId kendisi)
+// 4) POST /admin-app/batch ile multipart/batch formatında DELETE /admin-app/products/{id} gönder
+// 5) Local cache ve ideasoftData'dan temizle
 app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var seanceId = req.params.seanceId;
@@ -726,7 +726,7 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
     localEntry = ideasoftData.find(function(s) { return String(s.seanceId) === String(seanceId); });
   }
   if (!localEntry || !localEntry.productId) {
-    return res.status(404).json({ error: 'Seans local data\'da bulunamadı, önce veriyi yenileyin', seanceId });
+    return res.status(404).json({ error: 'Seans bulunamadı, önce veriyi yenileyin', seanceId });
   }
   var productId = localEntry.productId;
 
@@ -734,28 +734,23 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
     'Cookie': cStr,
     'X-CSRF-TOKEN': ideasoftCsrfToken || '',
     'Accept': 'application/json',
-    'Content-Type': 'application/json',
     'x-ideasoft-locale': 'tr',
-    'navigate-on-error': 'false',
-    'disabled-success-toastr': 'false',
-    'disabled-error-toastr': 'false',
-    'use-return-carriage': 'true'
+    'navigate-on-error': 'false'
   };
 
   try {
-    // 2) CSRF token tazele + ürünün tüm seans verisini çek
+    // 2) Ürünün tüm seanslarını çek + CSRF token tazele
     var productRes = await axios.get(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + productId,
       { headers: baseHeaders, timeout: 12000 }
     );
-    // Güncel CSRF token'ı al
     var sc = (productRes.headers['set-cookie'] || []).join(' ');
     var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (cm) {
       ideasoftCsrfToken = cm[1];
-      baseHeaders['X-CSRF-TOKEN'] = ideasoftCsrfToken;
       saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
     }
+    var csrf = ideasoftCsrfToken || '';
 
     var body = productRes.data;
     var allSeances = [];
@@ -767,58 +762,82 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
       allSeances = [body];
     }
 
-    // 3) seanceId eşleşen seans objesini bul
+    // 3) seanceId eşleşen seans objesini bul → içindeki alt ürün ID'lerini topla
     var targetSeance = allSeances.find(function(s) { return String(s.id) === String(seanceId); });
-    if (!targetSeance) {
-      // Seans artık İdeasoft'ta yok — local'den temizle ve başarılı say
-      console.warn('Seans İdeasoft\'ta bulunamadı (zaten silinmiş olabilir), seanceId=' + seanceId);
-      if (ideasoftProductCache[productId]) {
-        ideasoftProductCache[productId] = ideasoftProductCache[productId].filter(function(s) {
-          return String(s.seanceId) !== String(seanceId);
+
+    var productIdsToDelete = [];
+    if (targetSeance) {
+      console.log('Silinecek seans bulundu:', JSON.stringify(Object.keys(targetSeance)));
+      // products[] array varsa onları kullan (İdeasoft panelindeki gibi)
+      if (targetSeance.products && Array.isArray(targetSeance.products) && targetSeance.products.length > 0) {
+        productIdsToDelete = targetSeance.products.map(function(p) { return p.id || p; });
+      }
+      // options[] varsa ekle
+      if (targetSeance.options && Array.isArray(targetSeance.options) && targetSeance.options.length > 0) {
+        targetSeance.options.forEach(function(o) {
+          var oid = o.id || o;
+          if (!productIdsToDelete.includes(oid)) productIdsToDelete.push(oid);
         });
       }
-      if (ideasoftData) {
-        ideasoftData = ideasoftData.filter(function(s) { return String(s.seanceId) !== String(seanceId); });
+      // Hiçbiri yoksa seanceId'nin kendisini dene
+      if (productIdsToDelete.length === 0) {
+        productIdsToDelete = [seanceId];
       }
-      return res.json({ success: true, note: 'Seans zaten mevcut değildi' });
-    }
-
-    console.log('Silinecek seans bulundu:', targetSeance.name || targetSeance.id, '— options:', targetSeance.options ? targetSeance.options.length : 'yok');
-
-    // 4) options[] varsa her birini sil; yoksa seanceId'yi direkt options/{id} ile silmeyi dene
-    var optionIdsToDelete = [];
-    if (targetSeance.options && Array.isArray(targetSeance.options) && targetSeance.options.length > 0) {
-      optionIdsToDelete = targetSeance.options.map(function(o) { return o.id || o; });
     } else {
-      // options array yok — seanceId'nin kendisi option ID'si olarak dene
-      optionIdsToDelete = [seanceId];
+      // Seans artık İdeasoft'ta yok — sadece local'den temizle
+      console.warn('Seans İdeasoft\'ta bulunamadı, seanceId=' + seanceId);
+      productIdsToDelete = [seanceId];
     }
 
-    var deletedCount = 0;
-    var lastError = null;
-    for (var i = 0; i < optionIdsToDelete.length; i++) {
-      var oid = optionIdsToDelete[i];
-      try {
-        await axios.delete(
-          'https://berkayalabalik.myideasoft.com/admin-app/options/' + oid,
-          { headers: baseHeaders, timeout: 10000 }
-        );
-        deletedCount++;
-        console.log('Option silindi: optionId=' + oid);
-      } catch(delErr) {
-        var ds = delErr.response && delErr.response.status;
-        // 401/403 → auth hatası, hemen dur
-        if (ds === 401 || ds === 403) throw delErr;
-        // 404 → zaten silinmiş, sayıya ekle
-        if (ds === 404) { deletedCount++; continue; }
-        console.error('Option silinemedi: optionId=' + oid, ds, delErr.message);
-        lastError = delErr;
+    console.log('Batch\'e gönderilecek product ID\'ler:', productIdsToDelete);
+
+    // 4) multipart/batch formatında POST /admin-app/batch
+    var boundary = Date.now().toString();
+    var batchBody = '';
+    productIdsToDelete.forEach(function(pid, i) {
+      batchBody += '--' + boundary + '\r\n';
+      batchBody += 'Content-Type: application/http; msgtype=request\r\n';
+      batchBody += 'Content-ID: <delete-seance-' + seanceId + '+' + i + '>\r\n';
+      batchBody += '\r\n';
+      batchBody += 'DELETE /admin-app/products/' + pid + ' HTTP/1.1\r\n';
+      batchBody += 'Host: berkayalabalik.myideasoft.com\r\n';
+      batchBody += 'Accept: application/json, text/plain, */*\r\n';
+      batchBody += 'Content-Type: application/http\r\n';
+      batchBody += 'Accept: application/json\r\n';
+      batchBody += 'Access-Control-Allow-Headers: Content-Type\r\n';
+      batchBody += 'navigate-on-error: false\r\n';
+      batchBody += 'disabled-success-toastr: true\r\n';
+      batchBody += 'disabled-error-toastr: false\r\n';
+      batchBody += 'should-batch: true\r\n';
+      batchBody += 'x-ideasoft-locale: tr\r\n';
+      batchBody += 'X-CSRF-TOKEN: ' + csrf + '\r\n';
+      batchBody += '\r\n';
+      batchBody += '\r\n';
+    });
+    batchBody += '--' + boundary + '--';
+
+    var batchRes = await axios.post(
+      'https://berkayalabalik.myideasoft.com/admin-app/batch',
+      batchBody,
+      {
+        headers: {
+          'Cookie': cStr,
+          'X-CSRF-TOKEN': csrf,
+          'Content-Type': 'multipart/batch; boundary=' + boundary,
+          'Accept': 'application/json',
+          'x-ideasoft-locale': 'tr',
+          'navigate-on-error': 'false',
+          'use-return-carriage': 'true',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        },
+        timeout: 15000
       }
-    }
+    );
 
-    if (deletedCount === 0 && lastError) throw lastError;
+    console.log('Batch yanıtı HTTP status:', batchRes.status);
+    console.log('Batch yanıtı body:', JSON.stringify(batchRes.data).slice(0, 500));
 
-    // 5) Local cache ve ideasoftData'dan sil
+    // 5) Local cache ve ideasoftData'dan temizle
     if (ideasoftProductCache[productId]) {
       ideasoftProductCache[productId] = ideasoftProductCache[productId].filter(function(s) {
         return String(s.seanceId) !== String(seanceId);
@@ -828,11 +847,11 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
       ideasoftData = ideasoftData.filter(function(s) { return String(s.seanceId) !== String(seanceId); });
     }
 
-    console.log('Seans başarıyla silindi: seanceId=' + seanceId + ', productId=' + productId + ', silinen option sayısı=' + deletedCount);
-    res.json({ success: true, deletedOptions: deletedCount, productId });
+    console.log('Seans silme batch gönderildi: seanceId=' + seanceId + ', productId=' + productId);
+    res.json({ success: true, batchStatus: batchRes.status, deletedProductIds: productIdsToDelete });
 
   } catch(err) {
-    console.error('Seans silme hatasi:', err.message, err.response && err.response.status, err.response && JSON.stringify(err.response && err.response.data).slice(0,300));
+    console.error('Seans silme hatasi:', err.message, err.response && err.response.status, err.response && JSON.stringify(err.response.data).slice(0,300));
     if (err.response && (err.response.status === 401 || err.response.status === 403))
       return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
     res.status(500).json({ error: err.message, status: err.response && err.response.status, body: err.response && err.response.data });
