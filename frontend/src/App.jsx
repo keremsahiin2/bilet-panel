@@ -452,73 +452,7 @@ export default function App() {
     finally { setDeleting(p => { const n={...p}; delete n[seanceId]; return n; }); }
   };
 
-  // Geçmiş tarihli tüm seansları otomatik sil
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkDeleteResult, setBulkDeleteResult] = useState(null);
 
-  const handleDeleteExpiredSeances = async () => {
-    if (!salesData?.ideasoft) return;
-    const now = new Date();
-    // Geçmiş seansları bul: bitiş saati geçmiş olanlar
-    const expiredSeances = (salesData.ideasoft || []).filter(s => {
-      if (!s.seanceId) return false;
-      const parsed = parseIdeasoftName(s.fullName);
-      if (!parsed) return false;
-      const dayNum = parseInt(parsed.dateKey);
-      let monIdx = -1;
-      for (let i = 0; i < TR_MONTHS.length; i++) {
-        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
-      }
-      if (monIdx === -1) return false;
-      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
-      if (!endMatch) return false;
-      const endH = parseInt(endMatch[1]);
-      const endM = parseInt(endMatch[2]);
-      // Bu yıl için bitiş zamanı
-      let endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
-      // Geçmişteyse yani endTime < now → geçmiş seans
-      return now >= endTime;
-    });
-
-    if (expiredSeances.length === 0) {
-      setBulkDeleteResult('Silinecek geçmiş seans bulunamadı.');
-      return;
-    }
-
-    if (!window.confirm(`${expiredSeances.length} geçmiş seans silinecek. Emin misiniz?`)) return;
-
-    setBulkDeleting(true);
-    setBulkDeleteResult(null);
-    let successCount = 0;
-    let failCount = 0;
-    const deletedIds = [];
-
-    for (const s of expiredSeances) {
-      try {
-        const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
-        const json = await res.json();
-        if (json.error) throw new Error(json.error);
-        deletedIds.push(s.seanceId);
-        successCount++;
-      } catch(e) {
-        console.error('Toplu silme hatası seanceId=' + s.seanceId, e.message);
-        failCount++;
-      }
-      // İstekler arası kısa bekleme (rate limit için)
-      await new Promise(r => setTimeout(r, 300));
-    }
-
-    // Local state'den sil
-    if (deletedIds.length > 0) {
-      setSalesData(prev => {
-        if (!prev || !prev.ideasoft) return prev;
-        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
-      });
-    }
-
-    setBulkDeleting(false);
-    setBulkDeleteResult(`✅ ${successCount} seans silindi${failCount > 0 ? `, ❌ ${failCount} hata` : ''}.`);
-  };
 
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
   // Her dakika kontrol: bitiş saati gelen aktif seansları otomatik kapat
@@ -961,23 +895,7 @@ export default function App() {
         <div style={S.panel}>
           <div style={S.panelHeader}>
             <span style={S.panelTitle}>📦 Stok Yönetimi</span>
-            {salesData?.ideasoft && (
-              <button
-                style={{...S.smallBtn, background: bulkDeleting ? '#1a1a1a' : '#1f0a0a',
-                  color: bulkDeleting ? '#475569' : '#ef4444',
-                  border:'1px solid #7f1d1d', fontSize:12}}
-                onClick={handleDeleteExpiredSeances}
-                disabled={bulkDeleting}>
-                {bulkDeleting ? '⟳ Siliniyor…' : '🗑 Geçmiş Seansları Sil'}
-              </button>
-            )}
           </div>
-          {bulkDeleteResult && (
-            <div style={{background:'#0d1f0d',border:'1px solid #166534',borderRadius:8,
-              padding:'8px 14px',fontSize:13,color:'#86efac',marginBottom:12}}>
-              {bulkDeleteResult}
-            </div>
-          )}
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
@@ -1030,15 +948,28 @@ export default function App() {
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
-                                <button
-                                  disabled={toggling[s.seanceId]}
-                                  onClick={()=>handleToggleSeance(s.seanceId, s.status===1)}
-                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
-                                    background:s.status===1?'#1f0f0f':'#0f1f0f',
-                                    color:s.status===1?'#ef4444':'#4ade80',
-                                    opacity:toggling[s.seanceId]?0.5:1}}>
-                                  {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
-                                </button>
+                                <div style={{display:'flex',justifyContent:'center',padding:'4px 0'}}>
+                                  <div
+                                    onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
+                                    style={{
+                                      width:51,height:31,borderRadius:16,
+                                      background:s.status===1?'#22c55e':'#3a3a3a',
+                                      position:'relative',cursor:toggling[s.seanceId]?'wait':'pointer',
+                                      transition:'background 0.25s',
+                                      opacity:toggling[s.seanceId]?0.6:1,
+                                      flexShrink:0
+                                    }}>
+                                    <div style={{
+                                      position:'absolute',
+                                      top:3,
+                                      left:s.status===1?23:3,
+                                      width:25,height:25,borderRadius:'50%',
+                                      background:'#fff',
+                                      boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
+                                      transition:'left 0.25s'
+                                    }}/>
+                                  </div>
+                                </div>
                                 <button
                                   disabled={deleting[s.seanceId]}
                                   onClick={()=>handleDeleteOption(s.seanceId)}

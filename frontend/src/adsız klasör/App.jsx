@@ -51,10 +51,10 @@ function eventNameToCategory(name) {
 
 function bubiletToCategory(name) {
   if (!name) return null;
-  if (name.includes('3D Figür') || name.includes('3d')) return '3D Figür';
+  if (name.includes('3D Figür') || name.includes('3d') || name.includes('3D')) return '3D Figür';
   if (name.includes('Punch')) return 'Punch';
   if (name.includes('Seramik')) return 'Seramik';
-  if (name.includes('Cupcake')) return 'Cupcake Mum';
+  if (name.includes('Cupcake') || (name.includes('Mum') && !name.includes('Workshop'))) return 'Cupcake Mum';
   if (name.includes('Quiz')) {
     const m = name.match(/Quiz[^\n]*?[:\-]\s*(.+?)(?:\s*[\|\-]\s*Sosyal|\s*$)/i);
     if (m && m[1] && m[1].trim().length > 1 && !m[1].includes('Sanathane')) return 'Quiz Night - ' + m[1].trim();
@@ -64,6 +64,7 @@ function bubiletToCategory(name) {
   if (name.includes('Maske')) return 'Maske';
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
+  if (name.includes('Resim')) return 'Resim';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -109,6 +110,13 @@ function buildSeanceMap(data) {
     const key = ensureSeance(dateKey, timeSlot, null);
     ensureCat(key, cat);
     map[key].categories[cat].ideasoft += (s.soldCount || 0);
+    // seanceId ve status'u satış panelinde toggle için sakla
+    if (s.seanceId) {
+      if (!map[key]._seanceIds) map[key]._seanceIds = [];
+      if (!map[key]._seanceIds.includes(s.seanceId)) map[key]._seanceIds.push(s.seanceId);
+      if (!map[key]._seanceStatus) map[key]._seanceStatus = {};
+      map[key]._seanceStatus[s.seanceId] = s.status;
+    }
     // Her seans için Quiz Night ise hangi konsept olduğunu kaydet (biletinial eşleştirmesi için)
     if (!map[key]._quizCat && cat.startsWith('Quiz Night')) {
       map[key]._quizCat = cat;
@@ -119,31 +127,43 @@ function buildSeanceMap(data) {
       for (let i = 0; i < TR_MONTHS.length; i++) {
         if (dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
-      const startH = parseInt(timeSlot.split(':')[0]);
+      const startMatch = timeSlot.match(/^(\d{2}):(\d{2})/);
+      const [startH, startM] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
       const _n = new Date();
-      const nowMonth = _n.getMonth();
-      const nowDay = _n.getDate();
       const nowYear = _n.getFullYear();
+      // Önce bu yıl için tarihi dene; o günün 21:00'ı geçmişse gelecek yıla at
       let year = nowYear;
-      if (monIdx < nowMonth || (monIdx === nowMonth && dayNum < nowDay)) {
+      const candidateDay21 = new Date(nowYear, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, 21, 0, 0);
+      if (_n >= candidateDay21) {
         year = nowYear + 1;
       }
-      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : nowMonth, dayNum || 1, startH);
+      map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, startH, startM || 0);
       map[key]._sorted = true;
     }
   });
 
   // Biletini Al — sadece satışı > 0 olan seansları ekle
+  // Workshop seansları: server tarafında _workshopCat ile kırılım çözüldü.
   // Quiz seansları: Biletini Al'da konsept adı yok, sadece "Quiz Night" geliyor.
   // Eşleştirme: aynı gün + saat → İdeasoft'taki _quizCat kategori adını kullan.
   (data.biletinial || []).forEach(s => {
     if (!s.SalesTicketTotalCount || s.SalesTicketTotalCount === 0) return;
+
+    // SeanceDate "2026-04-04T12:00:00" formatında lokal saat olarak geliyor — direkt parse et
     const { dateKey, time } = parseDateStr(s.SeanceDate);
 
-    // Quiz mi?
+    // Workshop alt kırılımı server tarafında zaten çözüldü:
+    // _workshopCat varsa direkt kullan (ör. "Bez Çanta", "Heykel" vb.)
     const isQuiz = s.EventName && s.EventName.includes('Quiz');
 
-    let cat = isQuiz ? 'Quiz Night' : eventNameToCategory(s.EventName);
+    let cat;
+    if (s._workshopCat) {
+      cat = s._workshopCat;
+    } else if (isQuiz) {
+      cat = 'Quiz Night';
+    } else {
+      cat = eventNameToCategory(s.EventName);
+    }
     if (!cat) return;
 
     // Önce tam eşleşme ara (aynı gün + saat)
@@ -160,8 +180,21 @@ function buildSeanceMap(data) {
       });
     }
 
-    // Quiz değilse: tam eşleşme yoksa aynı günde aynı kategoriyi bul
-    if (!matchKey && !isQuiz) {
+    // Workshop için: tam eşleşme yoksa aynı günde ilgili kategoriyi ara
+    // (Biletini Al saat/timezone farkı olabilir; _workshopCat ile kategori eşleştir)
+    if (!matchKey && s._workshopCat) {
+      matchKey = Object.keys(map).find(k => {
+        const [kDate] = k.split('|');
+        return kDate === dateKey && map[k].categories[cat] !== undefined;
+      });
+      // Hâlâ bulunamadıysa aynı günün herhangi bir seansına ekle
+      if (!matchKey) {
+        matchKey = Object.keys(map).find(k => k.startsWith(dateKey + '|'));
+      }
+    }
+
+    // Quiz değilse ve workshop değilse: tam eşleşme yoksa aynı günde aynı kategoriyi bul
+    if (!matchKey && !isQuiz && !s._workshopCat) {
       matchKey = Object.keys(map).find(k => {
         const [kDate] = k.split('|');
         return kDate === dateKey && map[k].categories[cat] !== undefined;
@@ -189,7 +222,17 @@ function buildSeanceMap(data) {
   (data.bubilet || []).forEach(s => {
     const { dateKey, time } = parseDateStr(s.tarih);
     const isQuiz = s.etkinlikAdi && s.etkinlikAdi.includes('Quiz');
-    let cat = isQuiz ? 'Quiz Night' : bubiletToCategory(s.etkinlikAdi);
+
+    // Workshop alt kırılımı server tarafında zaten çözüldü:
+    // _workshopCat varsa direkt kullan (ör. "Mekanda Seç", "Seramik" vb.)
+    let cat;
+    if (s._workshopCat) {
+      cat = s._workshopCat;
+    } else if (isQuiz) {
+      cat = 'Quiz Night';
+    } else {
+      cat = bubiletToCategory(s.etkinlikAdi);
+    }
     if (!cat) return;
 
     // Tam eşleşme
@@ -216,15 +259,38 @@ function buildSeanceMap(data) {
     map[key].categories[cat].bubilet += (s.biletAdet || 0);
   });
 
-  // Şu andan 2 saat öncesi — seanslar genelde 2 saat sürer, bitmişleri gizle
+  // Filtreleme kuralı:
+  // - Seans bitiş saatinden (timeSlot'taki 2. saat) 30 dakika sonra kaybolur.
+  // - Bitiş saati yoksa o günün 21:00'ında kaybolur.
   const _now = new Date();
-  const _cutoff = new Date(_now.getTime() - 2 * 60 * 60 * 1000);
-  // Geçmiş günleri de gösterme — en erken bugünün 05:00'ı
-  const _today5 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 5, 0, 0);
-  const _from = _cutoff > _today5 ? _cutoff : _today5;
 
   return Object.values(map)
-    .filter(s => s.sortDate >= _from)
+    .filter(s => {
+      // timeSlot örnek: "14:00 - 16:00" → bitiş 16:00
+      // Bitiş saatini timeSlot'tan çıkar
+      const endMatch = s.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      let hideAfter;
+      if (endMatch) {
+        // Bitiş saati var: seans günü + bitiş saati + 30dk
+        hideAfter = new Date(
+          s.sortDate.getFullYear(),
+          s.sortDate.getMonth(),
+          s.sortDate.getDate(),
+          parseInt(endMatch[1]),
+          parseInt(endMatch[2]) + 30,
+          0
+        );
+      } else {
+        // Bitiş saati yok: o günün 21:00'ı
+        hideAfter = new Date(
+          s.sortDate.getFullYear(),
+          s.sortDate.getMonth(),
+          s.sortDate.getDate(),
+          21, 0, 0
+        );
+      }
+      return _now < hideAfter;
+    })
     .sort((a,b) => a.sortDate - b.sortDate);
 }
 
@@ -232,6 +298,11 @@ function buildSeanceMap(data) {
 export default function App() {
   const [loggedIn, setLoggedIn]             = useState(false);
   const [autoLoginLoading, setAutoLoginLoading] = useState(true); // başlangıçta deniyor
+  const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
+  const [role, setRole]                     = useState(null);   // 'admin' | 'staff'
+  const [rolePin, setRolePin]               = useState('');
+  const [rolePinTarget, setRolePinTarget]   = useState(null);   // hangi rol için pin isteniyor
+  const [rolePinError, setRolePinError]     = useState(false);
   const [form, setForm]                     = useState({ bubiletUser:'', bubiletPass:'', biletinialToken:'', ideasoftUser:'', ideasoftPass:'' });
   const [rememberMe, setRememberMe]         = useState(true);
   const [loginLoading, setLoginLoading]     = useState(false);
@@ -247,13 +318,16 @@ export default function App() {
   const [stockUpdating, setStockUpdating]   = useState({});
   const [stockMsg, setStockMsg]             = useState({});
   const [showIdeasoftReport, setShowIdeasoftReport] = useState(false);
+  const [toggling, setToggling]                   = useState({});
+  const [deleting, setDeleting]                   = useState({});
+  const [deleteConfirm, setDeleteConfirm]         = useState({});
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
     fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
       .then(json => {
-        if (json.success) setLoggedIn(true);
+        if (json.success) { setLoggedIn(true); setRoleScreen(true); }
         else {
           // Kayıtlı bilgileri forma doldur
           fetch('/api/saved-credentials')
@@ -293,6 +367,7 @@ export default function App() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setLoggedIn(true);
+      setRoleScreen(true);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
@@ -315,12 +390,9 @@ export default function App() {
     setStockUpdating(p => ({...p,[seanceId]:true}));
     setStockMsg(p => ({...p,[seanceId]:''}));
     try {
-      // Mevcut satış sayısını bul — backend bu değeri koruyarak stok hesabı yapar
-      const seanceData = (salesData?.ideasoft || []).find(s => s.seanceId === seanceId);
-      const currentSoldCount = seanceData?.soldCount ?? 0;
       const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, newStock:parseInt(val), currentSoldCount})
+        body:JSON.stringify({seanceId, newStock:parseInt(val)})
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -331,16 +403,364 @@ export default function App() {
     finally { setStockUpdating(p => ({...p,[seanceId]:false})); }
   };
 
-  const getIdeasoftForCat = (cat) => (salesData?.ideasoft || []).filter(s => s.category === cat);
+  const handleToggleSeance = async (seanceId, currentlyActive) => {
+    setToggling(p => ({...p,[seanceId]:true}));
+    try {
+      const res  = await fetch("/api/ideasoft/toggle-seance", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({seanceId, active:!currentlyActive})
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      // Tüm veriyi yeniden çekmek yerine sadece o seansin status'unu local güncelle
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return {
+          ...prev,
+          ideasoft: prev.ideasoft.map(s =>
+            s.seanceId === seanceId ? { ...s, status: currentlyActive ? 0 : 1 } : s
+          )
+        };
+      });
+    } catch(e) { alert('Hata: ' + e.message); }
+    finally { setToggling(p => ({...p,[seanceId]:false})); }
+  };
+
+  const handleDeleteOption = async (seanceId) => {
+    if (!deleteConfirm[seanceId]) {
+      // İlk tıklama — onay iste
+      setDeleteConfirm(p => ({...p, [seanceId]: true}));
+      // 5 saniye sonra onayı iptal et
+      setTimeout(() => setDeleteConfirm(p => {
+        const next = {...p}; delete next[seanceId]; return next;
+      }), 5000);
+      return;
+    }
+    // İkinci tıklama — gerçekten sil
+    setDeleteConfirm(p => { const n={...p}; delete n[seanceId]; return n; });
+    setDeleting(p => ({...p, [seanceId]: true}));
+    try {
+      const res = await fetch(`/api/ideasoft/delete-option/${seanceId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      // Local state'den kaldır
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => s.seanceId !== seanceId) };
+      });
+    } catch(e) { alert('Silme hatası: ' + e.message); }
+    finally { setDeleting(p => { const n={...p}; delete n[seanceId]; return n; }); }
+  };
+
+  // Geçmiş tarihli tüm seansları otomatik sil
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState(null);
+
+  const handleDeleteExpiredSeances = async () => {
+    if (!salesData?.ideasoft) return;
+    const now = new Date();
+    // Geçmiş seansları bul: bitiş saati geçmiş olanlar
+    const expiredSeances = (salesData.ideasoft || []).filter(s => {
+      if (!s.seanceId) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return false;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+      }
+      if (monIdx === -1) return false;
+      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      if (!endMatch) return false;
+      const endH = parseInt(endMatch[1]);
+      const endM = parseInt(endMatch[2]);
+      // Bu yıl için bitiş zamanı
+      let endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
+      // Geçmişteyse yani endTime < now → geçmiş seans
+      return now >= endTime;
+    });
+
+    if (expiredSeances.length === 0) {
+      setBulkDeleteResult('Silinecek geçmiş seans bulunamadı.');
+      return;
+    }
+
+    if (!window.confirm(`${expiredSeances.length} geçmiş seans silinecek. Emin misiniz?`)) return;
+
+    setBulkDeleting(true);
+    setBulkDeleteResult(null);
+    let successCount = 0;
+    let failCount = 0;
+    const deletedIds = [];
+
+    for (const s of expiredSeances) {
+      try {
+        const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        deletedIds.push(s.seanceId);
+        successCount++;
+      } catch(e) {
+        console.error('Toplu silme hatası seanceId=' + s.seanceId, e.message);
+        failCount++;
+      }
+      // İstekler arası kısa bekleme (rate limit için)
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Local state'den sil
+    if (deletedIds.length > 0) {
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
+      });
+    }
+
+    setBulkDeleting(false);
+    setBulkDeleteResult(`✅ ${successCount} seans silindi${failCount > 0 ? `, ❌ ${failCount} hata` : ''}.`);
+  };
+
+  // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
+  // Her dakika kontrol: bitiş saati gelen aktif seansları otomatik kapat
+  useState(() => {
+    const autoCloseCheck = () => {
+      if (!salesData?.ideasoft) return;
+      const now = new Date();
+      salesData.ideasoft.forEach(s => {
+        if (s.status !== 1) return; // zaten pasif
+        if (!s.seanceId) return;
+        const parsed = parseIdeasoftName(s.fullName);
+        if (!parsed) return;
+        const dayNum = parseInt(parsed.dateKey);
+        let monIdx = -1;
+        for (let i = 0; i < TR_MONTHS.length; i++) {
+          if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+        }
+        if (monIdx === -1) return;
+        const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+        if (!endMatch) return;
+        const endH = parseInt(endMatch[1]);
+        const endM = parseInt(endMatch[2]);
+        const endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
+        // Bitiş saati geldi ve seans hâlâ aktif → kapat
+        if (now >= endTime && !toggling[s.seanceId]) {
+          console.log('Otomatik seans kapatma:', s.fullName);
+          handleToggleSeance(s.seanceId, true);
+        }
+      });
+    };
+    const interval = setInterval(autoCloseCheck, 60000); // her dakika kontrol
+    return () => clearInterval(interval);
+  }, [salesData]);
+
+  const getIdeasoftForCat = (cat) => {
+    const now = new Date();
+    return (salesData?.ideasoft || []).filter(s => {
+      if (s.category !== cat) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return true;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+      }
+      if (monIdx === -1) return true;
+
+      // Bitiş saatini timeSlot'tan çıkar: "14:00 - 16:00" → 16:00
+      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      let seanceYear = now.getFullYear();
+
+      if (endMatch) {
+        const endH = parseInt(endMatch[1]);
+        const endM = parseInt(endMatch[2]);
+        // Bu yıl için bitiş zamanını hesapla
+        let endTime = new Date(seanceYear, monIdx, dayNum, endH, endM, 0);
+        // Geçmişte kaldıysa gelecek yıla al
+        if (now > endTime) endTime = new Date(seanceYear + 1, monIdx, dayNum, endH, endM, 0);
+        // Bitiş saatinden önce göster (bitiş = kapanış, hâlâ stok güncellenebilir)
+        return now < endTime;
+      } else {
+        // Bitiş saati yoksa günün 21:00'ı
+        let day21 = new Date(seanceYear, monIdx, dayNum, 21, 0, 0);
+        if (now >= day21) day21 = new Date(seanceYear + 1, monIdx, dayNum, 21, 0, 0);
+        return now < day21;
+      }
+    });
+  };
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
   if (autoLoginLoading) {
+    const RADIUS = 40;
+    const CIRC = 2 * Math.PI * RADIUS;
     return (
       <div style={S.page}>
-        <div style={S.loginWrap}>
-          <div style={{textAlign:'center',color:'#475569'}}>
-            <div style={{fontSize:32,marginBottom:16}}>🎟</div>
-            <div style={{fontSize:14,color:'#475569'}}>Giriş yapılıyor…</div>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:'37vh'}}>
+          {/* SVG yuvarlak timer */}
+          <div style={{position:'relative',width:100,height:100,marginBottom:18}}>
+            <svg width="100" height="100" style={{transform:'rotate(-90deg)'}}>
+              {/* Arka halka */}
+              <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="#1a2035" strokeWidth="5"/>
+              {/* İlerleme halkası - CSS animasyonlu */}
+              <circle
+                cx="50" cy="50" r={RADIUS}
+                fill="none"
+                stroke="#b47cff"
+                strokeWidth="5"
+                strokeLinecap="round"
+                strokeDasharray={CIRC}
+                strokeDashoffset="0"
+                style={{
+                  animation:'loginTimer 6.5s linear forwards',
+                }}
+              />
+            </svg>
+            {/* Ortadaki ikon */}
+            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:28}}>🎟</div>
+          </div>
+          <div style={{fontSize:14,color:'#475569',letterSpacing:1}}>Giriş yapılıyor…</div>
+          <style>{`
+            @keyframes loginTimer {
+              from { stroke-dashoffset: 0; }
+              to   { stroke-dashoffset: ${CIRC}; }
+            }
+          `}</style>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
+  if (loggedIn && roleScreen && !role) {
+    const PINS = { admin: '2580', staff: '1525' };
+    const handleRolePin = () => {
+      if (rolePin === PINS[rolePinTarget]) {
+        setRole(rolePinTarget);
+        setRoleScreen(false);
+        setRolePin('');
+        setRolePinTarget(null);
+        setRolePinError(false);
+      } else {
+        setRolePinError(true);
+        setRolePin('');
+      }
+    };
+
+    // Pin isteniyor
+    if (rolePinTarget) {
+      const numpadPress = (digit) => {
+        if (rolePin.length >= 6) return;
+        const next = rolePin + digit;
+        setRolePin(next);
+        setRolePinError(false);
+      };
+      const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
+      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+      return (
+        <div style={S.page}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
+              <div style={{fontSize:36, marginBottom:12}}>
+                {rolePinTarget === 'admin' ? '🔐' : '👤'}
+              </div>
+              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>
+                {rolePinTarget === 'admin' ? 'Yönetici Girişi' : 'Çalışan Girişi'}
+              </div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
+              {rolePinError && (
+                <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
+              )}
+              <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{
+                    width:16, height:16, borderRadius:'50%',
+                    background: rolePin.length > i
+                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
+                      : '#1a2035',
+                    border: '2px solid ' + (rolePin.length > i
+                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
+                      : '#374151'),
+                    transition:'background 0.15s'
+                  }}/>
+                ))}
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
+                {NUMPAD.flat().map((k, i) => (
+                  k === '' ? <div key={i}/> :
+                  k === '⌫' ? (
+                    <button key={i}
+                      onClick={numpadDel}
+                      style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:20,
+                        cursor:'pointer', fontWeight:600}}>⌫</button>
+                  ) : (
+                    <button key={i}
+                      onClick={() => numpadPress(k)}
+                      style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:22,
+                        cursor:'pointer', fontWeight:700, transition:'background 0.1s'}}>
+                      {k}
+                    </button>
+                  )
+                ))}
+              </div>
+              <button
+                style={{...S.loginBtn,
+                  background: rolePin.length >= 4
+                    ? (rolePinTarget==='admin'
+                        ? 'linear-gradient(135deg,#b47cff,#7c3aff)'
+                        : 'linear-gradient(135deg,#0ea5e9,#0284c7)')
+                    : '#1a2035',
+                  color: rolePin.length >= 4 ? '#fff' : '#374151',
+                  cursor: rolePin.length >= 4 ? 'pointer' : 'default',
+                  marginBottom:8
+                }}
+                onClick={handleRolePin}
+                disabled={rolePin.length < 4}
+              >Giriş →</button>
+              <button
+                style={{...S.smallBtn, width:'100%', textAlign:'center'}}
+                onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}
+              >← Geri</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Rol seçim butonları
+    return (
+      <div style={S.page}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
+          <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
+            <div style={{fontSize:30, marginBottom:8}}>🎟</div>
+            <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
+            <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
+            <div style={{display:'flex', flexDirection:'column', gap:12}}>
+              <button
+                style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('admin')}
+              >
+                <span style={{fontSize:32}}>🔐</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Yönetici</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Satışlar + Stok yönetimi</div>
+                </div>
+              </button>
+              <button
+                style={{background:'linear-gradient(135deg,#0ea5e9,#0284c7)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('staff')}
+              >
+                <span style={{fontSize:32}}>👤</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Çalışan</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -350,9 +770,9 @@ export default function App() {
   // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
-      <div style={S.page}>
-        <div style={S.loginWrap}>
-          <div style={S.loginCard}>
+      <div style={{...S.page, overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh',paddingBottom:40}}>
+          <div style={{...S.loginCard, width:'100%'}}>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
             {loginError && <div style={S.errBox}>{loginError}</div>}
@@ -393,19 +813,52 @@ export default function App() {
         <div style={S.headerLeft}><span style={S.brandIcon}>🎟</span><span style={S.headerTitle}>BİLET PANELİ</span></div>
         <div style={S.headerRight}>
           {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
-          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);}}>Çıkış</button>
+          {role && (
+            <span style={{fontSize:11, color: role==='admin'?'#b47cff':'#0ea5e9',
+              background: role==='admin'?'#1a0a2e':'#0a1a2e',
+              border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
+              borderRadius:6, padding:'3px 10px', fontWeight:700}}>
+              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
+            </span>
+          )}
+          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
         </div>
       </div>
 
-      {/* İki Ana Buton */}
-      <div style={S.mainActions}>
-        <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
-          color="#b47cff" active={mode==='sales'} loading={salesLoading}
-          onClick={()=>{ setMode('sales'); fetchSales(); }} />
-        <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
-          color="#4fc9ff" active={mode==='stock'}
-          onClick={()=>setMode(mode==='stock'?null:'stock')} />
-      </div>
+      {/* Ana Butonlar */}
+      {role === 'staff' ? (
+        /* Çalışan: tek geniş yatay buton */
+        <div style={{padding:'18px',maxWidth:720,margin:'0 auto'}}>
+          <button
+            style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
+              padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
+              background: mode==='sales'
+                ? 'linear-gradient(135deg,#7c3aff,#b47cff)'
+                : 'linear-gradient(135deg,#b47cff,#7c3aff)',
+              boxShadow: mode==='sales' ? '0 0 24px #b47cff44' : 'none',
+              transition:'all 0.2s'}}
+            onClick={()=>{ setMode('sales'); fetchSales(); }}
+          >
+            <span style={{fontSize:32}}>📊</span>
+            <div style={{textAlign:'left'}}>
+              <div style={{fontSize:16,fontWeight:800,color:'#fff',marginBottom:2}}>
+                {salesLoading ? '⟳ Yükleniyor…' : 'Satışları Getir'}
+              </div>
+              <div style={{fontSize:12,color:'#e2e8f0',opacity:0.75}}>3 platformdaki seans satışlarını listele</div>
+            </div>
+          </button>
+        </div>
+      ) : (
+        /* Yönetici: iki kart yan yana */
+        <div style={S.mainActions}>
+          <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
+            color="#b47cff" active={mode==='sales'} loading={salesLoading}
+            onClick={()=>{ setMode('sales'); fetchSales(); }} />
+          <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
+            color="#4fc9ff" active={mode==='stock'}
+            onClick={()=>setMode(mode==='stock'?null:'stock')} />
+        </div>
+      )}
 
       {/* ── SATIŞ PANELİ ── */}
       {mode==='sales' && (
@@ -475,7 +928,7 @@ export default function App() {
                       const t = v.bubilet+v.biletinial+v.ideasoft;
                       const isAllDay = s._allDay && s._allDay[cat];
                       return (
-                        <div key={cat} style={{...S.detailRow,...(t>0?{background:'#0f1525',border:'1px solid #1e293b'}:{})}}>
+                        <div key={cat} style={{...S.detailRow,...(t>0?{background:'#1e2d45',border:'1px solid #2d4060'}:{})}}>
                           <span style={S.detailCat}>
                             {getCatIcon(cat)} {cat}
                             {isAllDay && <span style={{fontSize:10,color:'#ff9f4a',marginLeft:6,fontWeight:600}}>(tüm gün)</span>}
@@ -508,7 +961,23 @@ export default function App() {
         <div style={S.panel}>
           <div style={S.panelHeader}>
             <span style={S.panelTitle}>📦 Stok Yönetimi</span>
+            {salesData?.ideasoft && (
+              <button
+                style={{...S.smallBtn, background: bulkDeleting ? '#1a1a1a' : '#1f0a0a',
+                  color: bulkDeleting ? '#475569' : '#ef4444',
+                  border:'1px solid #7f1d1d', fontSize:12}}
+                onClick={handleDeleteExpiredSeances}
+                disabled={bulkDeleting}>
+                {bulkDeleting ? '⟳ Siliniyor…' : '🗑 Geçmiş Seansları Sil'}
+              </button>
+            )}
           </div>
+          {bulkDeleteResult && (
+            <div style={{background:'#0d1f0d',border:'1px solid #166534',borderRadius:8,
+              padding:'8px 14px',fontSize:13,color:'#86efac',marginBottom:12}}>
+              {bulkDeleteResult}
+            </div>
+          )}
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
@@ -561,6 +1030,26 @@ export default function App() {
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
+                                <button
+                                  disabled={toggling[s.seanceId]}
+                                  onClick={()=>handleToggleSeance(s.seanceId, s.status===1)}
+                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
+                                    background:s.status===1?'#1f0f0f':'#0f1f0f',
+                                    color:s.status===1?'#ef4444':'#4ade80',
+                                    opacity:toggling[s.seanceId]?0.5:1}}>
+                                  {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
+                                </button>
+                                <button
+                                  disabled={deleting[s.seanceId]}
+                                  onClick={()=>handleDeleteOption(s.seanceId)}
+                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
+                                    background: deleteConfirm[s.seanceId] ? '#3f0f0f' : '#1a1a1a',
+                                    color: deleteConfirm[s.seanceId] ? '#ff4444' : '#64748b',
+                                    border: deleteConfirm[s.seanceId] ? '1px solid #7f1d1d' : '1px solid #1e293b',
+                                    opacity: deleting[s.seanceId] ? 0.5 : 1,
+                                    transition:'all 0.2s'}}>
+                                  {deleting[s.seanceId] ? '⟳ Siliniyor…' : deleteConfirm[s.seanceId] ? '⚠️ Emin misin? Tekrar bas!' : '🗑 Seansı Sil'}
+                                </button>
                               </div>
                             )}
                           </div>
@@ -577,27 +1066,22 @@ export default function App() {
 
           {/* ── İDEASOFT TOPLAM SATIŞ RAPORU ── */}
           {salesData && salesData.ideasoft && (() => {
-            // Tüm İdeasoft seanslarından gün×kategori satış tablosu oluştur
-            // fullName'den tarih parse et: "... - 5 Nisan Pazar 19:30 - ..." → "5 Nisan Pazar"
+            // Gün bazlı harita: aktif seanslardan hesaplanır (canlı veri)
             const dayMap = {}; // { "5 Nisan Pazar": { "Heykel": 2, ... } }
-            const monthMap = {}; // { "Nisan": { "Heykel": 5, ... } }
             const TR_MONTHS_SHORT = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 
             salesData.ideasoft.forEach(s => {
               if (!s.soldCount || s.soldCount === 0) return;
-              // fullName'den tarih çıkar
               const m = s.fullName.match(/- (\d+) (\w+) (\w+)/u);
               if (!m) return;
-              const dayKey   = m[1] + ' ' + m[2] + ' ' + m[3]; // "5 Nisan Pazar"
-              const monthKey = m[2]; // "Nisan"
+              const dayKey   = m[1] + ' ' + m[2] + ' ' + m[3];
               const cat      = s.category;
-
               if (!dayMap[dayKey]) dayMap[dayKey] = {};
               dayMap[dayKey][cat] = (dayMap[dayKey][cat] || 0) + s.soldCount;
-
-              if (!monthMap[monthKey]) monthMap[monthKey] = {};
-              monthMap[monthKey][cat] = (monthMap[monthKey][cat] || 0) + s.soldCount;
             });
+
+            // Aylık harita: server'dan gelen kalıcı arşiv (seanslar silinse bile korunur)
+            const monthMap = salesData.monthlySales || {};
 
             const days = Object.keys(dayMap).sort((a, b) => {
               const [dA, mA] = a.split(' ');
@@ -607,7 +1091,7 @@ export default function App() {
               return miA !== miB ? miA - miB : parseInt(dA) - parseInt(dB);
             });
 
-            const hasSales = days.length > 0;
+            const hasSales = days.length > 0 || Object.keys(monthMap).length > 0;
 
             return (
               <div style={{marginTop:16}}>
@@ -691,8 +1175,8 @@ function ActionCard({icon,title,desc,color,active,onClick,loading}){
 function Chip({label,value,color}){
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:48}}>
-      <span style={{fontSize:9,color:'#374151',marginBottom:1,textTransform:'uppercase',letterSpacing:1}}>{label}</span>
-      <span style={{fontSize:15,fontWeight:700,color:value>0?color:'#1e293b'}}>{value}</span>
+      <span style={{fontSize:9,color:'#64748b',marginBottom:1,textTransform:'uppercase',letterSpacing:1}}>{label}</span>
+      <span style={{fontSize:15,fontWeight:700,color:value>0?color:'#334155'}}>{value}</span>
     </div>
   );
 }
@@ -720,7 +1204,7 @@ function getCatIcon(cat) {
 
 const S = {
   page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60},
-  loginWrap:  {display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',padding:20},
+  loginWrap:  {display:'flex',justifyContent:'center',alignItems:'flex-start',minHeight:'100vh',padding:20,paddingTop:'calc(env(safe-area-inset-top, 0px) + 60px)'},
   loginCard:  {width:'100%',maxWidth:420,background:'#0d1120',border:'1px solid #1a2035',borderRadius:20,padding:'36px 32px'},
   brand:      {display:'flex',alignItems:'center',gap:10,marginBottom:4},
   brandIcon:  {fontSize:24},
@@ -731,13 +1215,13 @@ const S = {
   textarea:   {width:'100%',height:68,padding:'10px 14px',background:'#07090f',color:'#e2e8f0',border:'1px solid #1a2035',borderRadius:10,fontSize:12,marginBottom:10,boxSizing:'border-box',resize:'vertical'},
   loginBtn:   {width:'100%',padding:'13px',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:'pointer',marginTop:8},
   errBox:     {background:'#1f0f0f',border:'1px solid #7f1d1d',borderRadius:10,padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:16},
-  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
+  header:     {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',paddingTop:'calc(env(safe-area-inset-top, 0px) + 14px)',borderBottom:'1px solid #0f1525',background:'#090d17',position:'sticky',top:0,zIndex:10},
   headerLeft: {display:'flex',alignItems:'center',gap:8},
   headerTitle:{fontSize:13,fontWeight:800,letterSpacing:3,color:'#fff'},
   headerRight:{display:'flex',alignItems:'center',gap:10},
   ts:         {fontSize:11,color:'#374151'},
   smallBtn:   {background:'#111827',color:'#94a3b8',border:'1px solid #1a2035',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontSize:12,fontWeight:600},
-  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',maxWidth:720,margin:'0 auto'},
+  mainActions:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,padding:'18px',paddingTop:24,maxWidth:720,margin:'0 auto'},
   actionCard: {background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'20px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',transition:'all 0.2s',position:'relative',overflow:'hidden'},
   panel:      {maxWidth:720,margin:'0 auto',padding:'0 18px'},
   panelHeader:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12},
@@ -753,9 +1237,9 @@ const S = {
   catPill:    {fontSize:11,color:'#64748b',background:'#0a0e1a',borderRadius:6,padding:'2px 8px',border:'1px solid #1e293b'},
   totalPill:  {fontSize:13,fontWeight:700,color:'#374151',background:'#0a0e1a',border:'1px solid #1e293b',borderRadius:8,padding:'3px 10px',flexShrink:0},
   chevron:    {fontSize:18,color:'#374151',transition:'transform 0.2s',display:'inline-block',flexShrink:0},
-  detailWrap: {borderTop:'1px solid #0f1525',padding:'10px 14px',background:'#090d18',display:'flex',flexDirection:'column',gap:6},
-  detailRow:  {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:8,background:'#0a0e1a',border:'1px solid #0f1525',flexWrap:'wrap',gap:8},
-  detailCat:  {fontSize:13,color:'#475569',minWidth:120,fontWeight:600},
+  detailWrap: {borderTop:'1px solid #0f1525',padding:'10px 14px',background:'#131929',display:'flex',flexDirection:'column',gap:6},
+  detailRow:  {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:8,background:'#1a2236',border:'1px solid #243050',flexWrap:'wrap',gap:8},
+  detailCat:  {fontSize:13,color:'#94a3b8',minWidth:120,fontWeight:600},
   platforms:  {display:'flex',alignItems:'center',gap:14},
   loadMsg:    {color:'#374151',fontSize:13,padding:'24px 0',textAlign:'center'},
   empty:      {color:'#374151',fontSize:13,padding:'24px 0',textAlign:'center'},
