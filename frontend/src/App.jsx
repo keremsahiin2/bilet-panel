@@ -452,6 +452,74 @@ export default function App() {
     finally { setDeleting(p => { const n={...p}; delete n[seanceId]; return n; }); }
   };
 
+  // Geçmiş tarihli tüm seansları otomatik sil
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState(null);
+
+  const handleDeleteExpiredSeances = async () => {
+    if (!salesData?.ideasoft) return;
+    const now = new Date();
+    // Geçmiş seansları bul: bitiş saati geçmiş olanlar
+    const expiredSeances = (salesData.ideasoft || []).filter(s => {
+      if (!s.seanceId) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return false;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+      }
+      if (monIdx === -1) return false;
+      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      if (!endMatch) return false;
+      const endH = parseInt(endMatch[1]);
+      const endM = parseInt(endMatch[2]);
+      // Bu yıl için bitiş zamanı
+      let endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
+      // Geçmişteyse yani endTime < now → geçmiş seans
+      return now >= endTime;
+    });
+
+    if (expiredSeances.length === 0) {
+      setBulkDeleteResult('Silinecek geçmiş seans bulunamadı.');
+      return;
+    }
+
+    if (!window.confirm(`${expiredSeances.length} geçmiş seans silinecek. Emin misiniz?`)) return;
+
+    setBulkDeleting(true);
+    setBulkDeleteResult(null);
+    let successCount = 0;
+    let failCount = 0;
+    const deletedIds = [];
+
+    for (const s of expiredSeances) {
+      try {
+        const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        deletedIds.push(s.seanceId);
+        successCount++;
+      } catch(e) {
+        console.error('Toplu silme hatası seanceId=' + s.seanceId, e.message);
+        failCount++;
+      }
+      // İstekler arası kısa bekleme (rate limit için)
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Local state'den sil
+    if (deletedIds.length > 0) {
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
+      });
+    }
+
+    setBulkDeleting(false);
+    setBulkDeleteResult(`✅ ${successCount} seans silindi${failCount > 0 ? `, ❌ ${failCount} hata` : ''}.`);
+  };
+
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
   // Her dakika kontrol: bitiş saati gelen aktif seansları otomatik kapat
   useState(() => {
@@ -893,7 +961,23 @@ export default function App() {
         <div style={S.panel}>
           <div style={S.panelHeader}>
             <span style={S.panelTitle}>📦 Stok Yönetimi</span>
+            {salesData?.ideasoft && (
+              <button
+                style={{...S.smallBtn, background: bulkDeleting ? '#1a1a1a' : '#1f0a0a',
+                  color: bulkDeleting ? '#475569' : '#ef4444',
+                  border:'1px solid #7f1d1d', fontSize:12}}
+                onClick={handleDeleteExpiredSeances}
+                disabled={bulkDeleting}>
+                {bulkDeleting ? '⟳ Siliniyor…' : '🗑 Geçmiş Seansları Sil'}
+              </button>
+            )}
           </div>
+          {bulkDeleteResult && (
+            <div style={{background:'#0d1f0d',border:'1px solid #166534',borderRadius:8,
+              padding:'8px 14px',fontSize:13,color:'#86efac',marginBottom:12}}>
+              {bulkDeleteResult}
+            </div>
+          )}
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
