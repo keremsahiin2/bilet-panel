@@ -671,6 +671,63 @@ app.post('/api/ideasoft/toggle-seance', async function(req, res) {
   }
 });
 
+// Seansı sil (ideasoft options endpoint)
+app.delete('/api/ideasoft/delete-option/:optionId', async function(req, res) {
+  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
+  var optionId = req.params.optionId;
+  if (!optionId) return res.status(400).json({ error:'optionId gerekli' });
+  var cStr = toCookieStr(ideasoftCookies);
+  try {
+    // Önce CSRF token'ı tazele
+    try {
+      var csrfRes = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=1&optionGroup=9&fields=id',
+        { headers: { 'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+            'Accept': 'application/json', 'x-ideasoft-locale': 'tr',
+            'navigate-on-error': 'false' }, timeout: 8000 }
+      );
+      var sc = (csrfRes.headers['set-cookie'] || []).join(' ');
+      var m = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (m) { ideasoftCsrfToken = m[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    } catch(e) { /* token tazeleme başarısız olsa da devam et */ }
+
+    await axios.delete(
+      'https://berkayalabalik.myideasoft.com/admin-app/options/' + optionId,
+      { headers: {
+          'Cookie': cStr,
+          'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'x-ideasoft-locale': 'tr',
+          'navigate-on-error': 'false',
+          'disabled-success-toastr': 'false',
+          'disabled-error-toastr': 'false'
+      }, timeout: 10000 }
+    );
+
+    // Local cache'den de sil
+    Object.keys(ideasoftProductCache).forEach(function(pid) {
+      ideasoftProductCache[pid] = ideasoftProductCache[pid].filter(function(s) {
+        return String(s.seanceId) !== String(optionId);
+      });
+    });
+    // ideasoftData'dan da kaldır
+    if (ideasoftData) {
+      ideasoftData = ideasoftData.filter(function(s) {
+        return String(s.seanceId) !== String(optionId);
+      });
+    }
+
+    console.log('Seans silindi: optionId=' + optionId);
+    res.json({ success: true });
+  } catch(err) {
+    console.error('Seans silme hatasi:', err.message, err.response && err.response.status);
+    if (err.response && (err.response.status === 401 || err.response.status === 403))
+      return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
+    res.status(500).json({ error: err.message, status: err.response && err.response.status });
+  }
+});
+
 // Stok güncelle
 app.post('/api/ideasoft/update-stock', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
