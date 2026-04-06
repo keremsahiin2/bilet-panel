@@ -940,35 +940,22 @@ export default function App() {
                                     onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
                                     style={{
                                       marginLeft:'auto',
-                                      display:'flex',alignItems:'center',gap:6,
-                                      cursor:toggling[s.seanceId]?'wait':'pointer',
+                                      width:64,height:36,borderRadius:18,
+                                      background:s.status===1?'#22c55e':'#3a3a3a',
+                                      position:'relative',cursor:toggling[s.seanceId]?'wait':'pointer',
+                                      transition:'background 0.25s',
                                       opacity:toggling[s.seanceId]?0.6:1,
                                       flexShrink:0
                                     }}>
-                                    <span style={{
-                                      fontSize:10,fontWeight:700,letterSpacing:1,
-                                      color:s.status===1?'#22c55e':'#64748b',
-                                      textTransform:'uppercase'
-                                    }}>
-                                      {s.status===1?'SEANS AÇIK':'SEANS KAPALI'}
-                                    </span>
                                     <div style={{
-                                      width:44,height:24,borderRadius:12,
-                                      background:s.status===1?'#22c55e':'#3a3a3a',
-                                      position:'relative',
-                                      transition:'background 0.25s',
-                                      flexShrink:0
-                                    }}>
-                                      <div style={{
-                                        position:'absolute',
-                                        top:3,
-                                        left:s.status===1?23:3,
-                                        width:18,height:18,borderRadius:'50%',
-                                        background:'#fff',
-                                        boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
-                                        transition:'left 0.25s'
-                                      }}/>
-                                    </div>
+                                      position:'absolute',
+                                      top:4,
+                                      left:s.status===1?32:4,
+                                      width:28,height:28,borderRadius:'50%',
+                                      background:'#fff',
+                                      boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
+                                      transition:'left 0.25s'
+                                    }}/>
                                   </div>
                                 )}
                               </div>
