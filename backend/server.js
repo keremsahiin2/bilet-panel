@@ -672,13 +672,63 @@ app.post('/api/ideasoft/toggle-seance', async function(req, res) {
 });
 
 // Seansı sil (ideasoft options endpoint)
+// DEBUG: Belirli bir seansın ham verisini göster (hangi ID'lerin olduğunu anlamak için)
+app.get('/api/debug/seance-raw/:seanceId', async function(req, res) {
+  if (!ideasoftCookies) return res.json({ error: 'Ideasoft oturumu yok' });
+  var seanceId = req.params.seanceId;
+  var cStr = toCookieStr(ideasoftCookies);
+  try {
+    // optioned-products endpoint'inden bu seans objesini bul
+    // Önce seansın ait olduğu ürünü bul (ideasoftData'da ara)
+    var found = null;
+    if (ideasoftData) {
+      found = ideasoftData.find(function(s) { return String(s.seanceId) === String(seanceId); });
+    }
+    if (!found) return res.json({ error: 'Seans local data\'da bulunamadı', seanceId });
+
+    // optioned-products/{productId} den ham veriyi çek
+    var rawRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + found.productId,
+      { headers: { 'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+          'Accept': 'application/json', 'x-ideasoft-locale': 'tr' }, timeout: 10000 }
+    );
+    var body = rawRes.data;
+    // seanceId ile eşleşen alt objeyi bul
+    var seanceRaw = null;
+    if (body && body.data && Array.isArray(body.data)) {
+      seanceRaw = body.data.find(function(s) { return String(s.id) === String(seanceId); });
+    } else if (body && body.data) {
+      seanceRaw = body.data;
+    } else {
+      seanceRaw = body;
+    }
+    res.json({ found, seanceRaw, bodyKeys: body ? Object.keys(body) : [], seanceRawKeys: seanceRaw ? Object.keys(seanceRaw) : [] });
+  } catch(e) {
+    res.json({ error: e.message, status: e.response && e.response.status });
+  }
+});
+
+// Seansı sil — önce options/{id} dener, 404 gelirse optioned-products/{id} dener
 app.delete('/api/ideasoft/delete-option/:optionId', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var optionId = req.params.optionId;
   if (!optionId) return res.status(400).json({ error:'optionId gerekli' });
   var cStr = toCookieStr(ideasoftCookies);
+
+  var deleteHeaders = {
+    'Cookie': cStr,
+    'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'x-ideasoft-locale': 'tr',
+    'navigate-on-error': 'false',
+    'disabled-success-toastr': 'false',
+    'disabled-error-toastr': 'false',
+    'use-return-carriage': 'true'
+  };
+
   try {
-    // Önce CSRF token'ı tazele
+    // CSRF token tazele
     try {
       var csrfRes = await axios.get(
         'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=1&optionGroup=9&fields=id',
@@ -688,22 +738,35 @@ app.delete('/api/ideasoft/delete-option/:optionId', async function(req, res) {
       );
       var sc = (csrfRes.headers['set-cookie'] || []).join(' ');
       var m = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (m) { ideasoftCsrfToken = m[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-    } catch(e) { /* token tazeleme başarısız olsa da devam et */ }
+      if (m) {
+        ideasoftCsrfToken = m[1];
+        deleteHeaders['X-CSRF-TOKEN'] = ideasoftCsrfToken;
+        saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
+      }
+    } catch(e) { console.warn('CSRF tazele hatasi:', e.message); }
 
-    await axios.delete(
-      'https://berkayalabalik.myideasoft.com/admin-app/options/' + optionId,
-      { headers: {
-          'Cookie': cStr,
-          'X-CSRF-TOKEN': ideasoftCsrfToken || '',
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'x-ideasoft-locale': 'tr',
-          'navigate-on-error': 'false',
-          'disabled-success-toastr': 'false',
-          'disabled-error-toastr': 'false'
-      }, timeout: 10000 }
-    );
+    var deletedEndpoint = '';
+
+    // Önce optioned-products/{seanceId} ile DELETE dene
+    // (toggle/update zaten bu endpoint'i kullanıyor, bu en olası seçenek)
+    try {
+      await axios.delete(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + optionId,
+        { headers: deleteHeaders, timeout: 10000 }
+      );
+      deletedEndpoint = 'optioned-products';
+    } catch(err1) {
+      var s1 = err1.response && err1.response.status;
+      console.warn('optioned-products DELETE ' + s1 + ', options deneniyor...');
+      if (s1 === 401 || s1 === 403) throw err1; // auth hatası — yeniden dene
+
+      // optioned-products başarısız → options/{id} dene
+      await axios.delete(
+        'https://berkayalabalik.myideasoft.com/admin-app/options/' + optionId,
+        { headers: deleteHeaders, timeout: 10000 }
+      );
+      deletedEndpoint = 'options';
+    }
 
     // Local cache'den de sil
     Object.keys(ideasoftProductCache).forEach(function(pid) {
@@ -711,20 +774,19 @@ app.delete('/api/ideasoft/delete-option/:optionId', async function(req, res) {
         return String(s.seanceId) !== String(optionId);
       });
     });
-    // ideasoftData'dan da kaldır
     if (ideasoftData) {
       ideasoftData = ideasoftData.filter(function(s) {
         return String(s.seanceId) !== String(optionId);
       });
     }
 
-    console.log('Seans silindi: optionId=' + optionId);
-    res.json({ success: true });
+    console.log('Seans silindi: optionId=' + optionId + ' endpoint=' + deletedEndpoint);
+    res.json({ success: true, endpoint: deletedEndpoint });
   } catch(err) {
-    console.error('Seans silme hatasi:', err.message, err.response && err.response.status);
+    console.error('Seans silme hatasi:', err.message, err.response && err.response.status, err.response && JSON.stringify(err.response.data).slice(0,200));
     if (err.response && (err.response.status === 401 || err.response.status === 403))
       return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
-    res.status(500).json({ error: err.message, status: err.response && err.response.status });
+    res.status(500).json({ error: err.message, status: err.response && err.response.status, body: err.response && err.response.data });
   }
 });
 
