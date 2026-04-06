@@ -456,7 +456,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [salesData]);
 
-
+  const getIdeasoftForCat = (cat) => {
     const now = new Date();
     return (salesData?.ideasoft || []).filter(s => {
       if (s.category !== cat) return false;
