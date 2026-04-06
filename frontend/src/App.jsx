@@ -823,17 +823,17 @@ export default function App() {
             const bialOk     = (salesData.biletinial|| []).length > 0;
             const ideasoftOk = (salesData.ideasoft  || []).length > 0;
             return (
-              <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+              <div style={{display:'flex',gap:6,marginBottom:14}}>
                 {[['Bubilet',bubiletOk],['Biletini Al',bialOk],['İdeasoft',ideasoftOk]].map(([label,ok])=>(
-                  <div key={label} style={{display:'flex',alignItems:'center',gap:6,
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:4,flex:1,
                     background:ok?'#0d2a1a':'#2a0d0d',
                     border:'1px solid '+(ok?'#22c55e44':'#ef444444'),
-                    borderRadius:8,padding:'5px 12px'}}>
-                    <span style={{width:9,height:9,borderRadius:'50%',display:'inline-block',
+                    borderRadius:8,padding:'5px 8px',minWidth:0}}>
+                    <span style={{width:8,height:8,borderRadius:'50%',display:'inline-block',flexShrink:0,
                       background:ok?'#22c55e':'#ef4444',
                       boxShadow:'0 0 6px '+(ok?'#22c55e':'#ef4444')}}/>
-                    <span style={{fontSize:13,color:ok?'#86efac':'#fca5a5',fontWeight:600}}>{label}</span>
-                    <span style={{fontSize:11,color:'#475569'}}>{ok?'bağlı':'veri yok'}</span>
+                    <span style={{fontSize:12,color:ok?'#86efac':'#fca5a5',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
+                    <span style={{fontSize:10,color:'#475569',whiteSpace:'nowrap'}}>{ok?'bağlı':'yok'}</span>
                   </div>
                 ))}
               </div>
