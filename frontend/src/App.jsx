@@ -127,7 +127,8 @@ function buildSeanceMap(data) {
       for (let i = 0; i < TR_MONTHS.length; i++) {
         if (dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
-      const [startH, startM] = timeSlot.split(':').map(Number);
+      const startMatch = timeSlot.match(/^(\d{2}):(\d{2})/);
+      const [startH, startM] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
       const _n = new Date();
       const nowYear = _n.getFullYear();
       // Önce bu yıl için tarihi dene; o günün 21:00'ı geçmişse gelecek yıla at
