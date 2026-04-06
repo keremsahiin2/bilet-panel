@@ -582,10 +582,24 @@ export default function App() {
     // Pin isteniyor
     if (rolePinTarget) {
       const numpadPress = (digit) => {
-        if (rolePin.length >= 6) return;
+        if (rolePin.length >= 4) return;
         const next = rolePin + digit;
         setRolePin(next);
         setRolePinError(false);
+        if (next.length === 4) {
+          setTimeout(() => {
+            if (next === PINS[rolePinTarget]) {
+              setRole(rolePinTarget);
+              setRoleScreen(false);
+              setRolePin('');
+              setRolePinTarget(null);
+              setRolePinError(false);
+            } else {
+              setRolePinError(true);
+              setRolePin('');
+            }
+          }, 120);
+        }
       };
       const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
