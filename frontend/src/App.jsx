@@ -931,10 +931,33 @@ export default function App() {
                               <span style={S.stockRowName}>
                                 {s.fullName.replace('Farabi Sokak: Sosyal Sanathane - ','').replace('Tunalı: Ara Sokak Pub - ','')}
                               </span>
-                              <div style={S.badgeRow}>
+                              <div style={{...S.badgeRow, alignItems:'center'}}>
                                 <SBadge label="Mevcut"    value={s.stockAmount??'—'} color="#4fc9ff"/>
                                 {s.soldCount!=null   && <SBadge label="Satılan"    value={s.soldCount}    color="#ff9f4a"/>}
                                 {s.baselineStock!=null && <SBadge label="Başlangıç" value={s.baselineStock} color="#555"/>}
+                                {s.seanceId && (
+                                  <div
+                                    onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
+                                    style={{
+                                      marginLeft:'auto',
+                                      width:64,height:36,borderRadius:18,
+                                      background:s.status===1?'#22c55e':'#3a3a3a',
+                                      position:'relative',cursor:toggling[s.seanceId]?'wait':'pointer',
+                                      transition:'background 0.25s',
+                                      opacity:toggling[s.seanceId]?0.6:1,
+                                      flexShrink:0
+                                    }}>
+                                    <div style={{
+                                      position:'absolute',
+                                      top:4,
+                                      left:s.status===1?32:4,
+                                      width:28,height:28,borderRadius:'50%',
+                                      background:'#fff',
+                                      boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
+                                      transition:'left 0.25s'
+                                    }}/>
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {s.seanceId && (
@@ -948,28 +971,6 @@ export default function App() {
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
-                                <div style={{display:'flex',justifyContent:'center',padding:'4px 0'}}>
-                                  <div
-                                    onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
-                                    style={{
-                                      width:51,height:31,borderRadius:16,
-                                      background:s.status===1?'#22c55e':'#3a3a3a',
-                                      position:'relative',cursor:toggling[s.seanceId]?'wait':'pointer',
-                                      transition:'background 0.25s',
-                                      opacity:toggling[s.seanceId]?0.6:1,
-                                      flexShrink:0
-                                    }}>
-                                    <div style={{
-                                      position:'absolute',
-                                      top:3,
-                                      left:s.status===1?23:3,
-                                      width:25,height:25,borderRadius:'50%',
-                                      background:'#fff',
-                                      boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
-                                      transition:'left 0.25s'
-                                    }}/>
-                                  </div>
-                                </div>
                                 <button
                                   disabled={deleting[s.seanceId]}
                                   onClick={()=>handleDeleteOption(s.seanceId)}
