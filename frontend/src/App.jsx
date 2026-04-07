@@ -85,16 +85,31 @@ const EVENT_SCHEDULE = {
 
 // Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
 // ve hangi optionGroups/prices kullanılacağı
+// Mekan option ID'leri ve Tarih & Saat group ID'si
+// mekanOptionId: İdeasoft'taki Mekan option'ının ID'si (grup 8)
+// dateTimeGroupId: "Tarih & Saat" option group ID'si — varsayılan 9
+// optionGroups: her seans için Mekan sabit, Tarih & Saat server'da dinamik oluşturulur
+const _MEKAN_FARABI = { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
+const _PRICES_STD   = [{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}];
+const _SPECIAL_STD  = {id:33268,title:'',content:'',status:0};
+const _CURRENCY_TL  = {id:3,label:'TL',abbr:'TL'};
+
+// optionGroups şablonu: Mekan (id:8) + Tarih & Saat (id:9) — Tarih & Saat options'ı server'da doldurulur
+const _makeOptionGroups = (mekan) => [
+  { id: 8, title: 'Mekan',       options: [mekan] },
+  { id: 9, title: 'Tarih & Saat', options: [] },  // server'da POST /admin-app/options ile doldurulur
+];
+
 const EVENT_IDEASOFT_META = {
-  'Heykel':       { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Resim':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  '3D Figür':     { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Plak Boyama':  { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Maske':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Bez Çanta':    { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Cupcake Mum':  { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Seramik':      { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Punch':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Heykel':      { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Resim':       { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  '3D Figür':    { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Plak Boyama': { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Maske':       { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Bez Çanta':   { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Cupcake Mum': { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Seramik':     { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri',     parentSlug:'heykel-workshop-etkinlik-biletleri-1',     sku:'heykel-ankara-bilet',    price:450, stock:10, tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:_PRICES_STD, specialInfo:_SPECIAL_STD, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Punch':       { parentId:4278, parentName:'Punch Workshop - Etkinlik Biletleri',      parentSlug:'punch-workshop-etkinlik-biletleri-1',      sku:'punch-ankara-bilet',     price:600, stock:8,  tax:20, mekanOption:_MEKAN_FARABI, dateTimeGroupId:9, optionGroups:_makeOptionGroups(_MEKAN_FARABI), prices:[{id:17061,type:2,value:'0'},{id:17062,type:3,value:'0'},{id:17063,type:4,value:'0'},{id:17064,type:5,value:'0'}], specialInfo:{id:33340,title:'',content:'',status:0}, currency:_CURRENCY_TL, mekan:'Farabi Sokak: Sosyal Sanathane' },
 };
 
 function generateSeansListForCat(cat, startDateStr, endDateStr) {
@@ -138,6 +153,10 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
   const slug = `${meta.parentSlug}-${seansName.toLowerCase()
     .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
     .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`;
+
+  // Tarih & Saat option başlığı: "12 Nisan Pazar 19:00 - 21:00"  (dateKey + slot)
+  const dateTimeTitle = `${dateKey} ${slot}`;
+
   return {
     id: null,
     name: seansName,
@@ -163,8 +182,10 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
     gift: null,
     hasGift: 0,
     installmentThreshold: '-',
+    // optionGroups: Mekan sabit, Tarih & Saat server'da doldurulur
     optionGroups: meta.optionGroups,
-    optionIds: meta.optionIds,
+    // optionIds: server'da "newDateTimeOptionId_mekanOptionId" olarak set edilir
+    optionIds: '',
 
     parent: { id: meta.parentId, name: meta.parentName },
     prices: meta.prices,
@@ -172,6 +193,15 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
     specialInfo: meta.specialInfo,
     status: 1,
     extraInfos: [],
+
+    // ── Server'a gönderilecek meta alanlar (underscore prefix) ──────────────
+    // server.js bunları İdeasoft'a göndermeden önce siler ve akışı yönetir:
+    // 1) POST /admin-app/options → { title: _dateTimeTitle, group: { id: _dateTimeGroupId } }
+    // 2) Dönen ID ile optionIds = "<newId>_<_mekanOptionId>" ve optionGroups güncellenir
+    // 3) POST /admin-app/products
+    _dateTimeTitle:   dateTimeTitle,
+    _mekanOptionId:   meta.mekanOption.id,
+    _dateTimeGroupId: meta.dateTimeGroupId || 9,
   };
 }
 

@@ -858,15 +858,30 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   }
 });
 
-// Yeni seans oluştur — POST /admin-app/products
+// Yeni seans oluştur — 2 adımlı akış:
+// 1) POST /admin-app/options  → tarih/saat için yeni option ID al  (group: { id: 9 } = "Tarih & Saat" grubu)
+// 2) POST /admin-app/products → o ID ile variant oluştur
 app.post('/api/ideasoft/create-seance', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var payload = req.body;
   if (!payload || !payload.name) return res.status(400).json({ error:'Geçersiz payload' });
+
+  // payload.dateTimeTitle  → oluşturulacak option'ın başlığı, ör. "10 Nisan Cuma 16:00 - 18:00"
+  // payload.mekanOptionId  → mekan option ID'si, ör. 632
+  // payload.dateTimeGroupId → Tarih & Saat option group ID'si, varsayılan 9
+  var dateTimeTitle   = payload._dateTimeTitle;
+  var mekanOptionId   = payload._mekanOptionId;
+  var dateTimeGroupId = payload._dateTimeGroupId || 9;
+
+  // Bu alanları payload'dan temizle (İdeasoft'a gönderilmeyecek)
+  delete payload._dateTimeTitle;
+  delete payload._mekanOptionId;
+  delete payload._dateTimeGroupId;
+
   var cStr = toCookieStr(ideasoftCookies);
 
   try {
-    // Önce taze CSRF token al
+    // ── Adım 0: Taze CSRF token al ──────────────────────────────────────────
     var parentId = payload.parent && payload.parent.id;
     if (parentId) {
       try {
@@ -884,27 +899,63 @@ app.post('/api/ideasoft/create-seance', async function(req, res) {
       } catch(e) { /* csrf alınamazsa mevcut token ile devam et */ }
     }
 
+    var commonHeaders = {
+      'Cookie': cStr,
+      'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'x-ideasoft-locale': 'tr',
+      'navigate-on-error': 'false',
+      'disabled-success-toastr': 'true',
+      'disabled-error-toastr': 'false',
+      'access-control-allow-headers': 'Content-Type',
+    };
+
+    // ── Adım 1: Tarih & Saat option'ı oluştur ───────────────────────────────
+    var newDateTimeOptionId = null;
+    if (dateTimeTitle && mekanOptionId) {
+      var optionRes = await axios.post(
+        'https://berkayalabalik.myideasoft.com/admin-app/options',
+        { title: dateTimeTitle, group: { id: dateTimeGroupId } },
+        { headers: commonHeaders, timeout: 10000 }
+      );
+
+      // CSRF token yenilenmişse kaydet
+      var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
+      var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cmOpt) {
+        ideasoftCsrfToken = cmOpt[1];
+        commonHeaders['X-CSRF-TOKEN'] = ideasoftCsrfToken;
+        saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
+      }
+
+      newDateTimeOptionId = optionRes.data && optionRes.data.id;
+      if (!newDateTimeOptionId) throw new Error('Option oluşturulamadı — ID dönmedi: ' + JSON.stringify(optionRes.data).slice(0,200));
+      console.log('Tarih/Saat option oluşturuldu: id=' + newDateTimeOptionId + ', title=' + dateTimeTitle);
+
+      // Payload'u yeni option ID ile güncelle
+      // optionIds: "<dateTimeOptionId>_<mekanOptionId>"
+      payload.optionIds = newDateTimeOptionId + '_' + mekanOptionId;
+
+      // optionGroups içindeki "Tarih & Saat" grubunu (id=dateTimeGroupId) yeni option ile güncelle
+      if (Array.isArray(payload.optionGroups)) {
+        payload.optionGroups = payload.optionGroups.map(function(g) {
+          if (g.id === dateTimeGroupId) {
+            return Object.assign({}, g, { options: [{ id: newDateTimeOptionId, title: dateTimeTitle }] });
+          }
+          return g;
+        });
+      }
+    }
+
+    // ── Adım 2: Variant (optioned-product) oluştur ──────────────────────────
     var createRes = await axios.post(
       'https://berkayalabalik.myideasoft.com/admin-app/products',
       payload,
-      {
-        headers: {
-          'Cookie': cStr,
-          'X-CSRF-TOKEN': ideasoftCsrfToken || '',
-          'Content-Type': 'application/http',
-          'Accept': 'application/json',
-          'x-ideasoft-locale': 'tr',
-          'navigate-on-error': 'false',
-          'disabled-success-toastr': 'true',
-          'disabled-error-toastr': 'false',
-          'should-batch': 'true',
-          'access-control-allow-headers': 'Content-Type',
-        },
-        timeout: 15000
-      }
+      { headers: Object.assign({}, commonHeaders, { 'Content-Type': 'application/http', 'should-batch': 'true' }), timeout: 15000 }
     );
 
-    // Yeni CSRF token varsa kaydet
+    // CSRF token yenilenmişse kaydet
     var sc2 = (createRes.headers['set-cookie'] || []).join(' ');
     var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (cm2) {
@@ -912,7 +963,7 @@ app.post('/api/ideasoft/create-seance', async function(req, res) {
       saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
     }
 
-    console.log('Seans oluşturuldu:', createRes.data && createRes.data.id, payload.name);
+    console.log('Seans oluşturuldu: id=' + (createRes.data && createRes.data.id) + ', optionId=' + newDateTimeOptionId + ', name=' + payload.name);
     res.status(201).json(createRes.data);
 
   } catch(err) {
