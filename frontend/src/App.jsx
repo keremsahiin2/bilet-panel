@@ -688,9 +688,14 @@ export default function App() {
     setSeansYazStep(3);
   };
 
+  const [seansYazErrors, setSeansYazErrors] = useState([]); // hatalı seans detayları
+
   const handleSeansYazCreate = async () => {
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
+    setSeansYazErrors([]);
     let done = 0; let errors = 0;
+    const errorList = [];
+
     for (const item of seansYazList) {
       const payload = buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot);
       try {
@@ -700,10 +705,22 @@ export default function App() {
           body: JSON.stringify(payload)
         });
         const json = await res.json();
-        if (json.error) errors++;
-        else done++;
-      } catch(e) { errors++; }
+        if (json.error) {
+          errors++;
+          errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: json.error });
+        } else {
+          done++;
+        }
+      } catch(e) {
+        errors++;
+        errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: e.message });
+      }
       setSeansYazProgress({ done: done + errors, total: seansYazList.length, errors });
+      setSeansYazErrors([...errorList]);
+      // Seanslar arası 900ms bekle — İdeasoft option ID çakışmasını önler
+      if (done + errors < seansYazList.length) {
+        await new Promise(r => setTimeout(r, 900));
+      }
     }
     setSeansYazDone(true);
   };
@@ -879,13 +896,24 @@ export default function App() {
                     ✓ {seansYazProgress.done - seansYazProgress.errors} seans başarıyla oluşturuldu
                   </div>
                   {seansYazProgress.errors > 0 && (
-                    <div style={{fontSize:13,color:'#f87171',marginBottom:4}}>
+                    <div style={{fontSize:13,color:'#f87171',marginBottom:12}}>
                       ✗ {seansYazProgress.errors} seans oluşturulamadı
+                    </div>
+                  )}
+                  {seansYazErrors.length > 0 && (
+                    <div style={{background:'#1a0f0f',border:'1px solid #7f1d1d',borderRadius:10,padding:'12px 14px',marginBottom:16,textAlign:'left',maxHeight:220,overflowY:'auto'}}>
+                      <div style={{fontSize:11,fontWeight:700,color:'#f87171',marginBottom:8,textTransform:'uppercase',letterSpacing:1}}>Hatalı Seanslar</div>
+                      {seansYazErrors.map((e,i)=>(
+                        <div key={i} style={{marginBottom:6,paddingBottom:6,borderBottom:'1px solid #2a1010'}}>
+                          <div style={{fontSize:12,fontWeight:700,color:'#fca5a5'}}>{e.seans}</div>
+                          <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>{e.hata}</div>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <button
                     onClick={() => setSeansYazMode(false)}
-                    style={{marginTop:24,padding:'13px 32px',borderRadius:12,fontSize:14,fontWeight:700,
+                    style={{marginTop:8,padding:'13px 32px',borderRadius:12,fontSize:14,fontWeight:700,
                       border:'none',cursor:'pointer',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff'}}>
                     ← Panele Dön
                   </button>

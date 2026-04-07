@@ -858,168 +858,265 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   }
 });
 
-// Yeni seansları batch olarak oluştur
-// Frontend: [{ dateKey, slot, cat }] listesi + parentId gönderir
+// ─── Seans oluşturma yardımcısı ───────────────────────────────────────────────
+// Her çağrıda İdeasoft'tan fresh CSRF alır + parent'ı günceller (batch değil)
+async function createOneSeance(payload) {
+  var parentId = payload.parent && payload.parent.id;
+  var cStr = toCookieStr(ideasoftCookies);
+  var headers = function() {
+    return {
+      'Cookie': cStr,
+      'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'x-ideasoft-locale': 'tr',
+      'navigate-on-error': 'false',
+      'disabled-success-toastr': 'true',
+      'disabled-error-toastr': 'false',
+    };
+  };
+
+  // 1) Parent ürünü GET — gerçek veriyi al + CSRF tazele
+  var parentRes = await axios.get(
+    'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
+    { headers: headers(), timeout: 15000 }
+  );
+  var sc1 = (parentRes.headers['set-cookie'] || []).join(' ');
+  var cm1 = sc1.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+  if (cm1) { ideasoftCsrfToken = cm1[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+
+  var parentData = parentRes.data;
+
+  // 2) Mevcut optionGroups'u al — "Tarih & Saat" (id=9) grubunu bul
+  var existingGroups = parentData.optionGroups || [];
+  var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
+  var mekanGroup     = existingGroups.find(function(g) { return g.id === 8; });
+
+  // Tarih & Saat grubundaki mevcut en yüksek option id'yi bul
+  var maxOptionId = 0;
+  if (tarihSaatGroup && Array.isArray(tarihSaatGroup.options)) {
+    tarihSaatGroup.options.forEach(function(o) {
+      if (o.id > maxOptionId) maxOptionId = o.id;
+    });
+  }
+  // Tüm ürünler arasındaki global max'ı da kontrol et (güvenli taraf)
+  existingGroups.forEach(function(g) {
+    (g.options || []).forEach(function(o) {
+      if (o.id > maxOptionId) maxOptionId = o.id;
+    });
+  });
+
+  var newOptionId = maxOptionId + 1;
+  console.log('Mevcut max option ID:', maxOptionId, '→ yeni:', newOptionId, 'seans:', payload.name);
+
+  // Seans adından "Tarih & Saat" option title'ını çıkar
+  // "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00" → "12 Nisan Pazar 19:00 - 21:00"
+  var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
+
+  // Mekan option: mevcut 632'yi koru, yoksa oluştur
+  var mekanOption = { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
+  if (mekanGroup && mekanGroup.options && mekanGroup.options.length > 0) {
+    mekanOption = mekanGroup.options[0]; // var olanı kullan
+  }
+
+  // Yeni Tarih & Saat option listesi = mevcut liste + yeni seans
+  var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
+  var newTarihOptions = existingTarihOptions.concat([{ id: newOptionId, title: tarihSaatTitle }]);
+
+  // prices: parent'tan al (value=0 bırak — varyant override eder)
+  var realPrices = (parentData.prices || []).map(function(p) {
+    return { id: p.id, type: p.type, value: p.value || '0' };
+  });
+  var realSpecialInfo = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
+  var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
+  var realParentSlug = parentData.slug || '';
+
+  // Slug oluştur
+  var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
+    .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+
+  // optionIds: mevcut tüm tarih&saat ID'leri + mekan ID kombinasyonu
+  // İdeasoft formatı: "tarihId_mekanId" — her yeni seans için ayrı kombinasyon
+  var newOptionIds = newOptionId + '_' + mekanOption.id;
+
+  // 3) PUT /admin-app/products/{parentId} — yeni seansı ekle
+  // parentData'yı olduğu gibi al, sadece gereken alanları override et
+  var putPayload = Object.assign({}, parentData, {
+    // Yeni varyant (optioned product) bilgileri
+    // İdeasoft'ta yeni option group listesi gönderilir; mevcut varyantlar korunur
+    optionGroups: [
+      // Mekan grubu — mevcut ya da varsayılan
+      { id: 8, title: 'Mekan', options: [mekanOption] },
+      // Tarih & Saat grubu — mevcut liste + yeni
+      { id: 9, title: 'Tarih & Saat', options: newTarihOptions }
+    ],
+    // Yeni varyantın stok/fiyat bilgileri
+    // Bu alanlar varyant oluşturmak için parent payload'ına eklenir
+    addedOptions: [{
+      id: null,
+      name: payload.name,
+      sku: realSku,
+      slug: seansSlug,
+      barcode: null,
+      stockAmount: String(payload.stockAmount || '10'),
+      price1: String(payload.price1 || parentData.price1 || '450'),
+      currency: payload.currency || parentData.currency,
+      discount: '0',
+      discountType: 1,
+      moneyOrderDiscount: 0,
+      buyingPrice: '0',
+      taxIncluded: 1,
+      tax: payload.tax || parentData.tax || 20,
+      warranty: 0,
+      volumetricWeight: '0',
+      stockTypeLabel: 'Piece',
+      customShippingDisabled: 1,
+      customShippingCost: 0,
+      customizationGroups: [],
+      gift: null,
+      hasGift: 0,
+      installmentThreshold: '-',
+      selectionGroups: [],
+      extraInfos: [],
+      status: 1,
+      prices: realPrices,
+      specialInfo: realSpecialInfo,
+      parent: { id: parentId, name: parentData.name },
+      optionGroups: [
+        { id: 8, title: 'Mekan', options: [mekanOption] },
+        { id: 9, title: 'Tarih & Saat', options: [{ id: newOptionId, title: tarihSaatTitle }] }
+      ],
+      optionIds: newOptionIds,
+    }]
+  });
+
+  // 4) multipart/batch ile POST — İdeasoft'un beklediği format bu
+  // (Direkt PUT products/{id} varyant eklemez; batch içinde POST /admin-app/products kullanılır)
+  var boundary = Date.now().toString() + Math.random().toString(36).slice(2);
+  var csrf = ideasoftCsrfToken || '';
+
+  // Batch içine yeni varyantı POST olarak gönder
+  var variantPayload = {
+    id: null,
+    name: payload.name,
+    sku: realSku,
+    slug: seansSlug,
+    barcode: null,
+    stockAmount: String(payload.stockAmount || '10'),
+    price1: String(payload.price1 || parentData.price1 || '450'),
+    currency: payload.currency || parentData.currency,
+    discount: '0',
+    discountType: 1,
+    moneyOrderDiscount: 0,
+    buyingPrice: '0',
+    marketPriceDetail: null,
+    taxIncluded: 1,
+    tax: payload.tax || parentData.tax || 20,
+    warranty: 0,
+    volumetricWeight: '0',
+    stockTypeLabel: 'Piece',
+    customShippingDisabled: 1,
+    customShippingCost: 0,
+    customizationGroups: [],
+    gift: null,
+    hasGift: 0,
+    installmentThreshold: '-',
+    selectionGroups: [],
+    extraInfos: [],
+    status: 1,
+    prices: realPrices,
+    specialInfo: realSpecialInfo,
+    parent: { id: parentId, name: parentData.name },
+    optionGroups: [
+      { id: 8, title: 'Mekan', options: [mekanOption] },
+      { id: 9, title: 'Tarih & Saat', options: [{ id: newOptionId, title: tarihSaatTitle }] }
+    ],
+    optionIds: newOptionIds,
+  };
+
+  var innerLines = [
+    'POST /admin-app/products HTTP/1.1',
+    'Host: berkayalabalik.myideasoft.com',
+    'Accept: application/json, text/plain, */*',
+    'Content-Type: application/json',
+    'Access-Control-Allow-Headers: Content-Type',
+    'navigate-on-error: false',
+    'disabled-success-toastr: true',
+    'disabled-error-toastr: false',
+    'should-batch: true',
+    'x-ideasoft-locale: tr',
+    'X-CSRF-TOKEN: ' + csrf,
+  ].join('\r\n');
+
+  var jsonBody = JSON.stringify(variantPayload);
+  var batchBody =
+    '--' + boundary + '\r\n' +
+    'Content-Type: application/http; msgtype=request\r\n' +
+    'Content-ID: <create-seance-' + newOptionId + '+0>\r\n' +
+    '\r\n' +
+    innerLines + '\r\n' +
+    '\r\n' +
+    jsonBody + '\r\n' +
+    '\r\n' +
+    '--' + boundary + '--';
+
+  var batchRes = await axios.post(
+    'https://berkayalabalik.myideasoft.com/admin-app/batch',
+    batchBody,
+    {
+      headers: {
+        'Cookie': cStr,
+        'X-CSRF-TOKEN': csrf,
+        'Content-Type': 'multipart/batch; boundary=' + boundary,
+        'Accept': 'application/json',
+        'x-ideasoft-locale': 'tr',
+        'navigate-on-error': 'false',
+        'use-return-carriage': 'true',
+        'access-control-allow-headers': 'Content-Type',
+      },
+      timeout: 25000
+    }
+  );
+
+  // CSRF güncelle
+  var sc3 = (batchRes.headers['set-cookie'] || []).join(' ');
+  var cm3 = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+  if (cm3) { ideasoftCsrfToken = cm3[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+
+  // Batch response'u parse et — 200 olsa da içinde hata olabilir
+  var batchResponseStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
+
+  // Hata işaretleri: "HTTP/1.1 4" veya "HTTP/1.1 5" ile başlayan satırlar
+  var innerStatusMatch = batchResponseStr.match(/HTTP\/1\.1 (\d{3})/);
+  var innerStatus = innerStatusMatch ? parseInt(innerStatusMatch[1]) : batchRes.status;
+
+  if (innerStatus >= 400) {
+    console.error('Batch inner hata:', innerStatus, batchResponseStr.slice(0, 400));
+    throw new Error('İdeasoft batch hatası: ' + innerStatus + ' — ' + batchResponseStr.slice(0, 200));
+  }
+
+  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatus:', innerStatus);
+  return { success: true, optionId: newOptionId, innerStatus };
+}
+
+// Yeni seans oluştur — frontend'den tek payload alır, sıralı işler
 app.post('/api/ideasoft/create-seance', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
 
-  // Frontend tek bir payload objesi gönderiyor (buildIdeasoftPayload çıktısı)
-  // Biz bunu batch'e çeviriyoruz
   var payload = req.body;
-  if (!payload || !payload.name) return res.status(400).json({ error:'Geçersiz payload' });
-
-  var parentId = payload.parent && payload.parent.id;
-  if (!parentId) return res.status(400).json({ error:'parent.id gerekli' });
-
-  var cStr = toCookieStr(ideasoftCookies);
-  var baseHeaders = {
-    'Cookie': cStr,
-    'X-CSRF-TOKEN': ideasoftCsrfToken || '',
-    'Accept': 'application/json',
-    'x-ideasoft-locale': 'tr',
-    'navigate-on-error': 'false',
-    'disabled-success-toastr': 'true',
-    'disabled-error-toastr': 'false',
-  };
+  if (!payload || !payload.name) return res.status(400).json({ error:'Geçersiz payload — name gerekli' });
+  if (!payload.parent || !payload.parent.id) return res.status(400).json({ error:'parent.id gerekli' });
 
   try {
-    // 1) Parent ürün bilgilerini çek (prices, specialInfo, sku, vb.)
-    var parentRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
-      { headers: baseHeaders, timeout: 12000 }
-    );
-    // CSRF token tazele
-    var sc = (parentRes.headers['set-cookie'] || []).join(' ');
-    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm) {
-      ideasoftCsrfToken = cm[1];
-      saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
-      baseHeaders['X-CSRF-TOKEN'] = ideasoftCsrfToken;
-    }
-    var parentData = parentRes.data;
-
-    // 2) "Tarih & Saat" option group'undaki (id=9) son option ID'yi al
-    var optionsRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=1&optionGroup=9&sort=-id&fields=id,title',
-      { headers: baseHeaders, timeout: 10000 }
-    );
-    var sc2 = (optionsRes.headers['set-cookie'] || []).join(' ');
-    var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm2) {
-      ideasoftCsrfToken = cm2[1];
-      saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
-      baseHeaders['X-CSRF-TOKEN'] = ideasoftCsrfToken;
-    }
-    var optionsData = optionsRes.data;
-    var lastOptionId = 0;
-    if (optionsData && Array.isArray(optionsData.data) && optionsData.data.length > 0) {
-      lastOptionId = optionsData.data[0].id;
-    } else if (optionsData && Array.isArray(optionsData) && optionsData.length > 0) {
-      lastOptionId = optionsData[0].id;
-    }
-    console.log('Son Tarih & Saat option ID:', lastOptionId);
-
-    // 3) Bu seans için yeni option ID'yi hesapla
-    var newOptionId = lastOptionId + 1;
-
-    // Seans adından "Tarih & Saat" option title'ını çıkar
-    // "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00"
-    // → "12 Nisan Pazar 19:00 - 21:00"
-    var tarihSaatTitle = payload.name.replace(/^.*? - /, '');
-
-    // Parent'tan alınan gerçek prices ve specialInfo
-    var realPrices = (parentData.prices || []).map(function(p) {
-      return { id: p.id, type: p.type, value: '0' };
-    });
-    var realSpecialInfo = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
-    var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
-    var realParentName = parentData.name || payload.parent.name;
-    var realParentSlug = parentData.slug || '';
-
-    // Slug oluştur
-    var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
-      .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
-      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-
-    // 4) Batch payload oluştur — tek seans
-    var batchPayload = Object.assign({}, payload, {
-      sku: realSku,
-      slug: seansSlug,
-      prices: realPrices,
-      specialInfo: realSpecialInfo,
-      parent: { id: parentId, name: realParentName },
-      optionGroups: [
-        { id: 8, title: 'Mekan', options: [{ id: 632, title: 'Farabi Sokak: Sosyal Sanathane' }] },
-        { id: 9, title: 'Tarih & Saat', options: [{ id: newOptionId, title: tarihSaatTitle }] }
-      ],
-      optionIds: newOptionId + '_632',
-    });
-
-    // 5) multipart/batch formatında POST
-    var boundary = Date.now().toString();
-    var csrf = ideasoftCsrfToken || '';
-    var innerHeaders = [
-      'POST /admin-app/products HTTP/1.1',
-      'Host: berkayalabalik.myideasoft.com',
-      'Accept: application/json, text/plain, */*',
-      'Content-Type: application/http',
-      'Accept: application/json',
-      'Access-Control-Allow-Headers: Content-Type',
-      'navigate-on-error: false',
-      'disabled-success-toastr: true',
-      'disabled-error-toastr: false',
-      'should-batch: true',
-      'x-ideasoft-locale: tr',
-      'X-CSRF-TOKEN: ' + csrf,
-    ].join('\r\n');
-
-    var jsonBody = JSON.stringify(batchPayload);
-    var batchBody =
-      '--' + boundary + '\r\n' +
-      'Content-Type: application/http; msgtype=request\r\n' +
-      'Content-ID: <create-seance-' + newOptionId + '+0>\r\n' +
-      '\r\n' +
-      innerHeaders + '\r\n' +
-      '\r\n' +
-      jsonBody + '\r\n' +
-      '\r\n' +
-      '--' + boundary + '--';
-
-    var batchRes = await axios.post(
-      'https://berkayalabalik.myideasoft.com/admin-app/batch',
-      batchBody,
-      {
-        headers: {
-          'Cookie': cStr,
-          'X-CSRF-TOKEN': csrf,
-          'Content-Type': 'multipart/batch; boundary=' + boundary,
-          'Accept': 'application/json',
-          'x-ideasoft-locale': 'tr',
-          'navigate-on-error': 'false',
-          'use-return-carriage': 'true',
-          'access-control-allow-headers': 'Content-Type',
-        },
-        timeout: 20000
-      }
-    );
-
-    // CSRF güncelle
-    var sc3 = (batchRes.headers['set-cookie'] || []).join(' ');
-    var cm3 = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm3) {
-      ideasoftCsrfToken = cm3[1];
-      saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
-    }
-
-    console.log('Seans batch oluşturuldu:', payload.name, 'optionId:', newOptionId, 'status:', batchRes.status);
-    res.status(201).json({ success: true, optionId: newOptionId, batchStatus: batchRes.status, data: batchRes.data });
-
+    var result = await createOneSeance(payload);
+    res.status(201).json(result);
   } catch(err) {
     console.error('Seans oluşturma hatası:', err.message,
       err.response && err.response.status,
-      err.response && JSON.stringify(err.response.data).slice(0, 300));
+      err.response && JSON.stringify(err.response.data).slice(0, 400));
     if (err.response && (err.response.status === 401 || err.response.status === 403))
-      return res.status(401).json({ error:'İdeasoft oturumu sona erdi - tekrar giriş yapın' });
+      return res.status(401).json({ error:'İdeasoft oturumu sona erdi — tekrar giriş yapın' });
     res.status(500).json({
       error: err.message,
       status: err.response && err.response.status,
