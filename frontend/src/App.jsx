@@ -164,7 +164,7 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
     hasGift: 0,
     installmentThreshold: '-',
     optionGroups: meta.optionGroups,
-    optionIds: meta.optionIds,
+    optionIds: null,
     parent: { id: meta.parentId, name: meta.parentName },
     prices: meta.prices,
     selectionGroups: [],
