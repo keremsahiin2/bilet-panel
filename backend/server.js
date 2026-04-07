@@ -15,9 +15,6 @@ let lastFetch      = null;
 let ideasoftCookies    = null;
 let ideasoftCsrfToken  = null;
 
-// Global option ID sayacı — art arda seans oluştururken çakışmayı önler
-let globalMaxOptionId = 0;
-let globalMaxOptionIdFetchedAt = 0;
 
 const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
@@ -863,7 +860,7 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
 });
 
 // ─── Seans oluşturma yardımcısı ───────────────────────────────────────────────
-// Her çağrıda İdeasoft'tan fresh CSRF alır + parent'ı günceller (batch değil)
+// Her çağrıda İdeasoft'tan fresh CSRF alır + /admin-app/options ile gerçek option ID üretir
 async function createOneSeance(payload) {
   var parentId = payload.parent && payload.parent.id;
   var cStr = toCookieStr(ideasoftCookies);
@@ -925,42 +922,39 @@ async function createOneSeance(payload) {
     }
   }
 
-  // 2) Mevcut optionGroups'u işle — "Tarih & Saat" (id=9) grubunu bul
+  // 2) Mevcut optionGroups'u işle — "Tarih & Saat" (id=9) ve "Mekan" (id=8) grubunu bul
   var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
   var mekanGroup     = existingGroups.find(function(g) { return g.id === 8; });
-
-  // Tarih & Saat grubundaki mevcut en yüksek option id'yi bul
-  var freshMaxOptionId = 0;
-  if (tarihSaatGroup && Array.isArray(tarihSaatGroup.options)) {
-    tarihSaatGroup.options.forEach(function(o) {
-      if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
-    });
-  }
-  existingGroups.forEach(function(g) {
-    (g.options || []).forEach(function(o) {
-      if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
-    });
-  });
-
-  // Global sayaçla karşılaştır — İdeasoft cache gecikmesini aş
-  var now_ms = Date.now();
-  var stale = (now_ms - globalMaxOptionIdFetchedAt) > 30000;
-  if (stale) globalMaxOptionId = 0;
-  var maxOptionId = Math.max(freshMaxOptionId, globalMaxOptionId);
-  var newOptionId = maxOptionId + 1;
-  globalMaxOptionId = newOptionId;
-  globalMaxOptionIdFetchedAt = now_ms;
-  console.log('Mevcut max option ID:', maxOptionId, '(fresh:', freshMaxOptionId, 'global:', globalMaxOptionId-1, ') → yeni:', newOptionId, 'seans:', payload.name);
 
   // Seans adından "Tarih & Saat" option title'ını çıkar
   // "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00" → "12 Nisan Pazar 19:00 - 21:00"
   var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
 
-  // Mekan option: mevcut 632'yi koru, yoksa oluştur
+  // Mekan option: mevcut 632'yi koru
   var mekanOption = { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
   if (mekanGroup && mekanGroup.options && mekanGroup.options.length > 0) {
-    mekanOption = mekanGroup.options[0]; // var olanı kullan
+    mekanOption = mekanGroup.options[0];
   }
+
+  // ── GERÇEK OPTION ID AL: POST /admin-app/options ─────────────────────────────
+  // ID'yi kendin tahmin etme — İdeasoft global auto-increment kullanır, tahmin çakışır.
+  var optionSlug = tarihSaatTitle.toLowerCase()
+    .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+
+  var optionRes = await axios.post(
+    'https://berkayalabalik.myideasoft.com/admin-app/options',
+    { title: tarihSaatTitle, slug: optionSlug, sortOrder: 9999, optionGroup: { id: 9 } },
+    { headers: headers(), timeout: 15000 }
+  );
+  var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
+  var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+  if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+
+  var newOptionId = optionRes.data && optionRes.data.id;
+  if (!newOptionId) throw new Error('Option ID alınamadı — /admin-app/options yanıtı: ' + JSON.stringify(optionRes.data).slice(0, 200));
+  console.log('✓ Option ID alındı:', newOptionId, '→', tarihSaatTitle);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Yeni Tarih & Saat option listesi = mevcut liste + yeni seans
   var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
@@ -1082,7 +1076,7 @@ async function createOneSeance(payload) {
     'POST /admin-app/products HTTP/1.1',
     'Host: berkayalabalik.myideasoft.com',
     'Accept: application/json, text/plain, */*',
-    'Content-Type: application/json',
+    'Content-Type: application/http',
     'Access-Control-Allow-Headers: Content-Type',
     'navigate-on-error: false',
     'disabled-success-toastr: true',
