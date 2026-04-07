@@ -451,6 +451,52 @@ export default function App() {
     finally { setDeleting(p => { const n={...p}; delete n[seanceId]; return n; }); }
   };
 
+  // Geçmiş seans kontrolü: başlangıç saati geçmiş mi?
+  const isSeancePast = (s) => {
+    const parsed = parseIdeasoftName(s.fullName);
+    if (!parsed) return false;
+    const dayNum = parseInt(parsed.dateKey);
+    let monIdx = -1;
+    for (let i = 0; i < TR_MONTHS.length; i++) {
+      if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+    }
+    if (monIdx === -1) return false;
+    const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
+    if (!startMatch) return false;
+    const now = new Date();
+    const startTime = new Date(now.getFullYear(), monIdx, dayNum, parseInt(startMatch[1]), parseInt(startMatch[2]), 0);
+    return now >= startTime;
+  };
+
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({});
+
+  const handleBulkDeletePast = async (cat) => {
+    if (!bulkDeleteConfirm[cat]) {
+      setBulkDeleteConfirm(p => ({...p, [cat]: true}));
+      setTimeout(() => setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; }), 5000);
+      return;
+    }
+    setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; });
+    setBulkDeleting(true);
+    const pastSeances = (salesData?.ideasoft || []).filter(s => s.category === cat && s.seanceId && isSeancePast(s));
+    let deletedIds = [];
+    for (const s of pastSeances) {
+      try {
+        const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (!json.error) deletedIds.push(s.seanceId);
+      } catch(e) { /* devam et */ }
+    }
+    if (deletedIds.length > 0) {
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
+      });
+    }
+    setBulkDeleting(false);
+  };
+
 
 
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
@@ -892,11 +938,33 @@ export default function App() {
             <div style={S.stockPanel}>
               <div style={S.stockPanelHeader}>
                 <span style={S.stockCatTitle}>{getCatIcon(selectedCat)} {selectedCat}</span>
-                {!salesData && (
-                  <button style={S.smallBtn} onClick={fetchSales} disabled={salesLoading}>
-                    {salesLoading?'Yükleniyor…':'Veriyi Yükle'}
-                  </button>
-                )}
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  {salesData && (() => {
+                    const pastCount = (salesData?.ideasoft||[]).filter(s=>s.category===selectedCat&&s.seanceId&&isSeancePast(s)).length;
+                    if (pastCount === 0) return null;
+                    const confirming = bulkDeleteConfirm[selectedCat];
+                    return (
+                      <button
+                        onClick={()=>handleBulkDeletePast(selectedCat)}
+                        disabled={bulkDeleting}
+                        style={{
+                          padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',border:'none',
+                          background: confirming ? '#3f0f0f' : '#1a1a1a',
+                          color: confirming ? '#ff4444' : '#64748b',
+                          border: confirming ? '1px solid #7f1d1d' : '1px solid #1e293b',
+                          opacity: bulkDeleting ? 0.5 : 1,
+                          transition:'all 0.2s',whiteSpace:'nowrap'
+                        }}>
+                        {bulkDeleting ? '⟳ Siliniyor…' : confirming ? `⚠️ Emin misin? (${pastCount})` : `🗑 Geçmiş Seansları Sil (${pastCount})`}
+                      </button>
+                    );
+                  })()}
+                  {!salesData && (
+                    <button style={S.smallBtn} onClick={fetchSales} disabled={salesLoading}>
+                      {salesLoading?'Yükleniyor…':'Veriyi Yükle'}
+                    </button>
+                  )}
+                </div>
               </div>
               {!salesData && !salesLoading && <div style={S.empty}>Stok verisi için "Veriyi Yükle" butonuna basın.</div>}
               {salesLoading && <div style={S.loadMsg}>⟳ Yükleniyor…</div>}
