@@ -69,6 +69,111 @@ function bubiletToCategory(name) {
   return null;
 }
 
+// ─── Seans Takvimi ─────────────────────────────────────────────────────────
+// 0=Pazar,1=Pzt,2=Salı,3=Çar,4=Per,5=Cuma,6=Cmt
+const EVENT_SCHEDULE = {
+  'Heykel':       { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Resim':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  '3D Figür':     { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Plak Boyama':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Maske':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Bez Çanta':    { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Cupcake Mum':  { weekday:[5], slots:['17:30 - 19:30'], weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
+  'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
+  'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
+};
+
+// Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
+// ve hangi optionGroups/prices kullanılacağı
+const EVENT_IDEASOFT_META = {
+  'Heykel':       { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Resim':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  '3D Figür':     { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Plak Boyama':  { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Maske':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Bez Çanta':    { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Cupcake Mum':  { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Seramik':      { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Punch':        { parentId:4247, parentName:'Heykel Workshop - Etkinlik Biletleri', parentSlug:'heykel-workshop-etkinlik-biletleri-1', sku:'heykel-ankara-bilet', price:450, stock:10, tax:20, optionIds:'3105_632', optionGroups:[{id:8,title:'Mekan',options:[{id:632,title:'Farabi Sokak: Sosyal Sanathane'}]}], prices:[{id:16937,type:2,value:'0'},{id:16938,type:3,value:'0'},{id:16939,type:4,value:'0'},{id:16940,type:5,value:'0'}], specialInfo:{id:33268,title:'',content:'',status:0}, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+};
+
+function generateSeansListForCat(cat, startDateStr, endDateStr) {
+  const sched = EVENT_SCHEDULE[cat];
+  if (!sched) return [];
+
+  // startDateStr ve endDateStr: "YYYY-MM-DD"
+  const start = new Date(startDateStr + 'T00:00:00');
+  const end   = new Date(endDateStr   + 'T23:59:59');
+  const result = [];
+
+  const cur = new Date(start);
+  while (cur <= end) {
+    const dow = cur.getDay(); // 0=Pazar, 6=Cmt
+    const day = cur.getDate();
+    const monthName = TR_MONTHS[cur.getMonth()];
+    const dayName   = TR_DAYS[dow];
+    const dateKey   = `${day} ${monthName} ${dayName}`;
+
+    let slots = [];
+    if (sched.weekend.includes(dow)) {
+      slots = sched.weekendSlots;
+    } else if (sched.weekday.includes(dow)) {
+      slots = sched.slots;
+    }
+
+    slots.forEach(slot => {
+      result.push({ dateKey, slot, date: new Date(cur) });
+    });
+
+    cur.setDate(cur.getDate() + 1);
+  }
+  return result;
+}
+
+function buildIdeasoftPayload(cat, dateKey, slot) {
+  const meta = EVENT_IDEASOFT_META[cat];
+  if (!meta) return null;
+  // Seans adı: "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00"
+  const seansName = `${meta.mekan} - ${dateKey} ${slot}`;
+  const slug = `${meta.parentSlug}-${seansName.toLowerCase()
+    .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`;
+  return {
+    id: null,
+    name: seansName,
+    slug,
+    sku: meta.sku + '_' + Math.floor(Math.random()*9000+1000),
+    barcode: null,
+    stockAmount: String(meta.stock),
+    price1: String(meta.price),
+    currency: meta.currency,
+    discount: '0',
+    discountType: 1,
+    moneyOrderDiscount: 0,
+    buyingPrice: '0',
+    marketPriceDetail: null,
+    taxIncluded: 1,
+    tax: meta.tax,
+    warranty: 0,
+    volumetricWeight: '0',
+    stockTypeLabel: 'Piece',
+    customShippingDisabled: 1,
+    customShippingCost: 0,
+    customizationGroups: [],
+    gift: null,
+    hasGift: 0,
+    installmentThreshold: '-',
+    optionGroups: meta.optionGroups,
+    optionIds: meta.optionIds,
+    parent: { id: meta.parentId, name: meta.parentName },
+    prices: meta.prices,
+    selectionGroups: [],
+    specialInfo: meta.specialInfo,
+    status: 1,
+    extraInfos: [],
+  };
+}
+
 function buildSeanceMap(data) {
   if (!data) return [];
   const map = {};
@@ -471,6 +576,16 @@ export default function App() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({});
 
+  // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
+  const [seansYazMode, setSeansYazMode]         = useState(false);   // tam sayfa ekran
+  const [seansYazStep, setSeansYazStep]         = useState(1);       // 1=etkinlik seç, 2=tarih, 3=önizleme/oluştur
+  const [seansYazCat, setSeansYazCat]           = useState(null);
+  const [seansYazStart, setSeansYazStart]       = useState('');
+  const [seansYazEnd, setSeansYazEnd]           = useState('');
+  const [seansYazList, setSeansYazList]         = useState([]);      // oluşturulacak seanslar
+  const [seansYazProgress, setSeansYazProgress] = useState(null);    // { done, total, errors }
+  const [seansYazDone, setSeansYazDone]         = useState(false);
+
   const handleBulkDeletePast = async (cat) => {
     if (!bulkDeleteConfirm[cat]) {
       setBulkDeleteConfirm(p => ({...p, [cat]: true}));
@@ -555,7 +670,240 @@ export default function App() {
       });
   };
 
-  // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
+  // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
+  const handleSeansYazOpen = () => {
+    setSeansYazMode(true);
+    setSeansYazStep(1);
+    setSeansYazCat(null);
+    setSeansYazStart('');
+    setSeansYazEnd('');
+    setSeansYazList([]);
+    setSeansYazProgress(null);
+    setSeansYazDone(false);
+  };
+
+  const handleSeansYazCatSelect = (cat) => {
+    setSeansYazCat(cat);
+    setSeansYazStep(2);
+  };
+
+  const handleSeansYazDateConfirm = () => {
+    if (!seansYazStart || !seansYazEnd) return;
+    const list = generateSeansListForCat(seansYazCat, seansYazStart, seansYazEnd);
+    setSeansYazList(list);
+    setSeansYazStep(3);
+  };
+
+  const handleSeansYazCreate = async () => {
+    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
+    let done = 0; let errors = 0;
+    for (const item of seansYazList) {
+      const payload = buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot);
+      try {
+        const res = await fetch('/api/ideasoft/create-seance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.error) errors++;
+        else done++;
+      } catch(e) { errors++; }
+      setSeansYazProgress({ done: done + errors, total: seansYazList.length, errors });
+    }
+    setSeansYazDone(true);
+  };
+
+  // ─── SEANS YAZDIRMA TAM EKRAN ──────────────────────────────────────────────
+  if (seansYazMode) {
+    const SEANS_CATS = Object.keys(EVENT_SCHEDULE);
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setSeansYazMode(false)}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📅 SEANS YAZDIRMA</span>
+          </div>
+          {seansYazStep > 1 && !seansYazDone && (
+            <button style={S.smallBtn} onClick={() => { setSeansYazStep(s => s-1); setSeansYazProgress(null); setSeansYazDone(false); }}>
+              ← Önceki Adım
+            </button>
+          )}
+        </div>
+        <div style={{maxWidth:720,margin:'0 auto',padding:'24px 18px'}}>
+          {/* Adım göstergesi */}
+          <div style={{display:'flex',gap:8,marginBottom:28,alignItems:'center'}}>
+            {['Etkinlik Seç','Tarih Aralığı','Önizleme & Oluştur'].map((label,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:8,flex:1}}>
+                <div style={{width:26,height:26,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:12,fontWeight:800,flexShrink:0,
+                  background: seansYazStep>i+1?'#22c55e': seansYazStep===i+1?'#4fc9ff':'#1a2035',
+                  color: seansYazStep>=i+1?'#fff':'#374151',
+                  border:'2px solid '+(seansYazStep>i+1?'#22c55e':seansYazStep===i+1?'#4fc9ff':'#1a2035')
+                }}>{seansYazStep>i+1?'✓':i+1}</div>
+                <span style={{fontSize:11,color:seansYazStep===i+1?'#4fc9ff':'#374151',fontWeight:seansYazStep===i+1?700:400,whiteSpace:'nowrap'}}>{label}</span>
+                {i<2 && <div style={{flex:1,height:1,background:'#1a2035',minWidth:8}}/>}
+              </div>
+            ))}
+          </div>
+
+          {/* ADIM 1 */}
+          {seansYazStep === 1 && (
+            <div>
+              <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>
+                Seans yazdırmak istediğiniz etkinliği seçin
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                {SEANS_CATS.map(cat => (
+                  <button key={cat}
+                    onClick={() => handleSeansYazCatSelect(cat)}
+                    style={{
+                      background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
+                      padding:'18px 14px',cursor:'pointer',display:'flex',flexDirection:'column',
+                      alignItems:'center',textAlign:'center',gap:8,transition:'all 0.15s'
+                    }}>
+                    <span style={{fontSize:28}}>{getCatIcon(cat)}</span>
+                    <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{cat}</span>
+                    <span style={{fontSize:11,color:'#374151'}}>
+                      {EVENT_SCHEDULE[cat].weekday.length > 0 && EVENT_SCHEDULE[cat].weekend.length > 0
+                        ? 'Hafta içi + haftasonu'
+                        : EVENT_SCHEDULE[cat].weekend.length > 0
+                          ? 'Yalnızca haftasonu'
+                          : 'Hafta içi'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ADIM 2 */}
+          {seansYazStep === 2 && (
+            <div>
+              <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'16px 18px',marginBottom:20}}>
+                <div style={{fontSize:14,fontWeight:700,color:'#4fc9ff',marginBottom:6}}>
+                  {getCatIcon(seansYazCat)} {seansYazCat}
+                </div>
+                {EVENT_SCHEDULE[seansYazCat]?.weekday?.length > 0 && (
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:3}}>
+                    📌 Hafta içi: {EVENT_SCHEDULE[seansYazCat].slots.join(' & ')}
+                  </div>
+                )}
+                {EVENT_SCHEDULE[seansYazCat]?.weekend?.length > 0 && (
+                  <div style={{fontSize:11,color:'#64748b'}}>
+                    📌 Haftasonu: {EVENT_SCHEDULE[seansYazCat].weekendSlots.join(' & ')}
+                  </div>
+                )}
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                <div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BAŞLANGIÇ TARİHİ</div>
+                  <input type="date" value={seansYazStart} onChange={e=>setSeansYazStart(e.target.value)}
+                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BİTİŞ TARİHİ</div>
+                  <input type="date" value={seansYazEnd} onChange={e=>setSeansYazEnd(e.target.value)}
+                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
+                </div>
+                <button
+                  onClick={handleSeansYazDateConfirm}
+                  disabled={!seansYazStart || !seansYazEnd || seansYazStart > seansYazEnd}
+                  style={{
+                    padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
+                    background: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd)
+                      ? '#1a2035' : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                    color: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd) ? '#374151' : '#fff',
+                    transition:'all 0.15s'
+                  }}>
+                  Seansları Hesapla →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ADIM 3 */}
+          {seansYazStep === 3 && (
+            <div>
+              {!seansYazProgress && !seansYazDone && (
+                <>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
+                    <div style={{fontSize:13,color:'#e2e8f0',fontWeight:700}}>
+                      {getCatIcon(seansYazCat)} {seansYazCat} — <span style={{color:'#4fc9ff'}}>{seansYazList.length} seans</span>
+                    </div>
+                    <span style={{fontSize:11,color:'#374151'}}>{seansYazStart} → {seansYazEnd}</span>
+                  </div>
+                  {seansYazList.length === 0 ? (
+                    <div style={S.empty}>Bu tarih aralığında seans bulunamadı.</div>
+                  ) : (
+                    <>
+                      <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,overflow:'hidden',marginBottom:16,maxHeight:380,overflowY:'auto'}}>
+                        {seansYazList.map((item, i) => (
+                          <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                            padding:'10px 14px',borderBottom:'1px solid #0a0e1a'}}>
+                            <span style={{fontSize:13,color:'#94a3b8'}}>{item.dateKey}</span>
+                            <span style={{fontSize:13,fontWeight:700,color:'#4fc9ff'}}>{item.slot}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={handleSeansYazCreate}
+                        style={{width:'100%',padding:'15px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',
+                          cursor:'pointer',background:'linear-gradient(135deg,#22c55e,#16a34a)',color:'#fff'}}>
+                        ✅ {seansYazList.length} Seansı İdeasoft'a Yaz
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+
+              {seansYazProgress && !seansYazDone && (
+                <div style={{textAlign:'center',padding:'32px 0'}}>
+                  <div style={{fontSize:40,marginBottom:16}}>⏳</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:8}}>Seanslar oluşturuluyor…</div>
+                  <div style={{fontSize:14,color:'#4fc9ff',marginBottom:20}}>
+                    {seansYazProgress.done} / {seansYazProgress.total}
+                  </div>
+                  <div style={{background:'#1a2035',borderRadius:8,height:10,overflow:'hidden',margin:'0 auto',maxWidth:320}}>
+                    <div style={{height:'100%',borderRadius:8,transition:'width 0.3s',
+                      background:'linear-gradient(90deg,#0ea5e9,#22c55e)',
+                      width:`${Math.round(seansYazProgress.done/seansYazProgress.total*100)}%`}}/>
+                  </div>
+                  {seansYazProgress.errors > 0 && (
+                    <div style={{fontSize:12,color:'#f87171',marginTop:12}}>{seansYazProgress.errors} hata</div>
+                  )}
+                </div>
+              )}
+
+              {seansYazDone && seansYazProgress && (
+                <div style={{textAlign:'center',padding:'32px 16px'}}>
+                  <div style={{fontSize:52,marginBottom:16}}>{seansYazProgress.errors===0?'🎉':'⚠️'}</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:12}}>
+                    {seansYazProgress.errors===0?'Tüm seanslar oluşturuldu!':'İşlem tamamlandı'}
+                  </div>
+                  <div style={{fontSize:14,color:'#22c55e',marginBottom:4}}>
+                    ✓ {seansYazProgress.done - seansYazProgress.errors} seans başarıyla oluşturuldu
+                  </div>
+                  {seansYazProgress.errors > 0 && (
+                    <div style={{fontSize:13,color:'#f87171',marginBottom:4}}>
+                      ✗ {seansYazProgress.errors} seans oluşturulamadı
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setSeansYazMode(false)}
+                    style={{marginTop:24,padding:'13px 32px',borderRadius:12,fontSize:14,fontWeight:700,
+                      border:'none',cursor:'pointer',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff'}}>
+                    ← Panele Dön
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (autoLoginLoading) {
     const RADIUS = 40;
     const CIRC = 2 * Math.PI * RADIUS;
@@ -1163,6 +1511,25 @@ export default function App() {
               </div>
             );
           })()}
+
+          {/* ── SEANS YAZDIRMA BUTONU ── */}
+          {role === 'admin' && (
+            <div style={{marginTop:12}}>
+              <button
+                onClick={handleSeansYazOpen}
+                style={{
+                  width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
+                  padding:'13px 18px',background:'#0d1120',border:'1px solid #1a2035',
+                  borderRadius:12,cursor:'pointer',color:'#b47cff',fontSize:14,fontWeight:700,
+                  transition:'all 0.15s'
+                }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+                <span>📅 Seans Yazdır</span>
+                <span style={{fontSize:16}}>›</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
