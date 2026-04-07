@@ -260,28 +260,27 @@ function buildSeanceMap(data) {
   });
 
   // Filtreleme kuralı:
-  // - Seans bitiş saatinden (timeSlot'taki 2. saat) 30 dakika sonra kaybolur.
-  // - Bitiş saati yoksa o günün 21:00'ında kaybolur.
+  // - Başlangıç saatinden 30 dakika sonra kaybolur.
+  // - Başlangıç saati yoksa o günün 21:00'ında kaybolur.
   const _now = new Date();
 
   return Object.values(map)
     .filter(s => {
-      // timeSlot örnek: "14:00 - 16:00" → bitiş 16:00
-      // Bitiş saatini timeSlot'tan çıkar
-      const endMatch = s.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      // timeSlot örnek: "14:00 - 16:00" → başlangıç 14:00
+      const startMatch = s.timeSlot.match(/^(\d{2}):(\d{2})/);
       let hideAfter;
-      if (endMatch) {
-        // Bitiş saati var: seans günü + bitiş saati + 30dk
+      if (startMatch) {
+        // Başlangıç saati + 30dk
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
-          parseInt(endMatch[1]),
-          parseInt(endMatch[2]) + 30,
+          parseInt(startMatch[1]),
+          parseInt(startMatch[2]) + 30,
           0
         );
       } else {
-        // Bitiş saati yok: o günün 21:00'ı
+        // Başlangıç saati yoksa o günün 21:00'ı
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
@@ -455,7 +454,7 @@ export default function App() {
 
 
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
-  // Her dakika kontrol: bitiş saati gelen aktif seansları otomatik kapat
+  // Her dakika kontrol: başlangıç saati gelen aktif seansları otomatik kapat
   useState(() => {
     const autoCloseCheck = () => {
       if (!salesData?.ideasoft) return;
@@ -471,14 +470,15 @@ export default function App() {
           if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
         }
         if (monIdx === -1) return;
-        const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
-        if (!endMatch) return;
-        const endH = parseInt(endMatch[1]);
-        const endM = parseInt(endMatch[2]);
-        const endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
-        // Bitiş saati geldi ve seans hâlâ aktif → kapat
-        if (now >= endTime && !toggling[s.seanceId]) {
-          console.log('Otomatik seans kapatma:', s.fullName);
+        // Başlangıç saatini al
+        const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
+        if (!startMatch) return;
+        const startH = parseInt(startMatch[1]);
+        const startM = parseInt(startMatch[2]);
+        const startTime = new Date(now.getFullYear(), monIdx, dayNum, startH, startM, 0);
+        // Başlangıç saati geldi ve seans hâlâ aktif → kapat
+        if (now >= startTime && !toggling[s.seanceId]) {
+          console.log('Otomatik seans kapatma (başlangıç saati):', s.fullName);
           handleToggleSeance(s.seanceId, true);
         }
       });
@@ -488,38 +488,7 @@ export default function App() {
   }, [salesData]);
 
   const getIdeasoftForCat = (cat) => {
-    const now = new Date();
-    return (salesData?.ideasoft || []).filter(s => {
-      if (s.category !== cat) return false;
-      const parsed = parseIdeasoftName(s.fullName);
-      if (!parsed) return true;
-      const dayNum = parseInt(parsed.dateKey);
-      let monIdx = -1;
-      for (let i = 0; i < TR_MONTHS.length; i++) {
-        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
-      }
-      if (monIdx === -1) return true;
-
-      // Bitiş saatini timeSlot'tan çıkar: "14:00 - 16:00" → 16:00
-      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
-      let seanceYear = now.getFullYear();
-
-      if (endMatch) {
-        const endH = parseInt(endMatch[1]);
-        const endM = parseInt(endMatch[2]);
-        // Bu yıl için bitiş zamanını hesapla
-        let endTime = new Date(seanceYear, monIdx, dayNum, endH, endM, 0);
-        // Geçmişte kaldıysa gelecek yıla al
-        if (now > endTime) endTime = new Date(seanceYear + 1, monIdx, dayNum, endH, endM, 0);
-        // Bitiş saatinden önce göster (bitiş = kapanış, hâlâ stok güncellenebilir)
-        return now < endTime;
-      } else {
-        // Bitiş saati yoksa günün 21:00'ı
-        let day21 = new Date(seanceYear, monIdx, dayNum, 21, 0, 0);
-        if (now >= day21) day21 = new Date(seanceYear + 1, monIdx, dayNum, 21, 0, 0);
-        return now < day21;
-      }
-    });
+    return (salesData?.ideasoft || []).filter(s => s.category === cat);
   };
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
