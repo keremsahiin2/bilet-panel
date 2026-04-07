@@ -15,6 +15,11 @@ let lastFetch      = null;
 let ideasoftCookies    = null;
 let ideasoftCsrfToken  = null;
 
+// Global option ID sayacı — art arda seans oluştururken çakışmayı önler
+// İlk seans oluşturmada İdeasoft'tan gerçek max ID çekilir, sonraki seanslar +1 arttırır
+let globalMaxOptionId  = 0;
+let globalMaxOptionIdFetchedAt = 0; // ms timestamp — 30s sonra stale sayılır
+
 const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
 const SAVED_CREDS_FILE    = path.join(__dirname, 'saved_credentials.json');
@@ -893,21 +898,31 @@ async function createOneSeance(payload) {
   var mekanGroup     = existingGroups.find(function(g) { return g.id === 8; });
 
   // Tarih & Saat grubundaki mevcut en yüksek option id'yi bul
-  var maxOptionId = 0;
+  var freshMaxOptionId = 0;
   if (tarihSaatGroup && Array.isArray(tarihSaatGroup.options)) {
     tarihSaatGroup.options.forEach(function(o) {
-      if (o.id > maxOptionId) maxOptionId = o.id;
+      if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
     });
   }
   // Tüm ürünler arasındaki global max'ı da kontrol et (güvenli taraf)
   existingGroups.forEach(function(g) {
     (g.options || []).forEach(function(o) {
-      if (o.id > maxOptionId) maxOptionId = o.id;
+      if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
     });
   });
 
+  // Global sayaçla karşılaştır — art arda seans oluşturmada İdeasoft cache gecikmesini aş
+  // globalMaxOptionId, önceki seansların yazdığı ID'yi hatırlar
+  // İdeasoft'tan gelen freshMaxOptionId daha büyükse onu kullan (başka birisi eklemiş olabilir)
+  var now_ms = Date.now();
+  var stale = (now_ms - globalMaxOptionIdFetchedAt) > 30000; // 30s geçtiyse global'i sıfırla
+  if (stale) globalMaxOptionId = 0;
+
+  var maxOptionId = Math.max(freshMaxOptionId, globalMaxOptionId);
   var newOptionId = maxOptionId + 1;
-  console.log('Mevcut max option ID:', maxOptionId, '→ yeni:', newOptionId, 'seans:', payload.name);
+  globalMaxOptionId = newOptionId; // bir sonraki seans bu ID'den devam eder
+  globalMaxOptionIdFetchedAt = now_ms;
+  console.log('Mevcut max option ID:', maxOptionId, '(fresh:', freshMaxOptionId, 'global:', globalMaxOptionId-1, ') → yeni:', newOptionId, 'seans:', payload.name);
 
   // Seans adından "Tarih & Saat" option title'ını çıkar
   // "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00" → "12 Nisan Pazar 19:00 - 21:00"
@@ -1087,16 +1102,24 @@ async function createOneSeance(payload) {
   // Batch response'u parse et — 200 olsa da içinde hata olabilir
   var batchResponseStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
 
-  // Hata işaretleri: "HTTP/1.1 4" veya "HTTP/1.1 5" ile başlayan satırlar
-  var innerStatusMatch = batchResponseStr.match(/HTTP\/1\.1 (\d{3})/);
-  var innerStatus = innerStatusMatch ? parseInt(innerStatusMatch[1]) : batchRes.status;
+  // Batch içindeki TÜM HTTP status satırlarını bul (birden fazla olabilir)
+  var allInnerStatuses = [];
+  var statusPattern = /HTTP\/1\.1 (\d{3})/g;
+  var sm;
+  while ((sm = statusPattern.exec(batchResponseStr)) !== null) {
+    allInnerStatuses.push(parseInt(sm[1]));
+  }
+  var innerStatus = allInnerStatuses.length > 0 ? allInnerStatuses[0] : batchRes.status;
+  var hasError = allInnerStatuses.some(function(s) { return s >= 400; });
 
-  if (innerStatus >= 400) {
-    console.error('Batch inner hata:', innerStatus, batchResponseStr.slice(0, 400));
-    throw new Error('İdeasoft batch hatası: ' + innerStatus + ' — ' + batchResponseStr.slice(0, 200));
+  if (hasError) {
+    // Option ID çakışmasında global sayacı geri al
+    globalMaxOptionId = maxOptionId; // başarısız olduğu için bu ID'yi tekrar dene
+    console.error('Batch inner hata:', allInnerStatuses, batchResponseStr.slice(0, 500));
+    throw new Error('İdeasoft batch hatası: ' + allInnerStatuses.join(',') + ' — ' + batchResponseStr.slice(0, 300));
   }
 
-  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatus:', innerStatus);
+  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatuses:', allInnerStatuses);
   return { success: true, optionId: newOptionId, innerStatus };
 }
 
