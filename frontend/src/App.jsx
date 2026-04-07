@@ -534,7 +534,25 @@ export default function App() {
   }, [salesData]);
 
   const getIdeasoftForCat = (cat) => {
-    return (salesData?.ideasoft || []).filter(s => s.category === cat);
+    return (salesData?.ideasoft || [])
+      .filter(s => s.category === cat)
+      .sort((a, b) => {
+        const toDate = (s) => {
+          const parsed = parseIdeasoftName(s.fullName);
+          if (!parsed) return new Date(0);
+          const dayNum = parseInt(parsed.dateKey);
+          let monIdx = -1;
+          for (let i = 0; i < TR_MONTHS.length; i++) {
+            if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+          }
+          if (monIdx === -1) return new Date(0);
+          const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
+          const [h, m] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
+          const now = new Date();
+          return new Date(now.getFullYear(), monIdx, dayNum, h, m, 0);
+        };
+        return toDate(a) - toDate(b);
+      });
   };
 
   // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
