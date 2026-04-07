@@ -16,9 +16,8 @@ let ideasoftCookies    = null;
 let ideasoftCsrfToken  = null;
 
 // Global option ID sayacı — art arda seans oluştururken çakışmayı önler
-// İlk seans oluşturmada İdeasoft'tan gerçek max ID çekilir, sonraki seanslar +1 arttırır
-let globalMaxOptionId  = 0;
-let globalMaxOptionIdFetchedAt = 0; // ms timestamp — 30s sonra stale sayılır
+let globalMaxOptionId = 0;
+let globalMaxOptionIdFetchedAt = 0;
 
 const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
@@ -892,8 +891,41 @@ async function createOneSeance(payload) {
 
   var parentData = parentRes.data;
 
-  // 2) Mevcut optionGroups'u al — "Tarih & Saat" (id=9) grubunu bul
+  // 1b) optionGroups'u products endpoint'inden al; yoksa optioned-products'tan çek
+  // products/{id} bazen optionGroups döndürmez — optioned-products/{id} kesinlikle döndürür
   var existingGroups = parentData.optionGroups || [];
+  if (existingGroups.length === 0) {
+    try {
+      var opRes = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+        { headers: headers(), timeout: 15000 }
+      );
+      var sc1b = (opRes.headers['set-cookie'] || []).join(' ');
+      var cm1b = sc1b.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm1b) { ideasoftCsrfToken = cm1b[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      // optioned-products yanıtı: { data: [...seanslar...] } — her seansta optionGroups var
+      var opBody = opRes.data;
+      var opSeances = [];
+      if (opBody && Array.isArray(opBody.data)) opSeances = opBody.data;
+      else if (opBody && Array.isArray(opBody))  opSeances = opBody;
+      else if (opBody && opBody.data)             opSeances = [opBody.data];
+      // İlk seanstan optionGroups al
+      if (opSeances.length > 0 && opSeances[0].optionGroups) {
+        existingGroups = opSeances[0].optionGroups;
+        console.log('optionGroups optioned-products\'tan alındı, grup sayısı:', existingGroups.length);
+      }
+      // parentData'yı eksik alanlar için tamamla
+      if (!parentData.prices  && opSeances[0]) parentData.prices  = opSeances[0].prices;
+      if (!parentData.currency && opSeances[0]) parentData.currency = opSeances[0].currency;
+      if (!parentData.price1   && opSeances[0]) parentData.price1   = opSeances[0].price1;
+      if (!parentData.tax      && opSeances[0]) parentData.tax      = opSeances[0].tax;
+      if (!parentData.slug     && opSeances[0]) parentData.slug     = opSeances[0].slug ? opSeances[0].slug.split('-').slice(0,-3).join('-') : '';
+    } catch(e) {
+      console.warn('optioned-products fallback hatası:', e.message);
+    }
+  }
+
+  // 2) Mevcut optionGroups'u işle — "Tarih & Saat" (id=9) grubunu bul
   var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
   var mekanGroup     = existingGroups.find(function(g) { return g.id === 8; });
 
@@ -904,23 +936,19 @@ async function createOneSeance(payload) {
       if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
     });
   }
-  // Tüm ürünler arasındaki global max'ı da kontrol et (güvenli taraf)
   existingGroups.forEach(function(g) {
     (g.options || []).forEach(function(o) {
       if (o.id > freshMaxOptionId) freshMaxOptionId = o.id;
     });
   });
 
-  // Global sayaçla karşılaştır — art arda seans oluşturmada İdeasoft cache gecikmesini aş
-  // globalMaxOptionId, önceki seansların yazdığı ID'yi hatırlar
-  // İdeasoft'tan gelen freshMaxOptionId daha büyükse onu kullan (başka birisi eklemiş olabilir)
+  // Global sayaçla karşılaştır — İdeasoft cache gecikmesini aş
   var now_ms = Date.now();
-  var stale = (now_ms - globalMaxOptionIdFetchedAt) > 30000; // 30s geçtiyse global'i sıfırla
+  var stale = (now_ms - globalMaxOptionIdFetchedAt) > 30000;
   if (stale) globalMaxOptionId = 0;
-
   var maxOptionId = Math.max(freshMaxOptionId, globalMaxOptionId);
   var newOptionId = maxOptionId + 1;
-  globalMaxOptionId = newOptionId; // bir sonraki seans bu ID'den devam eder
+  globalMaxOptionId = newOptionId;
   globalMaxOptionIdFetchedAt = now_ms;
   console.log('Mevcut max option ID:', maxOptionId, '(fresh:', freshMaxOptionId, 'global:', globalMaxOptionId-1, ') → yeni:', newOptionId, 'seans:', payload.name);
 
@@ -1102,24 +1130,16 @@ async function createOneSeance(payload) {
   // Batch response'u parse et — 200 olsa da içinde hata olabilir
   var batchResponseStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
 
-  // Batch içindeki TÜM HTTP status satırlarını bul (birden fazla olabilir)
-  var allInnerStatuses = [];
-  var statusPattern = /HTTP\/1\.1 (\d{3})/g;
-  var sm;
-  while ((sm = statusPattern.exec(batchResponseStr)) !== null) {
-    allInnerStatuses.push(parseInt(sm[1]));
-  }
-  var innerStatus = allInnerStatuses.length > 0 ? allInnerStatuses[0] : batchRes.status;
-  var hasError = allInnerStatuses.some(function(s) { return s >= 400; });
+  // Hata işaretleri: "HTTP/1.1 4" veya "HTTP/1.1 5" ile başlayan satırlar
+  var innerStatusMatch = batchResponseStr.match(/HTTP\/1\.1 (\d{3})/);
+  var innerStatus = innerStatusMatch ? parseInt(innerStatusMatch[1]) : batchRes.status;
 
-  if (hasError) {
-    // Option ID çakışmasında global sayacı geri al
-    globalMaxOptionId = maxOptionId; // başarısız olduğu için bu ID'yi tekrar dene
-    console.error('Batch inner hata:', allInnerStatuses, batchResponseStr.slice(0, 500));
-    throw new Error('İdeasoft batch hatası: ' + allInnerStatuses.join(',') + ' — ' + batchResponseStr.slice(0, 300));
+  if (innerStatus >= 400) {
+    console.error('Batch inner hata:', innerStatus, batchResponseStr.slice(0, 400));
+    throw new Error('İdeasoft batch hatası: ' + innerStatus + ' — ' + batchResponseStr.slice(0, 200));
   }
 
-  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatuses:', allInnerStatuses);
+  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatus:', innerStatus);
   return { success: true, optionId: newOptionId, innerStatus };
 }
 
