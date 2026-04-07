@@ -69,105 +69,6 @@ function bubiletToCategory(name) {
   return null;
 }
 
-// ─── Seans Takvimi ─────────────────────────────────────────────────────────
-// 0=Pazar,1=Pzt,2=Salı,3=Çar,4=Per,5=Cuma,6=Cmt
-const EVENT_SCHEDULE = {
-  'Heykel':       { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Resim':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  '3D Figür':     { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Plak Boyama':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Maske':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Bez Çanta':    { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Cupcake Mum':  { weekday:[5], slots:['17:30 - 19:30'], weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
-  'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
-  'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
-};
-
-// Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
-// ve hangi optionGroups/prices kullanılacağı
-const EVENT_IDEASOFT_META = {
-  // prices, specialInfo, sku → server tarafında parent'tan dinamik çekilir
-  // Burada sadece parentId, fiyat ve stok bilgileri tutulur
-  'Heykel':      { parentId:4247, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Resim':       { parentId:4241, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  '3D Figür':    { parentId:4234, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Plak Boyama': { parentId:4249, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Maske':       { parentId:4245, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Bez Çanta':   { parentId:4243, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Cupcake Mum': { parentId:4252, price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Seramik':     { parentId:12671,price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-};
-
-function generateSeansListForCat(cat, startDateStr, endDateStr) {
-  const sched = EVENT_SCHEDULE[cat];
-  if (!sched) return [];
-
-  // startDateStr ve endDateStr: "YYYY-MM-DD"
-  const start = new Date(startDateStr + 'T00:00:00');
-  const end   = new Date(endDateStr   + 'T23:59:59');
-  const result = [];
-
-  const cur = new Date(start);
-  while (cur <= end) {
-    const dow = cur.getDay(); // 0=Pazar, 6=Cmt
-    const day = cur.getDate();
-    const monthName = TR_MONTHS[cur.getMonth()];
-    const dayName   = TR_DAYS[dow];
-    const dateKey   = `${day} ${monthName} ${dayName}`;
-
-    let slots = [];
-    if (sched.weekend.includes(dow)) {
-      slots = sched.weekendSlots;
-    } else if (sched.weekday.includes(dow)) {
-      slots = sched.slots;
-    }
-
-    slots.forEach(slot => {
-      result.push({ dateKey, slot, date: new Date(cur) });
-    });
-
-    cur.setDate(cur.getDate() + 1);
-  }
-  return result;
-}
-
-function buildIdeasoftPayload(cat, dateKey, slot) {
-  const meta = EVENT_IDEASOFT_META[cat];
-  if (!meta) return null;
-  // Seans adı: "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00"
-  const seansName = `${meta.mekan} - ${dateKey} ${slot}`;
-  return {
-    id: null,
-    name: seansName,
-    barcode: null,
-    stockAmount: String(meta.stock),
-    price1: String(meta.price),
-    currency: meta.currency,
-    discount: '0',
-    discountType: 1,
-    moneyOrderDiscount: 0,
-    buyingPrice: '0',
-    marketPriceDetail: null,
-    taxIncluded: 1,
-    tax: meta.tax,
-    warranty: 0,
-    volumetricWeight: '0',
-    stockTypeLabel: 'Piece',
-    customShippingDisabled: 1,
-    customShippingCost: 0,
-    customizationGroups: [],
-    gift: null,
-    hasGift: 0,
-    installmentThreshold: '-',
-    selectionGroups: [],
-    extraInfos: [],
-    status: 1,
-    parent: { id: meta.parentId },
-    // prices, specialInfo, sku, slug, optionGroups, optionIds → server tarafında dinamik oluşturulur
-  };
-}
-
 function buildSeanceMap(data) {
   if (!data) return [];
   const map = {};
@@ -359,27 +260,28 @@ function buildSeanceMap(data) {
   });
 
   // Filtreleme kuralı:
-  // - Başlangıç saatinden 30 dakika sonra kaybolur.
-  // - Başlangıç saati yoksa o günün 21:00'ında kaybolur.
+  // - Seans bitiş saatinden (timeSlot'taki 2. saat) 30 dakika sonra kaybolur.
+  // - Bitiş saati yoksa o günün 21:00'ında kaybolur.
   const _now = new Date();
 
   return Object.values(map)
     .filter(s => {
-      // timeSlot örnek: "14:00 - 16:00" → başlangıç 14:00
-      const startMatch = s.timeSlot.match(/^(\d{2}):(\d{2})/);
+      // timeSlot örnek: "14:00 - 16:00" → bitiş 16:00
+      // Bitiş saatini timeSlot'tan çıkar
+      const endMatch = s.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
       let hideAfter;
-      if (startMatch) {
-        // Başlangıç saati + 30dk
+      if (endMatch) {
+        // Bitiş saati var: seans günü + bitiş saati + 30dk
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
-          parseInt(startMatch[1]),
-          parseInt(startMatch[2]) + 30,
+          parseInt(endMatch[1]),
+          parseInt(endMatch[2]) + 30,
           0
         );
       } else {
-        // Başlangıç saati yoksa o günün 21:00'ı
+        // Bitiş saati yok: o günün 21:00'ı
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
@@ -550,66 +452,76 @@ export default function App() {
     finally { setDeleting(p => { const n={...p}; delete n[seanceId]; return n; }); }
   };
 
-  // Geçmiş seans kontrolü: başlangıç saati geçmiş mi?
-  const isSeancePast = (s) => {
-    const parsed = parseIdeasoftName(s.fullName);
-    if (!parsed) return false;
-    const dayNum = parseInt(parsed.dateKey);
-    let monIdx = -1;
-    for (let i = 0; i < TR_MONTHS.length; i++) {
-      if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
-    }
-    if (monIdx === -1) return false;
-    const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
-    if (!startMatch) return false;
-    const now = new Date();
-    const startTime = new Date(now.getFullYear(), monIdx, dayNum, parseInt(startMatch[1]), parseInt(startMatch[2]), 0);
-    return now >= startTime;
-  };
-
+  // Geçmiş tarihli tüm seansları otomatik sil
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({});
+  const [bulkDeleteResult, setBulkDeleteResult] = useState(null);
 
-  // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
-  const [seansYazMode, setSeansYazMode]         = useState(false);   // tam sayfa ekran
-  const [seansYazStep, setSeansYazStep]         = useState(1);       // 1=etkinlik seç, 2=tarih, 3=önizleme/oluştur
-  const [seansYazCat, setSeansYazCat]           = useState(null);
-  const [seansYazStart, setSeansYazStart]       = useState('');
-  const [seansYazEnd, setSeansYazEnd]           = useState('');
-  const [seansYazList, setSeansYazList]         = useState([]);      // oluşturulacak seanslar
-  const [seansYazProgress, setSeansYazProgress] = useState(null);    // { done, total, errors }
-  const [seansYazDone, setSeansYazDone]         = useState(false);
+  const handleDeleteExpiredSeances = async () => {
+    if (!salesData?.ideasoft) return;
+    const now = new Date();
+    // Geçmiş seansları bul: bitiş saati geçmiş olanlar
+    const expiredSeances = (salesData.ideasoft || []).filter(s => {
+      if (!s.seanceId) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return false;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+      }
+      if (monIdx === -1) return false;
+      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      if (!endMatch) return false;
+      const endH = parseInt(endMatch[1]);
+      const endM = parseInt(endMatch[2]);
+      // Bu yıl için bitiş zamanı
+      let endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
+      // Geçmişteyse yani endTime < now → geçmiş seans
+      return now >= endTime;
+    });
 
-  const handleBulkDeletePast = async (cat) => {
-    if (!bulkDeleteConfirm[cat]) {
-      setBulkDeleteConfirm(p => ({...p, [cat]: true}));
-      setTimeout(() => setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; }), 5000);
+    if (expiredSeances.length === 0) {
+      setBulkDeleteResult('Silinecek geçmiş seans bulunamadı.');
       return;
     }
-    setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; });
+
+    if (!window.confirm(`${expiredSeances.length} geçmiş seans silinecek. Emin misiniz?`)) return;
+
     setBulkDeleting(true);
-    const pastSeances = (salesData?.ideasoft || []).filter(s => s.category === cat && s.seanceId && isSeancePast(s));
-    let deletedIds = [];
-    for (const s of pastSeances) {
+    setBulkDeleteResult(null);
+    let successCount = 0;
+    let failCount = 0;
+    const deletedIds = [];
+
+    for (const s of expiredSeances) {
       try {
         const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
         const json = await res.json();
-        if (!json.error) deletedIds.push(s.seanceId);
-      } catch(e) { /* devam et */ }
+        if (json.error) throw new Error(json.error);
+        deletedIds.push(s.seanceId);
+        successCount++;
+      } catch(e) {
+        console.error('Toplu silme hatası seanceId=' + s.seanceId, e.message);
+        failCount++;
+      }
+      // İstekler arası kısa bekleme (rate limit için)
+      await new Promise(r => setTimeout(r, 300));
     }
+
+    // Local state'den sil
     if (deletedIds.length > 0) {
       setSalesData(prev => {
         if (!prev || !prev.ideasoft) return prev;
         return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
       });
     }
+
     setBulkDeleting(false);
+    setBulkDeleteResult(`✅ ${successCount} seans silindi${failCount > 0 ? `, ❌ ${failCount} hata` : ''}.`);
   };
 
-
-
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
-  // Her dakika kontrol: başlangıç saati gelen aktif seansları otomatik kapat
+  // Her dakika kontrol: bitiş saati gelen aktif seansları otomatik kapat
   useState(() => {
     const autoCloseCheck = () => {
       if (!salesData?.ideasoft) return;
@@ -625,15 +537,14 @@ export default function App() {
           if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
         }
         if (monIdx === -1) return;
-        // Başlangıç saatini al
-        const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
-        if (!startMatch) return;
-        const startH = parseInt(startMatch[1]);
-        const startM = parseInt(startMatch[2]);
-        const startTime = new Date(now.getFullYear(), monIdx, dayNum, startH, startM, 0);
-        // Başlangıç saati geldi ve seans hâlâ aktif → kapat
-        if (now >= startTime && !toggling[s.seanceId]) {
-          console.log('Otomatik seans kapatma (başlangıç saati):', s.fullName);
+        const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+        if (!endMatch) return;
+        const endH = parseInt(endMatch[1]);
+        const endM = parseInt(endMatch[2]);
+        const endTime = new Date(now.getFullYear(), monIdx, dayNum, endH, endM, 0);
+        // Bitiş saati geldi ve seans hâlâ aktif → kapat
+        if (now >= endTime && !toggling[s.seanceId]) {
+          console.log('Otomatik seans kapatma:', s.fullName);
           handleToggleSeance(s.seanceId, true);
         }
       });
@@ -643,289 +554,41 @@ export default function App() {
   }, [salesData]);
 
   const getIdeasoftForCat = (cat) => {
-    return (salesData?.ideasoft || [])
-      .filter(s => s.category === cat)
-      .sort((a, b) => {
-        const toDate = (s) => {
-          const parsed = parseIdeasoftName(s.fullName);
-          if (!parsed) return new Date(0);
-          const dayNum = parseInt(parsed.dateKey);
-          let monIdx = -1;
-          for (let i = 0; i < TR_MONTHS.length; i++) {
-            if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
-          }
-          if (monIdx === -1) return new Date(0);
-          const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
-          const [h, m] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
-          const now = new Date();
-          return new Date(now.getFullYear(), monIdx, dayNum, h, m, 0);
-        };
-        return toDate(a) - toDate(b);
-      });
-  };
-
-  // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
-  const handleSeansYazOpen = () => {
-    setSeansYazMode(true);
-    setSeansYazStep(1);
-    setSeansYazCat(null);
-    setSeansYazStart('');
-    setSeansYazEnd('');
-    setSeansYazList([]);
-    setSeansYazProgress(null);
-    setSeansYazDone(false);
-  };
-
-  const handleSeansYazCatSelect = (cat) => {
-    setSeansYazCat(cat);
-    setSeansYazStep(2);
-  };
-
-  const handleSeansYazDateConfirm = () => {
-    if (!seansYazStart || !seansYazEnd) return;
-    const list = generateSeansListForCat(seansYazCat, seansYazStart, seansYazEnd);
-    setSeansYazList(list);
-    setSeansYazStep(3);
-  };
-
-  const [seansYazErrors, setSeansYazErrors] = useState([]); // hatalı seans detayları
-
-  const handleSeansYazCreate = async () => {
-    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
-    setSeansYazErrors([]);
-    let done = 0; let errors = 0;
-    const errorList = [];
-
-    for (const item of seansYazList) {
-      const payload = buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot);
-      try {
-        const res = await fetch('/api/ideasoft/create-seance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (json.error) {
-          errors++;
-          errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: json.error });
-        } else {
-          done++;
-        }
-      } catch(e) {
-        errors++;
-        errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: e.message });
+    const now = new Date();
+    return (salesData?.ideasoft || []).filter(s => {
+      if (s.category !== cat) return false;
+      const parsed = parseIdeasoftName(s.fullName);
+      if (!parsed) return true;
+      const dayNum = parseInt(parsed.dateKey);
+      let monIdx = -1;
+      for (let i = 0; i < TR_MONTHS.length; i++) {
+        if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
       }
-      setSeansYazProgress({ done: done + errors, total: seansYazList.length, errors });
-      setSeansYazErrors([...errorList]);
-      // Seanslar arası 900ms bekle — İdeasoft option ID çakışmasını önler
-      if (done + errors < seansYazList.length) {
-        await new Promise(r => setTimeout(r, 900));
+      if (monIdx === -1) return true;
+
+      // Bitiş saatini timeSlot'tan çıkar: "14:00 - 16:00" → 16:00
+      const endMatch = parsed.timeSlot.match(/(\d{2}):(\d{2})\s*$/);
+      let seanceYear = now.getFullYear();
+
+      if (endMatch) {
+        const endH = parseInt(endMatch[1]);
+        const endM = parseInt(endMatch[2]);
+        // Bu yıl için bitiş zamanını hesapla
+        let endTime = new Date(seanceYear, monIdx, dayNum, endH, endM, 0);
+        // Geçmişte kaldıysa gelecek yıla al
+        if (now > endTime) endTime = new Date(seanceYear + 1, monIdx, dayNum, endH, endM, 0);
+        // Bitiş saatinden önce göster (bitiş = kapanış, hâlâ stok güncellenebilir)
+        return now < endTime;
+      } else {
+        // Bitiş saati yoksa günün 21:00'ı
+        let day21 = new Date(seanceYear, monIdx, dayNum, 21, 0, 0);
+        if (now >= day21) day21 = new Date(seanceYear + 1, monIdx, dayNum, 21, 0, 0);
+        return now < day21;
       }
-    }
-    setSeansYazDone(true);
+    });
   };
 
-  // ─── SEANS YAZDIRMA TAM EKRAN ──────────────────────────────────────────────
-  if (seansYazMode) {
-    const SEANS_CATS = Object.keys(EVENT_SCHEDULE);
-    return (
-      <div style={S.page}>
-        <div style={S.header}>
-          <div style={S.headerLeft}>
-            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setSeansYazMode(false)}>← Geri</button>
-            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📅 SEANS YAZDIRMA</span>
-          </div>
-          {seansYazStep > 1 && !seansYazDone && (
-            <button style={S.smallBtn} onClick={() => { setSeansYazStep(s => s-1); setSeansYazProgress(null); setSeansYazDone(false); }}>
-              ← Önceki Adım
-            </button>
-          )}
-        </div>
-        <div style={{maxWidth:720,margin:'0 auto',padding:'24px 18px'}}>
-          {/* Adım göstergesi */}
-          <div style={{display:'flex',gap:8,marginBottom:28,alignItems:'center'}}>
-            {['Etkinlik Seç','Tarih Aralığı','Önizleme & Oluştur'].map((label,i)=>(
-              <div key={i} style={{display:'flex',alignItems:'center',gap:8,flex:1}}>
-                <div style={{width:26,height:26,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
-                  fontSize:12,fontWeight:800,flexShrink:0,
-                  background: seansYazStep>i+1?'#22c55e': seansYazStep===i+1?'#4fc9ff':'#1a2035',
-                  color: seansYazStep>=i+1?'#fff':'#374151',
-                  border:'2px solid '+(seansYazStep>i+1?'#22c55e':seansYazStep===i+1?'#4fc9ff':'#1a2035')
-                }}>{seansYazStep>i+1?'✓':i+1}</div>
-                <span style={{fontSize:11,color:seansYazStep===i+1?'#4fc9ff':'#374151',fontWeight:seansYazStep===i+1?700:400,whiteSpace:'nowrap'}}>{label}</span>
-                {i<2 && <div style={{flex:1,height:1,background:'#1a2035',minWidth:8}}/>}
-              </div>
-            ))}
-          </div>
-
-          {/* ADIM 1 */}
-          {seansYazStep === 1 && (
-            <div>
-              <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>
-                Seans yazdırmak istediğiniz etkinliği seçin
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                {SEANS_CATS.map(cat => (
-                  <button key={cat}
-                    onClick={() => handleSeansYazCatSelect(cat)}
-                    style={{
-                      background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
-                      padding:'18px 14px',cursor:'pointer',display:'flex',flexDirection:'column',
-                      alignItems:'center',textAlign:'center',gap:8,transition:'all 0.15s'
-                    }}>
-                    <span style={{fontSize:28}}>{getCatIcon(cat)}</span>
-                    <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{cat}</span>
-                    <span style={{fontSize:11,color:'#374151'}}>
-                      {EVENT_SCHEDULE[cat].weekday.length > 0 && EVENT_SCHEDULE[cat].weekend.length > 0
-                        ? 'Hafta içi + haftasonu'
-                        : EVENT_SCHEDULE[cat].weekend.length > 0
-                          ? 'Yalnızca haftasonu'
-                          : 'Hafta içi'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ADIM 2 */}
-          {seansYazStep === 2 && (
-            <div>
-              <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'16px 18px',marginBottom:20}}>
-                <div style={{fontSize:14,fontWeight:700,color:'#4fc9ff',marginBottom:6}}>
-                  {getCatIcon(seansYazCat)} {seansYazCat}
-                </div>
-                {EVENT_SCHEDULE[seansYazCat]?.weekday?.length > 0 && (
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:3}}>
-                    📌 Hafta içi: {EVENT_SCHEDULE[seansYazCat].slots.join(' & ')}
-                  </div>
-                )}
-                {EVENT_SCHEDULE[seansYazCat]?.weekend?.length > 0 && (
-                  <div style={{fontSize:11,color:'#64748b'}}>
-                    📌 Haftasonu: {EVENT_SCHEDULE[seansYazCat].weekendSlots.join(' & ')}
-                  </div>
-                )}
-              </div>
-              <div style={{display:'flex',flexDirection:'column',gap:14}}>
-                <div>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BAŞLANGIÇ TARİHİ</div>
-                  <input type="date" value={seansYazStart} onChange={e=>setSeansYazStart(e.target.value)}
-                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BİTİŞ TARİHİ</div>
-                  <input type="date" value={seansYazEnd} onChange={e=>setSeansYazEnd(e.target.value)}
-                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
-                </div>
-                <button
-                  onClick={handleSeansYazDateConfirm}
-                  disabled={!seansYazStart || !seansYazEnd || seansYazStart > seansYazEnd}
-                  style={{
-                    padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
-                    background: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd)
-                      ? '#1a2035' : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
-                    color: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd) ? '#374151' : '#fff',
-                    transition:'all 0.15s'
-                  }}>
-                  Seansları Hesapla →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ADIM 3 */}
-          {seansYazStep === 3 && (
-            <div>
-              {!seansYazProgress && !seansYazDone && (
-                <>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
-                    <div style={{fontSize:13,color:'#e2e8f0',fontWeight:700}}>
-                      {getCatIcon(seansYazCat)} {seansYazCat} — <span style={{color:'#4fc9ff'}}>{seansYazList.length} seans</span>
-                    </div>
-                    <span style={{fontSize:11,color:'#374151'}}>{seansYazStart} → {seansYazEnd}</span>
-                  </div>
-                  {seansYazList.length === 0 ? (
-                    <div style={S.empty}>Bu tarih aralığında seans bulunamadı.</div>
-                  ) : (
-                    <>
-                      <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,overflow:'hidden',marginBottom:16,maxHeight:380,overflowY:'auto'}}>
-                        {seansYazList.map((item, i) => (
-                          <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
-                            padding:'10px 14px',borderBottom:'1px solid #0a0e1a'}}>
-                            <span style={{fontSize:13,color:'#94a3b8'}}>{item.dateKey}</span>
-                            <span style={{fontSize:13,fontWeight:700,color:'#4fc9ff'}}>{item.slot}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <button
-                        onClick={handleSeansYazCreate}
-                        style={{width:'100%',padding:'15px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',
-                          cursor:'pointer',background:'linear-gradient(135deg,#22c55e,#16a34a)',color:'#fff'}}>
-                        ✅ {seansYazList.length} Seansı İdeasoft'a Yaz
-                      </button>
-                    </>
-                  )}
-                </>
-              )}
-
-              {seansYazProgress && !seansYazDone && (
-                <div style={{textAlign:'center',padding:'32px 0'}}>
-                  <div style={{fontSize:40,marginBottom:16}}>⏳</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:8}}>Seanslar oluşturuluyor…</div>
-                  <div style={{fontSize:14,color:'#4fc9ff',marginBottom:20}}>
-                    {seansYazProgress.done} / {seansYazProgress.total}
-                  </div>
-                  <div style={{background:'#1a2035',borderRadius:8,height:10,overflow:'hidden',margin:'0 auto',maxWidth:320}}>
-                    <div style={{height:'100%',borderRadius:8,transition:'width 0.3s',
-                      background:'linear-gradient(90deg,#0ea5e9,#22c55e)',
-                      width:`${Math.round(seansYazProgress.done/seansYazProgress.total*100)}%`}}/>
-                  </div>
-                  {seansYazProgress.errors > 0 && (
-                    <div style={{fontSize:12,color:'#f87171',marginTop:12}}>{seansYazProgress.errors} hata</div>
-                  )}
-                </div>
-              )}
-
-              {seansYazDone && seansYazProgress && (
-                <div style={{textAlign:'center',padding:'32px 16px'}}>
-                  <div style={{fontSize:52,marginBottom:16}}>{seansYazProgress.errors===0?'🎉':'⚠️'}</div>
-                  <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:12}}>
-                    {seansYazProgress.errors===0?'Tüm seanslar oluşturuldu!':'İşlem tamamlandı'}
-                  </div>
-                  <div style={{fontSize:14,color:'#22c55e',marginBottom:4}}>
-                    ✓ {seansYazProgress.done - seansYazProgress.errors} seans başarıyla oluşturuldu
-                  </div>
-                  {seansYazProgress.errors > 0 && (
-                    <div style={{fontSize:13,color:'#f87171',marginBottom:12}}>
-                      ✗ {seansYazProgress.errors} seans oluşturulamadı
-                    </div>
-                  )}
-                  {seansYazErrors.length > 0 && (
-                    <div style={{background:'#1a0f0f',border:'1px solid #7f1d1d',borderRadius:10,padding:'12px 14px',marginBottom:16,textAlign:'left',maxHeight:220,overflowY:'auto'}}>
-                      <div style={{fontSize:11,fontWeight:700,color:'#f87171',marginBottom:8,textTransform:'uppercase',letterSpacing:1}}>Hatalı Seanslar</div>
-                      {seansYazErrors.map((e,i)=>(
-                        <div key={i} style={{marginBottom:6,paddingBottom:6,borderBottom:'1px solid #2a1010'}}>
-                          <div style={{fontSize:12,fontWeight:700,color:'#fca5a5'}}>{e.seans}</div>
-                          <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>{e.hata}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setSeansYazMode(false)}
-                    style={{marginTop:8,padding:'13px 32px',borderRadius:12,fontSize:14,fontWeight:700,
-                      border:'none',cursor:'pointer',background:'linear-gradient(135deg,#b47cff,#7c3aff)',color:'#fff'}}>
-                    ← Panele Dön
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
+  // ─── OTOMATİK GİRİŞ BEKLENİYOR ────────────────────────────────────────────
   if (autoLoginLoading) {
     const RADIUS = 40;
     const CIRC = 2 * Math.PI * RADIUS;
@@ -985,24 +648,10 @@ export default function App() {
     // Pin isteniyor
     if (rolePinTarget) {
       const numpadPress = (digit) => {
-        if (rolePin.length >= 4) return;
+        if (rolePin.length >= 6) return;
         const next = rolePin + digit;
         setRolePin(next);
         setRolePinError(false);
-        if (next.length === 4) {
-          setTimeout(() => {
-            if (next === PINS[rolePinTarget]) {
-              setRole(rolePinTarget);
-              setRoleScreen(false);
-              setRolePin('');
-              setRolePinTarget(null);
-              setRolePinError(false);
-            } else {
-              setRolePinError(true);
-              setRolePin('');
-            }
-          }, 120);
-        }
       };
       const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
@@ -1226,17 +875,17 @@ export default function App() {
             const bialOk     = (salesData.biletinial|| []).length > 0;
             const ideasoftOk = (salesData.ideasoft  || []).length > 0;
             return (
-              <div style={{display:'flex',gap:6,marginBottom:14}}>
+              <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
                 {[['Bubilet',bubiletOk],['Biletini Al',bialOk],['İdeasoft',ideasoftOk]].map(([label,ok])=>(
-                  <div key={label} style={{display:'flex',alignItems:'center',gap:4,flex:1,
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:6,
                     background:ok?'#0d2a1a':'#2a0d0d',
                     border:'1px solid '+(ok?'#22c55e44':'#ef444444'),
-                    borderRadius:8,padding:'5px 8px',minWidth:0}}>
-                    <span style={{width:8,height:8,borderRadius:'50%',display:'inline-block',flexShrink:0,
+                    borderRadius:8,padding:'5px 12px'}}>
+                    <span style={{width:9,height:9,borderRadius:'50%',display:'inline-block',
                       background:ok?'#22c55e':'#ef4444',
                       boxShadow:'0 0 6px '+(ok?'#22c55e':'#ef4444')}}/>
-                    <span style={{fontSize:12,color:ok?'#86efac':'#fca5a5',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
-                    <span style={{fontSize:10,color:'#475569',whiteSpace:'nowrap'}}>{ok?'bağlı':'yok'}</span>
+                    <span style={{fontSize:13,color:ok?'#86efac':'#fca5a5',fontWeight:600}}>{label}</span>
+                    <span style={{fontSize:11,color:'#475569'}}>{ok?'bağlı':'veri yok'}</span>
                   </div>
                 ))}
               </div>
@@ -1312,7 +961,23 @@ export default function App() {
         <div style={S.panel}>
           <div style={S.panelHeader}>
             <span style={S.panelTitle}>📦 Stok Yönetimi</span>
+            {salesData?.ideasoft && (
+              <button
+                style={{...S.smallBtn, background: bulkDeleting ? '#1a1a1a' : '#1f0a0a',
+                  color: bulkDeleting ? '#475569' : '#ef4444',
+                  border:'1px solid #7f1d1d', fontSize:12}}
+                onClick={handleDeleteExpiredSeances}
+                disabled={bulkDeleting}>
+                {bulkDeleting ? '⟳ Siliniyor…' : '🗑 Geçmiş Seansları Sil'}
+              </button>
+            )}
           </div>
+          {bulkDeleteResult && (
+            <div style={{background:'#0d1f0d',border:'1px solid #166534',borderRadius:8,
+              padding:'8px 14px',fontSize:13,color:'#86efac',marginBottom:12}}>
+              {bulkDeleteResult}
+            </div>
+          )}
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
@@ -1326,33 +991,11 @@ export default function App() {
             <div style={S.stockPanel}>
               <div style={S.stockPanelHeader}>
                 <span style={S.stockCatTitle}>{getCatIcon(selectedCat)} {selectedCat}</span>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  {salesData && (() => {
-                    const pastCount = (salesData?.ideasoft||[]).filter(s=>s.category===selectedCat&&s.seanceId&&isSeancePast(s)).length;
-                    if (pastCount === 0) return null;
-                    const confirming = bulkDeleteConfirm[selectedCat];
-                    return (
-                      <button
-                        onClick={()=>handleBulkDeletePast(selectedCat)}
-                        disabled={bulkDeleting}
-                        style={{
-                          padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',border:'none',
-                          background: confirming ? '#3f0f0f' : '#1a1a1a',
-                          color: confirming ? '#ff4444' : '#64748b',
-                          border: confirming ? '1px solid #7f1d1d' : '1px solid #1e293b',
-                          opacity: bulkDeleting ? 0.5 : 1,
-                          transition:'all 0.2s',whiteSpace:'nowrap'
-                        }}>
-                        {bulkDeleting ? '⟳ Siliniyor…' : confirming ? `⚠️ Emin misin? (${pastCount})` : `🗑 Geçmiş Seansları Sil (${pastCount})`}
-                      </button>
-                    );
-                  })()}
-                  {!salesData && (
-                    <button style={S.smallBtn} onClick={fetchSales} disabled={salesLoading}>
-                      {salesLoading?'Yükleniyor…':'Veriyi Yükle'}
-                    </button>
-                  )}
-                </div>
+                {!salesData && (
+                  <button style={S.smallBtn} onClick={fetchSales} disabled={salesLoading}>
+                    {salesLoading?'Yükleniyor…':'Veriyi Yükle'}
+                  </button>
+                )}
               </div>
               {!salesData && !salesLoading && <div style={S.empty}>Stok verisi için "Veriyi Yükle" butonuna basın.</div>}
               {salesLoading && <div style={S.loadMsg}>⟳ Yükleniyor…</div>}
@@ -1370,46 +1013,10 @@ export default function App() {
                               <span style={S.stockRowName}>
                                 {s.fullName.replace('Farabi Sokak: Sosyal Sanathane - ','').replace('Tunalı: Ara Sokak Pub - ','')}
                               </span>
-                              <div style={{...S.badgeRow, alignItems:'center'}}>
+                              <div style={S.badgeRow}>
                                 <SBadge label="Mevcut"    value={s.stockAmount??'—'} color="#4fc9ff"/>
                                 {s.soldCount!=null   && <SBadge label="Satılan"    value={s.soldCount}    color="#ff9f4a"/>}
                                 {s.baselineStock!=null && <SBadge label="Başlangıç" value={s.baselineStock} color="#555"/>}
-                                {s.seanceId && (
-                                  <div
-                                    onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
-                                    style={{
-                                      marginLeft:'auto',
-                                      display:'flex',alignItems:'center',gap:6,
-                                      cursor:toggling[s.seanceId]?'wait':'pointer',
-                                      opacity:toggling[s.seanceId]?0.6:1,
-                                      flexShrink:0
-                                    }}>
-                                    <span style={{
-                                      fontSize:10,fontWeight:700,letterSpacing:1,
-                                      color:s.status===1?'#22c55e':'#64748b',
-                                      textTransform:'uppercase'
-                                    }}>
-                                      {s.status===1?'SEANS AÇIK':'SEANS KAPALI'}
-                                    </span>
-                                    <div style={{
-                                      width:44,height:24,borderRadius:12,
-                                      background:s.status===1?'#22c55e':'#3a3a3a',
-                                      position:'relative',
-                                      transition:'background 0.25s',
-                                      flexShrink:0
-                                    }}>
-                                      <div style={{
-                                        position:'absolute',
-                                        top:3,
-                                        left:s.status===1?23:3,
-                                        width:18,height:18,borderRadius:'50%',
-                                        background:'#fff',
-                                        boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
-                                        transition:'left 0.25s'
-                                      }}/>
-                                    </div>
-                                  </div>
-                                )}
                               </div>
                             </div>
                             {s.seanceId && (
@@ -1423,6 +1030,15 @@ export default function App() {
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
+                                <button
+                                  disabled={toggling[s.seanceId]}
+                                  onClick={()=>handleToggleSeance(s.seanceId, s.status===1)}
+                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
+                                    background:s.status===1?'#1f0f0f':'#0f1f0f',
+                                    color:s.status===1?'#ef4444':'#4ade80',
+                                    opacity:toggling[s.seanceId]?0.5:1}}>
+                                  {toggling[s.seanceId]?'⟳ Bekleniyor…':s.status===1?'🚫 Seansı Kapat':'✅ Seansı Aç'}
+                                </button>
                                 <button
                                   disabled={deleting[s.seanceId]}
                                   onClick={()=>handleDeleteOption(s.seanceId)}
@@ -1533,25 +1149,6 @@ export default function App() {
               </div>
             );
           })()}
-
-          {/* ── SEANS YAZDIRMA BUTONU ── */}
-          {role === 'admin' && (
-            <div style={{marginTop:12}}>
-              <button
-                onClick={handleSeansYazOpen}
-                style={{
-                  width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
-                  padding:'13px 18px',background:'#0d1120',border:'1px solid #1a2035',
-                  borderRadius:12,cursor:'pointer',color:'#b47cff',fontSize:14,fontWeight:700,
-                  transition:'all 0.15s'
-                }}
-                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
-                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
-                <span>📅 Seans Yazdır</span>
-                <span style={{fontSize:16}}>›</span>
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
