@@ -103,17 +103,37 @@ async function saveMonthlySalesAndBaseline(baseline, monthlySales) {
 }
 
 // İdeasoft seanslarından aylık satış verisini çıkarıp mevcut arşivle birleştir
+// KURAL: Sadece başlangıç saati geçmiş seanslar aylık toplama yansır.
+// Seans başlamadan bilet iptali olabilir → seans başlayana kadar aylık raporlara ekleme.
 function mergeIdeasoftIntoMonthlySales(existing, ideasoftSeances, baseline) {
   var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
   var merged = JSON.parse(JSON.stringify(existing)); // derin kopya
+  var now = new Date();
 
   ideasoftSeances.forEach(function(s) {
     if (!s.fullName || !s.seanceId) return;
-    // fullName'den ay bilgisini çıkar
-    var m = s.fullName.match(/- (\d+) (\w+) (\w+)/u);
+    // fullName'den ay ve saat bilgisini çıkar
+    var m = s.fullName.match(/- (\d+) (\w+) (\w+) (\d{2}:\d{2})/u);
     if (!m) return;
+    var dayNum   = parseInt(m[1]);
     var monthKey = m[2]; // "Nisan"
+    var startTimeStr = m[4]; // "17:00"
     if (!TR_MONTHS_SRV.includes(monthKey)) return;
+
+    // Başlangıç saatini hesapla
+    var monIdx = TR_MONTHS_SRV.indexOf(monthKey);
+    var timeParts = startTimeStr.split(':');
+    var startH = parseInt(timeParts[0]);
+    var startMin = parseInt(timeParts[1]);
+    // Yıl tahmini: geçen yıl mı bu yıl mı? Basit yaklaşım: şu an ile karşılaştır
+    var candidateYear = now.getFullYear();
+    var seanceStart = new Date(candidateYear, monIdx, dayNum, startH, startMin, 0);
+    // Eğer seans bu yılda geleceğe ait görünüyorsa (ama ay geçmişse) → geçen yıl olabilir
+    // En basit: eğer seans başlamamışsa atla
+    if (now < seanceStart) {
+      // Seans henüz başlamadı — aylık toplama ekleme
+      return;
+    }
 
     var cat = s.category;
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
@@ -611,6 +631,23 @@ app.post('/api/auto-login', async function(req, res) {
   try {
     await doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'');
     res.json({ success:true });
+
+    // Yanıt döndükten sonra arka planda options cache'i ısıt
+    // Böylece ilk seans yazdırmada fetchAllOptions anında cache'den döner
+    if (ideasoftCookies) {
+      var cStr = toCookieStr(ideasoftCookies);
+      var warmHeaders = {
+        'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+        'Accept': 'application/json', 'x-ideasoft-locale': 'tr',
+        'navigate-on-error': 'false', 'disabled-success-toastr': 'true',
+        'disabled-error-toastr': 'false',
+      };
+      fetchAllOptions(warmHeaders, true).then(function(opts) {
+        console.log('Auto-login: options cache ısıtıldı, adet:', opts.length);
+      }).catch(function(e) {
+        console.warn('Auto-login: options cache ısıtma başarısız:', e.message);
+      });
+    }
   } catch(err) {
     console.error('Auto-login hatasi:', err.message);
     res.status(500).json({ error:err.message });
