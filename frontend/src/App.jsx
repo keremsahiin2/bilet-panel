@@ -1260,18 +1260,20 @@ export default function App() {
               onClick={handleSeansYazOpen}
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:14,
-                padding:'15px 22px', borderRadius:14, border:'1px solid #16a34a44',
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
                 cursor:'pointer', textAlign:'left',
-                background:'linear-gradient(135deg,#052e16,#0a4a22)',
-                boxShadow:'0 0 18px #16a34a22',
+                background:'#0d1120',
+                boxShadow:'none',
                 transition:'all 0.2s'
-              }}>
-              <span style={{fontSize:24}}>📅</span>
-              <div>
-                <div style={{fontSize:14, fontWeight:800, color:'#4ade80', marginBottom:2}}>Seans Yazdır</div>
-                <div style={{fontSize:11, color:'#86efac', opacity:0.8}}>İdeasoft'a yeni seans dönemleri ekle</div>
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#ff9f4a';e.currentTarget.style.boxShadow='0 0 18px #ff9f4a22';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>📅</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
               </div>
-              <span style={{marginLeft:'auto', fontSize:16, color:'#4ade80'}}>›</span>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
             </button>
           </div>
         </>
@@ -1600,24 +1602,7 @@ export default function App() {
             );
           })()}
 
-          {/* ── SEANS YAZDIRMA BUTONU ── */}
-          {role === 'admin' && (
-            <div style={{marginTop:12}}>
-              <button
-                onClick={handleSeansYazOpen}
-                style={{
-                  width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
-                  padding:'13px 18px',background:'#0d1120',border:'1px solid #1a2035',
-                  borderRadius:12,cursor:'pointer',color:'#b47cff',fontSize:14,fontWeight:700,
-                  transition:'all 0.15s'
-                }}
-                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
-                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
-                <span>📅 Seans Yazdır</span>
-                <span style={{fontSize:16}}>›</span>
-              </button>
-            </div>
-          )}
+
         </div>
       )}
     </div>
