@@ -717,9 +717,9 @@ export default function App() {
       }
       setSeansYazProgress({ done: done + errors, total: seansYazList.length, errors });
       setSeansYazErrors([...errorList]);
-      // Seanslar arası 900ms bekle — İdeasoft option ID çakışmasını önler
+      // Seanslar arası 2500ms bekle — GET options + POST + batch = 3 istek, rate limit için yeterli süre
       if (done + errors < seansYazList.length) {
-        await new Promise(r => setTimeout(r, 900));
+        await new Promise(r => setTimeout(r, 2500));
       }
     }
     setSeansYazDone(true);

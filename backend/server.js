@@ -936,38 +936,65 @@ async function createOneSeance(payload) {
     mekanOption = mekanGroup.options[0];
   }
 
-  // ── GERÇEK OPTION ID AL: POST /admin-app/options ─────────────────────────────
-  // Mevcut option listesi zaten adım 1b'de optioned-products'tan alındı (tarihSaatGroup.options).
-  // GET /admin-app/options'a ayrı istek ATMIYORUZ — rate limit'i patlatır.
-  // size: İdeasoft UI parametresi (select box boyutu) — curl'da "16" sabit, stok ile alakasız.
+  // ── OPTION ID AL: önce mevcut listede ara, yoksa POST ────────────────────────
+  // GET /admin-app/options ile fresh liste çek — daha önce yazılmış seans varsa ID'si burada
   var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
+  var allFetchedOptions = [];
+  try {
+    var optListRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&s=21&optionGroup=9',
+      { headers: headers(), timeout: 15000 }
+    );
+    var scList = (optListRes.headers['set-cookie'] || []).join(' ');
+    var cmList = scList.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cmList) { ideasoftCsrfToken = cmList[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    var optListBody = optListRes.data;
+    if (Array.isArray(optListBody)) allFetchedOptions = optListBody;
+    else if (optListBody && Array.isArray(optListBody.data)) allFetchedOptions = optListBody.data;
+    // Başarılı GET sonrası mevcut listeyi güncelle
+    if (allFetchedOptions.length > 0) existingTarihOptions = allFetchedOptions;
+    console.log('✓ GET options başarılı, toplam:', allFetchedOptions.length);
+  } catch(e) {
+    console.warn('GET options başarısız, mevcut liste kullanılıyor:', e.message);
+  }
 
-  var optionRes = await axios.post(
-    'https://berkayalabalik.myideasoft.com/admin-app/options',
-    {
-      title: tarihSaatTitle,
-      sortOrder: 9999,
-      size: '16',
-      optionGroup: {
-        id: 9,
-        title: 'Tarih & Saat',
-        options: existingTarihOptions.map(function(o) {
-          return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
-        })
-      }
-    },
-    { headers: headers(), timeout: 15000 }
-  );
-  var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
-  var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-  if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+  // Bu title daha önce oluşturulmuş mu? Varsa yeni POST atma, ID'yi kullan
+  var existingOption = existingTarihOptions.find(function(o) {
+    return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
+  });
 
-  var newOptionId = optionRes.data && optionRes.data.id;
-  if (!newOptionId) throw new Error('Option ID alınamadı — /admin-app/options yanıtı: ' + JSON.stringify(optionRes.data).slice(0, 200));
-  console.log('✓ Option ID alındı:', newOptionId, '→', tarihSaatTitle);
+  var newOptionId;
+  if (existingOption) {
+    newOptionId = existingOption.id;
+    console.log('✓ Option zaten mevcut, ID kullanılıyor:', newOptionId, '→', tarihSaatTitle);
+  } else {
+    var optionRes = await axios.post(
+      'https://berkayalabalik.myideasoft.com/admin-app/options',
+      {
+        title: tarihSaatTitle,
+        sortOrder: 9999,
+        size: '16',
+        optionGroup: {
+          id: 9,
+          title: 'Tarih & Saat',
+          options: existingTarihOptions.map(function(o) {
+            return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+          })
+        }
+      },
+      { headers: headers(), timeout: 15000 }
+    );
+    var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
+    var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    newOptionId = optionRes.data && optionRes.data.id;
+    if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
+    console.log('✓ Yeni option oluşturuldu, ID:', newOptionId, '→', tarihSaatTitle);
+  }
   // ─────────────────────────────────────────────────────────────────────────────
 
-  var newTarihOptions = existingTarihOptions.concat([{ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } }]);
+  var newTarihOptions = existingTarihOptions.filter(function(o) { return o.id !== newOptionId; })
+    .concat([{ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } }]);
 
   // prices: parent'tan al (value=0 bırak — varyant override eder)
   var realPrices = (parentData.prices || []).map(function(p) {
