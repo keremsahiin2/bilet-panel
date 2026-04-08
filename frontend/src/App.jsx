@@ -81,6 +81,7 @@ const EVENT_SCHEDULE = {
   'Cupcake Mum':  { weekday:[5], slots:['17:30 - 19:30'], weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
   'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
   'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
+  'Mekanda Seç':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
 };
 
 // Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
@@ -97,6 +98,7 @@ const EVENT_IDEASOFT_META = {
   'Cupcake Mum': { parentId:4252, price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Seramik':     { parentId:12671,price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Mekanda Seç': { parentId:5135, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
 };
 
 function generateSeansListForCat(cat, startDateStr, endDateStr) {
@@ -425,8 +427,15 @@ export default function App() {
     fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
       .then(json => {
-        if (json.success) { setLoggedIn(true); setRoleScreen(true); }
-        else {
+        if (json.success) {
+          setLoggedIn(true);
+          setRoleScreen(true);
+          // Giriş başarılı — arka planda satış verilerini hemen çekmeye başla (madde 1 & 4)
+          fetch("/api/sales")
+            .then(r => r.json())
+            .then(d => { if (!d.error) { setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } })
+            .catch(() => {});
+        } else {
           // Kayıtlı bilgileri forma doldur
           fetch('/api/saved-credentials')
             .then(r=>r.json())
@@ -478,6 +487,7 @@ export default function App() {
       if (json.error) throw new Error(json.error);
       setSalesData(json);
       setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
+      setShowIdeasoftReport(false); // madde 5: veri gelince raporu kapat (kullanıcı elle açar)
     } catch(e) { setSalesError(e.message); }
     finally { setSalesLoading(false); }
   };
@@ -638,7 +648,8 @@ export default function App() {
         }
       });
     };
-    const interval = setInterval(autoCloseCheck, 60000); // her dakika kontrol
+    autoCloseCheck(); // hemen bir kez çalıştır
+    const interval = setInterval(autoCloseCheck, 30000); // her 30 saniyede kontrol
     return () => clearInterval(interval);
   }, [salesData]);
 
@@ -689,35 +700,60 @@ export default function App() {
   };
 
   const [seansYazErrors, setSeansYazErrors] = useState([]); // hatalı seans detayları
+  const [seansYazCurrentName, setSeansYazCurrentName] = useState(''); // şu an eklenen seans adı
 
   const handleSeansYazCreate = async () => {
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
     setSeansYazErrors([]);
+    setSeansYazCurrentName('');
 
-    // Tüm payloadları tek istekte gönder — server tarafında cache ile işlenir
     const seances = seansYazList.map(item => buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot));
-    try {
-      const res = await fetch('/api/ideasoft/create-seances-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seances })
-      });
-      const json = await res.json();
-      if (json.error) {
-        setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
-        setSeansYazErrors([{ seans: 'Tümü', hata: json.error }]);
-      } else {
-        const errorList = (json.results || [])
-          .filter(r => !r.success)
-          .map(r => ({ seans: r.name, hata: r.error }));
-        setSeansYazProgress({ done: json.success + (json.errors || 0), total: json.total, errors: json.errors || 0 });
-        setSeansYazErrors(errorList);
-      }
-    } catch(e) {
-      setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
-      setSeansYazErrors([{ seans: 'Tümü', hata: e.message }]);
-    }
-    setSeansYazDone(true);
+    const data = btoa(unescape(encodeURIComponent(JSON.stringify({ seances }))));
+
+    return new Promise((resolve) => {
+      const es = new EventSource('/api/ideasoft/create-seances-stream?data=' + data);
+      let errList = [];
+
+      es.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'start') {
+            setSeansYazProgress({ done: 0, total: msg.total, errors: 0 });
+          } else if (msg.type === 'progress') {
+            setSeansYazCurrentName(msg.name);
+            setSeansYazProgress(p => ({ ...p, done: msg.current - 1 }));
+          } else if (msg.type === 'done') {
+            setSeansYazCurrentName(msg.name);
+            if (!msg.success) errList.push({ seans: msg.name, hata: msg.error });
+            setSeansYazProgress(p => ({
+              done: msg.current,
+              total: msg.total,
+              errors: errList.length
+            }));
+            setSeansYazErrors([...errList]);
+          } else if (msg.type === 'complete') {
+            setSeansYazProgress({ done: msg.total, total: msg.total, errors: msg.errors });
+            setSeansYazErrors([...errList]);
+            setSeansYazDone(true);
+            es.close();
+            resolve();
+          } else if (msg.type === 'error') {
+            setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
+            setSeansYazErrors([{ seans: 'Tümü', hata: msg.message }]);
+            setSeansYazDone(true);
+            es.close();
+            resolve();
+          }
+        } catch {}
+      };
+
+      es.onerror = () => {
+        setSeansYazErrors(p => [...p, { seans: 'Bağlantı hatası', hata: 'SSE bağlantısı kesildi' }]);
+        setSeansYazDone(true);
+        es.close();
+        resolve();
+      };
+    });
   };
 
   // ─── SEANS YAZDIRMA TAM EKRAN ──────────────────────────────────────────────
@@ -864,19 +900,39 @@ export default function App() {
               )}
 
               {seansYazProgress && !seansYazDone && (
-                <div style={{textAlign:'center',padding:'32px 0'}}>
+                <div style={{textAlign:'center',padding:'32px 16px'}}>
                   <div style={{fontSize:40,marginBottom:16}}>⏳</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:8}}>Seanslar oluşturuluyor…</div>
-                  <div style={{fontSize:13,color:'#64748b',marginBottom:20}}>
-                    Server işliyor — lütfen bekleyin ({seansYazProgress.total} seans × ~2sn)
-                  </div>
-                  <div style={{background:'#1a2035',borderRadius:8,height:10,overflow:'hidden',margin:'0 auto',maxWidth:320}}>
-                    <div style={{height:'100%',borderRadius:8,
+                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:8}}>Seanslar ekleniyor, lütfen bekleyin</div>
+                  {/* Şu an hangi seans ekleniyor */}
+                  {seansYazCurrentName && (
+                    <div style={{
+                      background:'#0d1a2e',border:'1px solid #1e3a5f',borderRadius:10,
+                      padding:'10px 16px',marginBottom:16,marginLeft:'auto',marginRight:'auto',
+                      maxWidth:360,textAlign:'left'
+                    }}>
+                      <div style={{fontSize:10,color:'#4fc9ff',fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:'uppercase'}}>Şu an ekleniyor</div>
+                      <div style={{fontSize:13,color:'#e2e8f0',fontWeight:600}}>{seansYazCurrentName}</div>
+                    </div>
+                  )}
+                  {/* İlerleme çubuğu */}
+                  <div style={{background:'#1a2035',borderRadius:8,height:10,overflow:'hidden',margin:'0 auto 12px',maxWidth:360,position:'relative'}}>
+                    <div style={{
+                      height:'100%',borderRadius:8,
                       background:'linear-gradient(90deg,#0ea5e9,#22c55e)',
-                      width:'100%',
-                      animation:'indeterminate 1.5s ease-in-out infinite'}}/>
+                      width: seansYazProgress.total > 0
+                        ? (Math.round((seansYazProgress.done / seansYazProgress.total) * 100)) + '%'
+                        : '0%',
+                      transition:'width 0.4s ease'
+                    }}/>
                   </div>
-                  <style>{`@keyframes indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
+                  <div style={{fontSize:13,color:'#4fc9ff',fontWeight:700}}>
+                    {seansYazProgress.done} / {seansYazProgress.total} seans eklendi
+                  </div>
+                  {seansYazProgress.errors > 0 && (
+                    <div style={{fontSize:12,color:'#f87171',marginTop:6}}>
+                      ✗ {seansYazProgress.errors} hata
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1002,7 +1058,7 @@ export default function App() {
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
-          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'22vh'}}>
             <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
@@ -1075,7 +1131,7 @@ export default function App() {
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'32vh'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'22vh'}}>
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
@@ -1116,7 +1172,7 @@ export default function App() {
   if (!loggedIn) {
     return (
       <div style={{...S.page, overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'37vh',paddingBottom:40}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'27vh',paddingBottom:40}}>
           <div style={{...S.loginCard, width:'100%'}}>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
@@ -1310,7 +1366,7 @@ export default function App() {
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
-                onClick={()=>setSelectedCat(selectedCat===cat?null:cat)}>
+                onClick={()=>{ setSelectedCat(selectedCat===cat?null:cat); if (!salesData && selectedCat!==cat) fetchSales(); }}>
                 {getCatIcon(cat)} {cat}
               </button>
             ))}
