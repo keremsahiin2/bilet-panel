@@ -15,6 +15,11 @@ let lastFetch      = null;
 let ideasoftCookies    = null;
 let ideasoftCsrfToken  = null;
 
+// Options cache — fetchAllOptions sonucunu memory'de tut, her bulk'ta tekrar çekme
+let cachedAllOptions     = [];
+let cachedAllOptionsTime = 0;
+const OPTIONS_CACHE_TTL  = 5 * 60 * 1000; // 5 dakika
+
 
 const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
@@ -636,6 +641,7 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
+    cachedAllOptions = []; cachedAllOptionsTime = 0;
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -859,14 +865,20 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   }
 });
 
-// ─── Tüm options sayfalarını çek (paginated, rate-limit safe) ─────────────────
-// Büyük limit (100) → daha az istek → daha az 429
+// ─── Tüm options sayfalarını çek (paginated, rate-limit safe, memory cached) ──
+// Memory cache: aynı session içinde 5 dakika boyunca tekrar çekilmez → bulk çok hızlanır
 // 429 gelince exponential backoff ile retry (max 3 deneme)
-// "Tekrarlanan giriş" 400'ü → cache'deki mevcut option kullanılıyor demek, atlıyoruz
-async function fetchAllOptions(headersObj) {
+async function fetchAllOptions(headersObj, forceRefresh) {
+  // Cache geçerliyse direkt döndür
+  var now = Date.now();
+  if (!forceRefresh && cachedAllOptions.length > 0 && (now - cachedAllOptionsTime) < OPTIONS_CACHE_TTL) {
+    console.log('fetchAllOptions: cache hit, adet:', cachedAllOptions.length);
+    return cachedAllOptions;
+  }
+
   var allOptions = [];
   var page = 1;
-  var limit = 100; // 20 → 100: 220 option için 12 sayfa yerine 3 sayfa
+  var limit = 100;
 
   async function getPageWithRetry(p, retries) {
     retries = retries || 0;
@@ -882,9 +894,8 @@ async function fetchAllOptions(headersObj) {
     } catch(e) {
       var status = e.response && e.response.status;
       if (status === 429 && retries < 3) {
-        // Exponential backoff: 5s, 10s, 20s
         var waitMs = 5000 * Math.pow(2, retries);
-        console.warn('fetchAllOptions sayfa=' + p + ' 429 rate limit — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (retries+1) + '/3)');
+        console.warn('fetchAllOptions sayfa=' + p + ' 429 — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (retries+1) + '/3)');
         await new Promise(r => setTimeout(r, waitMs));
         return getPageWithRetry(p, retries + 1);
       }
@@ -901,12 +912,17 @@ async function fetchAllOptions(headersObj) {
       allOptions = allOptions.concat(items);
       if (items.length < limit) break;
       page++;
-      // Sayfalar arası bekleme: 1.5s (20→100 ile sayfa sayısı 3'e indi, bu artık sorun olmaz)
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 700)); // 1500ms → 700ms
     } catch(e) {
       console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
-      break; // hata olursa o ana kadar çektiğimizle devam et
+      break;
     }
+  }
+
+  // Cache güncelle
+  if (allOptions.length > 0) {
+    cachedAllOptions = allOptions;
+    cachedAllOptionsTime = Date.now();
   }
   console.log('fetchAllOptions: toplam', allOptions.length, 'option,', page, 'sayfa');
   return allOptions;
@@ -1342,8 +1358,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   realParentSlug     = parentData.slug || '';
 
   // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
-  // 3sn bekle — parent fetch'ten hemen sonra rate limit tetiklenmemesi için
-  await new Promise(r => setTimeout(r, 3000));
+  // Cache hit ise beklemeden döner; ilk çekimde rate limit için kısa bekleme
+  await new Promise(r => setTimeout(r, 500));
   var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
   try {
     var fetched = await fetchAllOptions(hdrs());
@@ -1363,8 +1379,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
-    // 3sn bekle — seanslar arası (ilk seans için B adımından zaten beklendi)
-    if (si > 0) await new Promise(r => setTimeout(r, 3000));
+    // 1sn bekle — seanslar arası
+    if (si > 0) await new Promise(r => setTimeout(r, 1000));
 
     try {
       // C1) Option ID — mevcut listede ara, yoksa POST
@@ -1402,7 +1418,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
             var optStatus = optErr.response && optErr.response.status;
             // 429: rate limit — exponential backoff (6s, 12s, 24s)
             if (optStatus === 429 && optRetries < 3) {
-              var waitMs = 6000 * Math.pow(2, optRetries);
+              var waitMs = 4000 * Math.pow(2, optRetries);
               console.warn('Bulk [' + (si+1) + '] options POST 429 — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (optRetries+1) + '/3)');
               await new Promise(r => setTimeout(r, waitMs));
               optRetries++;
@@ -1414,7 +1430,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
               var errMsg = errBody && (errBody.errorMessage || JSON.stringify(errBody));
               if (errMsg && errMsg.includes('Tekrarlanan')) {
                 console.warn('Bulk [' + (si+1) + '] Tekrarlanan giriş — options listesi yenileniyor:', tarihSaatTitle);
-                await new Promise(r => setTimeout(r, 3000));
+                await new Promise(r => setTimeout(r, 2000));
                 try {
                   var refreshed = await fetchAllOptions(hdrs());
                   if (refreshed.length > 0) cachedOptions = refreshed;
