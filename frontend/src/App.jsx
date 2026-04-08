@@ -480,20 +480,26 @@ export default function App() {
     setSalesLoading(true); setSalesError(null);
     try {
       const res  = await fetch("/api/sales");
-      const json = await res.json();
-      if (json.error) {
-        // 401: oturum süresi dolmuş ama server otomatik yenilemeyi denedi
-        // yenileme başarısız olduysa kullanıcıya bildir
-        if (res.status === 401) {
-          setSalesError('⚠️ Oturum süresi doldu. Sunucu yenilemeyi denedi: ' + json.error + ' — Lütfen çıkış yapıp tekrar giriş yapın.');
-        } else {
-          throw new Error(json.error);
-        }
+      // 401 → oturum sona ermiş, otomatik yenile
+      if (res.status === 401) {
+        console.log('fetchSales: 401, oturum yenileniyor...');
+        const reloginRes = await fetch('/api/auto-login', { method:'POST' });
+        const reloginJson = await reloginRes.json();
+        if (!reloginJson.success) throw new Error('Oturum yenilenemedi, lütfen çıkış yapıp tekrar giriş yapın.');
+        // Yeniden dene
+        const res2 = await fetch("/api/sales");
+        const json2 = await res2.json();
+        if (json2.error) throw new Error(json2.error);
+        setSalesData(json2);
+        setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
+        setShowIdeasoftReport(false);
         return;
       }
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
       setSalesData(json);
       setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
-      setShowIdeasoftReport(false);
+      setShowIdeasoftReport(false); // veri yenilenince rapor kapalı kalır
     } catch(e) { setSalesError(e.message); }
     finally { setSalesLoading(false); }
   };
@@ -1251,9 +1257,9 @@ export default function App() {
           </button>
         </div>
       ) : (
-        /* Yönetici: iki kart yan yana + seans yazdır bar */
-        <div style={{maxWidth:720,margin:'0 auto',padding:'18px',paddingTop:24}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:10}}>
+        /* Yönetici: iki kart yan yana + Seans Yazdır yatay bar */
+        <div style={{padding:'18px',paddingTop:24,maxWidth:720,margin:'0 auto',display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
               color="#b47cff" active={mode==='sales'} loading={salesLoading}
               onClick={()=>{ setMode('sales'); fetchSales(); }} />
@@ -1261,29 +1267,21 @@ export default function App() {
               color="#4fc9ff" active={mode==='stock'}
               onClick={()=>setMode(mode==='stock'?null:'stock')} />
           </div>
-          {/* Seans Yazdır — tam genişlik yatay bar */}
+          {/* Seans Yazdır — yatay uzun bar */}
           <button
+            style={{width:'100%',display:'flex',alignItems:'center',gap:16,
+              padding:'15px 20px',borderRadius:14,border:'1px solid #2a1a4a',cursor:'pointer',
+              background:'linear-gradient(135deg,#1a0a2e,#2d1060)',
+              boxShadow:'0 0 0px #b47cff00',
+              transition:'all 0.2s'}}
             onClick={handleSeansYazOpen}
-            style={{
-              width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
-              padding:'14px 20px',background: seansYazMode
-                ? 'linear-gradient(135deg,#7c3aff44,#b47cff22)'
-                : '#0d1120',
-              border:'1px solid ' + (seansYazMode ? '#b47cff' : '#1a2035'),
-              borderRadius:12,cursor:'pointer',
-              transition:'all 0.15s',boxSizing:'border-box'
-            }}
-            onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
-            onMouseOut={e=>{e.currentTarget.style.borderColor=seansYazMode?'#b47cff':'#1a2035';e.currentTarget.style.background=seansYazMode?'linear-gradient(135deg,#7c3aff44,#b47cff22)':'#0d1120';}}
           >
-            <div style={{display:'flex',alignItems:'center',gap:12}}>
-              <span style={{fontSize:22}}>📅</span>
-              <div style={{textAlign:'left'}}>
-                <div style={{fontSize:14,fontWeight:700,color:'#b47cff'}}>Seans Yazdır</div>
-                <div style={{fontSize:11,color:'#374151'}}>İdeasoft'a otomatik seans ekle</div>
-              </div>
+            <span style={{fontSize:26,flexShrink:0}}>📅</span>
+            <div style={{textAlign:'left',flex:1}}>
+              <div style={{fontSize:14,fontWeight:800,color:'#c084fc',marginBottom:1}}>Seans Yazdır</div>
+              <div style={{fontSize:11,color:'#7c3aed',opacity:0.9}}>İdeasoft'a yeni seans ekle</div>
             </div>
-            <span style={{fontSize:18,color:'#b47cff'}}>›</span>
+            <span style={{fontSize:18,color:'#7c3aed'}}>›</span>
           </button>
         </div>
       )}
@@ -1611,6 +1609,24 @@ export default function App() {
             );
           })()}
 
+          {/* ── SEANS YAZDIRMA BUTONU ── */}
+          {role === 'admin' && (
+            <div style={{marginTop:12}}>
+              <button
+                onClick={handleSeansYazOpen}
+                style={{
+                  width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
+                  padding:'13px 18px',background:'#0d1120',border:'1px solid #1a2035',
+                  borderRadius:12,cursor:'pointer',color:'#b47cff',fontSize:14,fontWeight:700,
+                  transition:'all 0.15s'
+                }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+                <span>📅 Seans Yazdır</span>
+                <span style={{fontSize:16}}>›</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
