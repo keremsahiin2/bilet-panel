@@ -98,6 +98,7 @@ const EVENT_IDEASOFT_META = {
   'Cupcake Mum': { parentId:4252, price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Seramik':     { parentId:12671,price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Mekanda Seç': { parentId:5135, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
 };
 
 function generateSeansListForCat(cat, startDateStr, endDateStr) {
@@ -890,7 +891,10 @@ export default function App() {
               {seansYazProgress && !seansYazDone && (
                 <div style={{textAlign:'center',padding:'32px 16px'}}>
                   <div style={{fontSize:36,marginBottom:12}}>⏳</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:16}}>Seanslar ekleniyor, lütfen bekleyin</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>Seanslar ekleniyor, lütfen bekleyin</div>
+                  <div style={{fontSize:14,color:'#b47cff',fontWeight:700,marginBottom:16,letterSpacing:1}}>
+                    {getCatIcon(seansYazCat)} {seansYazCat}
+                  </div>
 
                   {/* Şu an eklenen seans */}
                   {seansYazCurrentName ? (
