@@ -942,7 +942,7 @@ async function createOneSeance(payload) {
   var allFetchedOptions = [];
   try {
     var optListRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&s=21&optionGroup=9',
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&optionGroup=9',
       { headers: headers(), timeout: 15000 }
     );
     var scList = (optListRes.headers['set-cookie'] || []).join(' ');
@@ -1167,15 +1167,9 @@ async function createOneSeance(payload) {
   console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status);
 
   // 5) PUT /admin-app/products/{parentId} — parent ürünü güncelle
-  // İdeasoft paneli de bu adımı yapıyor; optionGroups'u güncel listeyle gönder
+  // optionGroups boş gönderilmeli — panelde de böyle yapılıyor, doldurunca 400 alınıyor
   try {
-    var allTarihOptions = newTarihOptions; // mevcut + yeni
-    var putParentPayload = Object.assign({}, parentData, {
-      optionGroups: [
-        { id: 8, title: 'Mekan', options: [mekanOption] },
-        { id: 9, title: 'Tarih & Saat', options: allTarihOptions }
-      ]
-    });
+    var putParentPayload = Object.assign({}, parentData, { optionGroups: [] });
     var putRes = await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
       putParentPayload,
@@ -1312,7 +1306,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
   try {
     var olRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&s=21&optionGroup=9',
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&optionGroup=9',
       { headers: hdrs(), timeout: 15000 }
     );
     var scOl = (olRes.headers['set-cookie'] || []).join(' ');
@@ -1469,15 +1463,10 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   }
 
   // ── D) Parent ürünü PUT ile güncelle (tüm seanslar bittikten sonra bir kez) ──
+  // optionGroups boş gönderilmeli — doldurunca 400 alınıyor
   try {
     await new Promise(r => setTimeout(r, 1500));
-    var allNewOptions = cachedOptions;
-    var putPayload = Object.assign({}, parentData, {
-      optionGroups: [
-        { id: 8, title: 'Mekan', options: [mekanOption] },
-        { id: 9, title: 'Tarih & Saat', options: allNewOptions }
-      ]
-    });
+    var putPayload = Object.assign({}, parentData, { optionGroups: [] });
     var putRes2 = await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
       putPayload,
