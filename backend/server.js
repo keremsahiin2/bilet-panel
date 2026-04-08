@@ -515,22 +515,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
 
   console.log('Toplam login suresi:', Date.now() - t0, 'ms');
   lastFetch = new Date().toISOString();
-
-  // Options cache'i arka planda önceden doldur — ilk seans yazdırmada cache hazır olsun
-  if (ideasoftCookies) {
-    var _cStr = toCookieStr(ideasoftCookies);
-    var _warmupHdrs = {
-      'Cookie': _cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
-      'Accept': 'application/json', 'Content-Type': 'application/json',
-      'x-ideasoft-locale': 'tr', 'navigate-on-error': 'false',
-      'disabled-success-toastr': 'true', 'disabled-error-toastr': 'false',
-    };
-    fetchAllOptions(_warmupHdrs).then(function(opts) {
-      console.log('Options cache arka planda dolduruldu:', opts.length, 'adet');
-    }).catch(function(e) {
-      console.warn('Options cache warmup hatası:', e.message);
-    });
-  }
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────────────────
@@ -897,7 +881,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
 
   var allOptions = [];
   var page = 1;
-  var limit = 500; // 100 → 500: tek seferde tüm options, çok daha hızlı
+  var limit = 100;
 
   async function getPageWithRetry(p, retries) {
     retries = retries || 0;
@@ -931,7 +915,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
       allOptions = allOptions.concat(items);
       if (items.length < limit) break;
       page++;
-      await new Promise(r => setTimeout(r, 200)); // sayfa arası kısa bekleme
+      await new Promise(r => setTimeout(r, 700)); // 1500ms → 700ms
     } catch(e) {
       console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
       break;
@@ -1399,12 +1383,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     var payload = payloads[si];
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
     var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
-    // Slug: kısa, güvenli, sadece tarih+saat kısmından üret (parentSlug çok uzun/hatalı olabilir)
-    var slugSuffix = tarihSaatTitle.toLowerCase()
+    var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
-      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')
-      .slice(0, 80); // max 80 karakter
-    var seansSlug = (realParentSlug ? realParentSlug.slice(0,40) + '-' : '') + slugSuffix + '-' + Math.floor(Math.random()*9000+1000);
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
     // 400ms bekle — seanslar arası (hız/rate-limit dengesi)
     if (si > 0) await new Promise(r => setTimeout(r, 400));
