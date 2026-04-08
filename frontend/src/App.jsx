@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ─── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
 
@@ -618,14 +618,22 @@ export default function App() {
 
 
   // ─── OTOM. SEANS KAPATMA ───────────────────────────────────────────────────
-  // Her dakika kontrol: başlangıç saati gelen aktif seansları otomatik kapat
-  useState(() => {
+  // Her 30 saniyede kontrol: başlangıç saati gelen aktif seansları otomatik kapat
+  // useRef ile her zaman güncel salesData ve toggling'e erişilir (stale closure önlenir)
+  const salesDataRef = useRef(salesData);
+  const togglingRef  = useRef(toggling);
+  useEffect(() => { salesDataRef.current = salesData; }, [salesData]);
+  useEffect(() => { togglingRef.current  = toggling;  }, [toggling]);
+
+  useEffect(() => {
     const autoCloseCheck = () => {
-      if (!salesData?.ideasoft) return;
+      const data = salesDataRef.current;
+      if (!data?.ideasoft) return;
       const now = new Date();
-      salesData.ideasoft.forEach(s => {
+      data.ideasoft.forEach(s => {
         if (s.status !== 1) return; // zaten pasif
         if (!s.seanceId) return;
+        if (togglingRef.current[s.seanceId]) return; // zaten işlemde
         const parsed = parseIdeasoftName(s.fullName);
         if (!parsed) return;
         const dayNum = parseInt(parsed.dateKey);
@@ -634,23 +642,21 @@ export default function App() {
           if (parsed.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
         }
         if (monIdx === -1) return;
-        // Başlangıç saatini al
         const startMatch = parsed.timeSlot.match(/^(\d{2}):(\d{2})/);
         if (!startMatch) return;
         const startH = parseInt(startMatch[1]);
         const startM = parseInt(startMatch[2]);
         const startTime = new Date(now.getFullYear(), monIdx, dayNum, startH, startM, 0);
-        // Başlangıç saati geldi ve seans hâlâ aktif → kapat
-        if (now >= startTime && !toggling[s.seanceId]) {
+        if (now >= startTime) {
           console.log('Otomatik seans kapatma (başlangıç saati):', s.fullName);
           handleToggleSeance(s.seanceId, true);
         }
       });
     };
     const interval = setInterval(autoCloseCheck, 30000); // her 30 saniyede kontrol
-    autoCloseCheck(); // hemen bir kez çalıştır
+    autoCloseCheck(); // sayfa açılınca hemen bir kez çalıştır
     return () => clearInterval(interval);
-  }, [salesData]);
+  }, []); // bağımlılık yok — ref'ler üzerinden güncel veriye erişiliyor
 
   const getIdeasoftForCat = (cat) => {
     return (salesData?.ideasoft || [])
@@ -1260,20 +1266,18 @@ export default function App() {
               onClick={handleSeansYazOpen}
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:14,
-                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                padding:'15px 22px', borderRadius:14, border:'1px solid #16a34a44',
                 cursor:'pointer', textAlign:'left',
-                background:'#0d1120',
-                boxShadow:'none',
+                background:'linear-gradient(135deg,#052e16,#0a4a22)',
+                boxShadow:'0 0 18px #16a34a22',
                 transition:'all 0.2s'
-              }}
-              onMouseOver={e=>{e.currentTarget.style.borderColor='#ff9f4a';e.currentTarget.style.boxShadow='0 0 18px #ff9f4a22';e.currentTarget.style.background='#0f1525';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
-              <span style={{fontSize:26}}>📅</span>
-              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
-                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
+              }}>
+              <span style={{fontSize:24}}>📅</span>
+              <div>
+                <div style={{fontSize:14, fontWeight:800, color:'#4ade80', marginBottom:2}}>Seans Yazdır</div>
+                <div style={{fontSize:11, color:'#86efac', opacity:0.8}}>İdeasoft'a yeni seans dönemleri ekle</div>
               </div>
-              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+              <span style={{marginLeft:'auto', fontSize:16, color:'#4ade80'}}>›</span>
             </button>
           </div>
         </>
@@ -1602,7 +1606,24 @@ export default function App() {
             );
           })()}
 
-
+          {/* ── SEANS YAZDIRMA BUTONU ── */}
+          {role === 'admin' && (
+            <div style={{marginTop:12}}>
+              <button
+                onClick={handleSeansYazOpen}
+                style={{
+                  width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',
+                  padding:'13px 18px',background:'#0d1120',border:'1px solid #1a2035',
+                  borderRadius:12,cursor:'pointer',color:'#b47cff',fontSize:14,fontWeight:700,
+                  transition:'all 0.15s'
+                }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#130d20';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+                <span>📅 Seans Yazdır</span>
+                <span style={{fontSize:16}}>›</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
