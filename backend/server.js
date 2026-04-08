@@ -1159,21 +1159,12 @@ async function createOneSeance(payload) {
 
   // Batch response'u parse et — 200 olsa da içinde hata olabilir
   var batchResponseStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
-    if (batchResponseStr.includes('HTTP/1.1 4') || batchResponseStr.includes('HTTP/1.1 5')) {
-      console.error('DETAYLI BATCH HATA:', batchResponseStr);
-      throw new Error('Batch içinde hata var');
-    }
-
-  // Hata işaretleri: "HTTP/1.1 4" veya "HTTP/1.1 5" ile başlayan satırlar
-  
-  var innerStatus = innerStatusMatch ? parseInt(innerStatusMatch[1]) : batchRes.status;
-
-  if (innerStatus >= 400) {
-    console.error('Batch inner hata:', innerStatus, batchResponseStr.slice(0, 400));
-    throw new Error('İdeasoft batch hatası: ' + innerStatus + ' — ' + batchResponseStr.slice(0, 200));
+  if (batchResponseStr.includes('HTTP/1.1 4') || batchResponseStr.includes('HTTP/1.1 5')) {
+    console.error('DETAYLI BATCH HATA:', batchResponseStr);
+    throw new Error('Batch içinde hata var');
   }
 
-  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatus:', innerStatus);
+  console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status);
 
   // 5) PUT /admin-app/products/{parentId} — parent ürünü güncelle
   // İdeasoft paneli de bu adımı yapıyor; optionGroups'u güncel listeyle gönder
@@ -1238,6 +1229,275 @@ app.post('/api/ideasoft/create-seance', async function(req, res) {
       body: err.response && err.response.data
     });
   }
+});
+
+// ─── Toplu seans oluşturma — tüm liste frontend'den gelir ─────────────────────
+// Parent verisi + options listesi bir kez çekilir, sonra her seans için sadece
+// POST options (veya mevcut ID) + POST batch atılır → rate limit çok daha düşük
+app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
+  if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
+
+  var payloads = req.body.seances; // array of payload objects
+  if (!Array.isArray(payloads) || payloads.length === 0)
+    return res.status(400).json({ error:'seances array gerekli' });
+
+  var parentId = payloads[0].parent && payloads[0].parent.id;
+  if (!parentId) return res.status(400).json({ error:'parent.id gerekli' });
+
+  var cStr = toCookieStr(ideasoftCookies);
+  var hdrs = function() {
+    return {
+      'Cookie': cStr,
+      'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'x-ideasoft-locale': 'tr',
+      'navigate-on-error': 'false',
+      'disabled-success-toastr': 'true',
+      'disabled-error-toastr': 'false',
+    };
+  };
+
+  // ── A) Parent veriyi bir kez çek ──────────────────────────────────────────
+  var parentData, existingGroups = [], mekanOption, realPrices, realSpecialInfo, realParentSlug;
+  try {
+    var pRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
+      { headers: hdrs(), timeout: 15000 }
+    );
+    var sc = (pRes.headers['set-cookie'] || []).join(' ');
+    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    parentData = pRes.data;
+    existingGroups = parentData.optionGroups || [];
+  } catch(e) {
+    return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
+  }
+
+  // Optioned-products'tan optionGroups çek (products endpoint bazen boş döner)
+  if (existingGroups.length === 0) {
+    try {
+      var opRes2 = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+        { headers: hdrs(), timeout: 15000 }
+      );
+      var sc2 = (opRes2.headers['set-cookie'] || []).join(' ');
+      var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm2) { ideasoftCsrfToken = cm2[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      var opBody2 = opRes2.data;
+      var opSeances2 = Array.isArray(opBody2.data) ? opBody2.data : Array.isArray(opBody2) ? opBody2 : opBody2.data ? [opBody2.data] : [];
+      if (opSeances2.length > 0 && opSeances2[0].optionGroups) {
+        existingGroups = opSeances2[0].optionGroups;
+        if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
+        if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
+        if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
+        if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
+        if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
+      }
+    } catch(e) { console.warn('Bulk: optioned-products fallback hatası:', e.message); }
+  }
+
+  var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
+  var mekanGrp       = existingGroups.find(function(g) { return g.id === 8; });
+  mekanOption        = (mekanGrp && mekanGrp.options && mekanGrp.options.length > 0)
+                         ? mekanGrp.options[0]
+                         : { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
+  realPrices         = (parentData.prices || []).map(function(p) { return { id: p.id, type: p.type, value: p.value || '0' }; });
+  realSpecialInfo    = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
+  realParentSlug     = parentData.slug || '';
+
+  // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
+  // 2sn bekle — parent fetch'ten hemen sonra rate limit tetiklenmemesi için
+  await new Promise(r => setTimeout(r, 2000));
+  var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
+  try {
+    var olRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&s=21&optionGroup=9',
+      { headers: hdrs(), timeout: 15000 }
+    );
+    var scOl = (olRes.headers['set-cookie'] || []).join(' ');
+    var cmOl = scOl.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cmOl) { ideasoftCsrfToken = cmOl[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    var olBody = olRes.data;
+    var fetched = Array.isArray(olBody) ? olBody : Array.isArray(olBody.data) ? olBody.data : [];
+    if (fetched.length > 0) cachedOptions = fetched;
+    console.log('Bulk: options listesi çekildi, adet:', cachedOptions.length);
+  } catch(e) {
+    console.warn('Bulk: options listesi çekilemedi, optionGroups kullanılıyor:', e.message);
+  }
+
+  // ── C) Her seans için sırayla işle ───────────────────────────────────────
+  var results = [];
+  for (var si = 0; si < payloads.length; si++) {
+    var payload = payloads[si];
+    var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
+    var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
+    var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
+      .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+
+    // 2sn bekle — seanslar arası (ilk seans için B adımından zaten beklendi)
+    if (si > 0) await new Promise(r => setTimeout(r, 2000));
+
+    try {
+      // C1) Option ID — mevcut listede ara, yoksa POST
+      var existingOpt = cachedOptions.find(function(o) {
+        return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
+      });
+      var newOptionId;
+      if (existingOpt) {
+        newOptionId = existingOpt.id;
+        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Mevcut option:', newOptionId, tarihSaatTitle);
+      } else {
+        var optRes = await axios.post(
+          'https://berkayalabalik.myideasoft.com/admin-app/options',
+          {
+            title: tarihSaatTitle,
+            sortOrder: 9999,
+            size: '16',
+            optionGroup: {
+              id: 9,
+              title: 'Tarih & Saat',
+              options: cachedOptions.map(function(o) {
+                return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+              })
+            }
+          },
+          { headers: hdrs(), timeout: 15000 }
+        );
+        var scOr = (optRes.headers['set-cookie'] || []).join(' ');
+        var cmOr = scOr.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+        if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+        newOptionId = optRes.data && optRes.data.id;
+        if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
+        // Cache'e ekle — sonraki seanslar bu ID'yi tekrar POST etmesin
+        cachedOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
+      }
+
+      // C2) Batch POST (varyant oluştur)
+      var newOptionIds = mekanOption.id + '_' + newOptionId;
+      var variantPayload = {
+        id: null,
+        name: payload.name,
+        sku: realSku,
+        slug: seansSlug,
+        barcode: null,
+        stockAmount: String(payload.stockAmount || '10'),
+        price1: String(payload.price1 || parentData.price1 || '450'),
+        currency: payload.currency || parentData.currency,
+        discount: '0', discountType: 1, moneyOrderDiscount: 0, buyingPrice: '0',
+        marketPriceDetail: null, taxIncluded: 1,
+        tax: payload.tax || parentData.tax || 20,
+        warranty: 0, volumetricWeight: '0', stockTypeLabel: 'Piece',
+        customShippingDisabled: 1, customShippingCost: 0,
+        customizationGroups: [], gift: null, hasGift: 0,
+        installmentThreshold: '-', selectionGroups: [], extraInfos: [],
+        status: 1,
+        prices: realPrices,
+        specialInfo: realSpecialInfo,
+        parent: { id: parentId, name: parentData.name },
+        optionGroups: [
+          { id: 8, title: 'Mekan', options: [mekanOption] },
+          { id: 9, title: 'Tarih & Saat', options: [{ id: newOptionId, title: tarihSaatTitle }] }
+        ],
+        optionIds: newOptionIds,
+      };
+
+      var boundary = Date.now().toString() + Math.random().toString(36).slice(2);
+      var csrf = ideasoftCsrfToken || '';
+      var innerLines = [
+        'POST /admin-app/products HTTP/1.1',
+        'Host: berkayalabalik.myideasoft.com',
+        'Accept: application/json, text/plain, */*',
+        'Content-Type: application/http',
+        'Access-Control-Allow-Headers: Content-Type',
+        'navigate-on-error: false',
+        'disabled-success-toastr: true',
+        'disabled-error-toastr: false',
+        'should-batch: true',
+        'x-ideasoft-locale: tr',
+        'X-CSRF-TOKEN: ' + csrf,
+      ].join('\r\n');
+      var jsonBody = JSON.stringify(variantPayload);
+      var batchBody =
+        '--' + boundary + '\r\n' +
+        'Content-Type: application/http; msgtype=request\r\n' +
+        'Content-ID: <create-seance-' + newOptionId + '+0>\r\n' +
+        '\r\n' +
+        innerLines + '\r\n' +
+        '\r\n' +
+        jsonBody + '\r\n' +
+        '\r\n' +
+        '--' + boundary + '--';
+
+      var batchRes = await axios.post(
+        'https://berkayalabalik.myideasoft.com/admin-app/batch',
+        batchBody,
+        {
+          headers: {
+            'Cookie': cStr,
+            'X-CSRF-TOKEN': csrf,
+            'Content-Type': 'multipart/batch; boundary=' + boundary,
+            'Accept': 'application/json',
+            'x-ideasoft-locale': 'tr',
+            'navigate-on-error': 'false',
+            'use-return-carriage': 'true',
+            'access-control-allow-headers': 'Content-Type',
+          },
+          timeout: 25000
+        }
+      );
+      var sc4 = (batchRes.headers['set-cookie'] || []).join(' ');
+      var cm4 = sc4.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm4) { ideasoftCsrfToken = cm4[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+
+      var batchStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
+      if (batchStr.includes('HTTP/1.1 4') || batchStr.includes('HTTP/1.1 5')) {
+        throw new Error('Batch içinde hata: ' + batchStr.slice(0, 300));
+      }
+
+      console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ✓ batch OK, status:', batchRes.status);
+      results.push({ success: true, name: payload.name, optionId: newOptionId });
+
+    } catch(e) {
+      console.error('Bulk [' + (si+1) + '/' + payloads.length + '] HATA:', e.message,
+        e.response && e.response.status, e.response && JSON.stringify(e.response.data).slice(0,200));
+      results.push({ success: false, name: payload.name, error: e.message,
+        status: e.response && e.response.status });
+    }
+  }
+
+  // ── D) Parent ürünü PUT ile güncelle (tüm seanslar bittikten sonra bir kez) ──
+  try {
+    await new Promise(r => setTimeout(r, 1500));
+    var allNewOptions = cachedOptions;
+    var putPayload = Object.assign({}, parentData, {
+      optionGroups: [
+        { id: 8, title: 'Mekan', options: [mekanOption] },
+        { id: 9, title: 'Tarih & Saat', options: allNewOptions }
+      ]
+    });
+    var putRes2 = await axios.put(
+      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
+      putPayload,
+      {
+        headers: {
+          'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+          'Content-Type': 'application/json', 'Accept': 'application/json',
+          'x-ideasoft-locale': 'tr', 'navigate-on-error': 'false',
+          'disabled-success-toastr': 'true', 'use-return-carriage': 'true',
+        },
+        timeout: 20000
+      }
+    );
+    console.log('Bulk: Parent PUT OK, status:', putRes2.status);
+  } catch(e) {
+    console.warn('Bulk: Parent PUT başarısız (seanslar yine oluştu):', e.message);
+  }
+
+  var successCount = results.filter(function(r) { return r.success; }).length;
+  res.json({ total: payloads.length, success: successCount, errors: payloads.length - successCount, results });
 });
 
 // Stok güncelle
