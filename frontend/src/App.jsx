@@ -693,34 +693,29 @@ export default function App() {
   const handleSeansYazCreate = async () => {
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
     setSeansYazErrors([]);
-    let done = 0; let errors = 0;
-    const errorList = [];
 
-    for (const item of seansYazList) {
-      const payload = buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot);
-      try {
-        const res = await fetch('/api/ideasoft/create-seance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (json.error) {
-          errors++;
-          errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: json.error });
-        } else {
-          done++;
-        }
-      } catch(e) {
-        errors++;
-        errorList.push({ seans: item.dateKey + ' ' + item.slot, hata: e.message });
+    // Tüm payloadları tek istekte gönder — server tarafında cache ile işlenir
+    const seances = seansYazList.map(item => buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot));
+    try {
+      const res = await fetch('/api/ideasoft/create-seances-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seances })
+      });
+      const json = await res.json();
+      if (json.error) {
+        setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
+        setSeansYazErrors([{ seans: 'Tümü', hata: json.error }]);
+      } else {
+        const errorList = (json.results || [])
+          .filter(r => !r.success)
+          .map(r => ({ seans: r.name, hata: r.error }));
+        setSeansYazProgress({ done: json.success + (json.errors || 0), total: json.total, errors: json.errors || 0 });
+        setSeansYazErrors(errorList);
       }
-      setSeansYazProgress({ done: done + errors, total: seansYazList.length, errors });
-      setSeansYazErrors([...errorList]);
-      // Seanslar arası 2500ms bekle — GET options + POST + batch = 3 istek, rate limit için yeterli süre
-      if (done + errors < seansYazList.length) {
-        await new Promise(r => setTimeout(r, 2500));
-      }
+    } catch(e) {
+      setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
+      setSeansYazErrors([{ seans: 'Tümü', hata: e.message }]);
     }
     setSeansYazDone(true);
   };
@@ -872,17 +867,16 @@ export default function App() {
                 <div style={{textAlign:'center',padding:'32px 0'}}>
                   <div style={{fontSize:40,marginBottom:16}}>⏳</div>
                   <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:8}}>Seanslar oluşturuluyor…</div>
-                  <div style={{fontSize:14,color:'#4fc9ff',marginBottom:20}}>
-                    {seansYazProgress.done} / {seansYazProgress.total}
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:20}}>
+                    Server işliyor — lütfen bekleyin ({seansYazProgress.total} seans × ~2sn)
                   </div>
                   <div style={{background:'#1a2035',borderRadius:8,height:10,overflow:'hidden',margin:'0 auto',maxWidth:320}}>
-                    <div style={{height:'100%',borderRadius:8,transition:'width 0.3s',
+                    <div style={{height:'100%',borderRadius:8,
                       background:'linear-gradient(90deg,#0ea5e9,#22c55e)',
-                      width:`${Math.round(seansYazProgress.done/seansYazProgress.total*100)}%`}}/>
+                      width:'100%',
+                      animation:'indeterminate 1.5s ease-in-out infinite'}}/>
                   </div>
-                  {seansYazProgress.errors > 0 && (
-                    <div style={{fontSize:12,color:'#f87171',marginTop:12}}>{seansYazProgress.errors} hata</div>
-                  )}
+                  <style>{`@keyframes indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
                 </div>
               )}
 
