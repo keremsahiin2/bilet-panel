@@ -859,32 +859,53 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   }
 });
 
-// ─── Tüm options sayfalarını çek (paginated) ──────────────────────────────────
+// ─── Tüm options sayfalarını çek (paginated, rate-limit safe) ─────────────────
+// Büyük limit (100) → daha az istek → daha az 429
+// 429 gelince exponential backoff ile retry (max 3 deneme)
+// "Tekrarlanan giriş" 400'ü → cache'deki mevcut option kullanılıyor demek, atlıyoruz
 async function fetchAllOptions(headersObj) {
   var allOptions = [];
   var page = 1;
-  var limit = 20;
-  while (true) {
+  var limit = 100; // 20 → 100: 220 option için 12 sayfa yerine 3 sayfa
+
+  async function getPageWithRetry(p, retries) {
+    retries = retries || 0;
     try {
       var res = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/options?page=' + page + '&limit=' + limit + '&optionGroup=9',
-        { headers: headersObj, timeout: 15000 }
+        'https://berkayalabalik.myideasoft.com/admin-app/options?page=' + p + '&limit=' + limit + '&optionGroup=9',
+        { headers: headersObj, timeout: 20000 }
       );
       var sc = (res.headers['set-cookie'] || []).join(' ');
       var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
       if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      return res;
+    } catch(e) {
+      var status = e.response && e.response.status;
+      if (status === 429 && retries < 3) {
+        // Exponential backoff: 5s, 10s, 20s
+        var waitMs = 5000 * Math.pow(2, retries);
+        console.warn('fetchAllOptions sayfa=' + p + ' 429 rate limit — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (retries+1) + '/3)');
+        await new Promise(r => setTimeout(r, waitMs));
+        return getPageWithRetry(p, retries + 1);
+      }
+      throw e;
+    }
+  }
+
+  while (true) {
+    try {
+      var res = await getPageWithRetry(page);
       var body = res.data;
       var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
       if (items.length === 0) break;
       allOptions = allOptions.concat(items);
-      // Sayfadan az item geldiyse son sayfadayız
       if (items.length < limit) break;
       page++;
-      // Sayfalar arası kısa bekleme — rate limit için
-      await new Promise(r => setTimeout(r, 500));
+      // Sayfalar arası bekleme: 1.5s (20→100 ile sayfa sayısı 3'e indi, bu artık sorun olmaz)
+      await new Promise(r => setTimeout(r, 1500));
     } catch(e) {
       console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
-      break;
+      break; // hata olursa o ana kadar çektiğimizle devam et
     }
   }
   console.log('fetchAllOptions: toplam', allOptions.length, 'option,', page, 'sayfa');
@@ -1321,8 +1342,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   realParentSlug     = parentData.slug || '';
 
   // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
-  // 2sn bekle — parent fetch'ten hemen sonra rate limit tetiklenmemesi için
-  await new Promise(r => setTimeout(r, 2000));
+  // 3sn bekle — parent fetch'ten hemen sonra rate limit tetiklenmemesi için
+  await new Promise(r => setTimeout(r, 3000));
   var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
   try {
     var fetched = await fetchAllOptions(hdrs());
@@ -1342,8 +1363,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
-    // 2sn bekle — seanslar arası (ilk seans için B adımından zaten beklendi)
-    if (si > 0) await new Promise(r => setTimeout(r, 2000));
+    // 3sn bekle — seanslar arası (ilk seans için B adımından zaten beklendi)
+    if (si > 0) await new Promise(r => setTimeout(r, 3000));
 
     try {
       // C1) Option ID — mevcut listede ara, yoksa POST
@@ -1355,30 +1376,72 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         newOptionId = existingOpt.id;
         console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Mevcut option:', newOptionId, tarihSaatTitle);
       } else {
-        var optRes = await axios.post(
-          'https://berkayalabalik.myideasoft.com/admin-app/options',
-          {
-            title: tarihSaatTitle,
-            sortOrder: 9999,
-            size: '16',
-            optionGroup: {
-              id: 9,
-              title: 'Tarih & Saat',
-              options: cachedOptions.map(function(o) {
-                return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
-              })
+        // POST options — 429 gelirse exponential backoff, 400 "Tekrarlanan" gelirse listeyi yenile
+        var optRes;
+        var optRetries = 0;
+        while (true) {
+          try {
+            optRes = await axios.post(
+              'https://berkayalabalik.myideasoft.com/admin-app/options',
+              {
+                title: tarihSaatTitle,
+                sortOrder: 9999,
+                size: '16',
+                optionGroup: {
+                  id: 9,
+                  title: 'Tarih & Saat',
+                  options: cachedOptions.map(function(o) {
+                    return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+                  })
+                }
+              },
+              { headers: hdrs(), timeout: 15000 }
+            );
+            break; // başarılı
+          } catch(optErr) {
+            var optStatus = optErr.response && optErr.response.status;
+            // 429: rate limit — exponential backoff (6s, 12s, 24s)
+            if (optStatus === 429 && optRetries < 3) {
+              var waitMs = 6000 * Math.pow(2, optRetries);
+              console.warn('Bulk [' + (si+1) + '] options POST 429 — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (optRetries+1) + '/3)');
+              await new Promise(r => setTimeout(r, waitMs));
+              optRetries++;
+              continue;
             }
-          },
-          { headers: hdrs(), timeout: 15000 }
-        );
-        var scOr = (optRes.headers['set-cookie'] || []).join(' ');
-        var cmOr = scOr.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-        newOptionId = optRes.data && optRes.data.id;
-        if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
-        // Cache'e ekle — sonraki seanslar bu ID'yi tekrar POST etmesin
-        cachedOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
-        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
+            // 400 "Tekrarlanan giriş": option zaten var ama cache'de yok — listeyi tazele
+            if (optStatus === 400) {
+              var errBody = optErr.response && optErr.response.data;
+              var errMsg = errBody && (errBody.errorMessage || JSON.stringify(errBody));
+              if (errMsg && errMsg.includes('Tekrarlanan')) {
+                console.warn('Bulk [' + (si+1) + '] Tekrarlanan giriş — options listesi yenileniyor:', tarihSaatTitle);
+                await new Promise(r => setTimeout(r, 3000));
+                try {
+                  var refreshed = await fetchAllOptions(hdrs());
+                  if (refreshed.length > 0) cachedOptions = refreshed;
+                  var foundOpt = cachedOptions.find(function(o) {
+                    return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
+                  });
+                  if (foundOpt) {
+                    newOptionId = foundOpt.id;
+                    optRes = null; // ID set edildi, while döngüsünden çık
+                    console.log('Bulk [' + (si+1) + '] Tekrarlanan → mevcut ID bulundu:', newOptionId);
+                    break;
+                  }
+                } catch(re) { console.warn('Bulk options refresh hatası:', re.message); }
+              }
+            }
+            throw optErr; // beklenmeyen hata — catch(e)'ye düş
+          }
+        }
+        if (optRes !== null) {
+          var scOr = (optRes.headers['set-cookie'] || []).join(' ');
+          var cmOr = scOr.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+          if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+          newOptionId = optRes.data && optRes.data.id;
+          if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
+          cachedOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+          console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
+        }
       }
 
       // C2) Batch POST (varyant oluştur)
@@ -1437,23 +1500,40 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         '\r\n' +
         '--' + boundary + '--';
 
-      var batchRes = await axios.post(
-        'https://berkayalabalik.myideasoft.com/admin-app/batch',
-        batchBody,
-        {
-          headers: {
-            'Cookie': cStr,
-            'X-CSRF-TOKEN': csrf,
-            'Content-Type': 'multipart/batch; boundary=' + boundary,
-            'Accept': 'application/json',
-            'x-ideasoft-locale': 'tr',
-            'navigate-on-error': 'false',
-            'use-return-carriage': 'true',
-            'access-control-allow-headers': 'Content-Type',
-          },
-          timeout: 25000
+      // Batch POST — 429 gelirse retry
+      var batchRes;
+      var batchRetries = 0;
+      while (true) {
+        try {
+          batchRes = await axios.post(
+            'https://berkayalabalik.myideasoft.com/admin-app/batch',
+            batchBody,
+            {
+              headers: {
+                'Cookie': cStr,
+                'X-CSRF-TOKEN': csrf,
+                'Content-Type': 'multipart/batch; boundary=' + boundary,
+                'Accept': 'application/json',
+                'x-ideasoft-locale': 'tr',
+                'navigate-on-error': 'false',
+                'use-return-carriage': 'true',
+                'access-control-allow-headers': 'Content-Type',
+              },
+              timeout: 25000
+            }
+          );
+          break;
+        } catch(batchErr) {
+          if (batchErr.response && batchErr.response.status === 429 && batchRetries < 3) {
+            var bWait = 8000 * Math.pow(2, batchRetries);
+            console.warn('Bulk [' + (si+1) + '] batch 429 — ' + (bWait/1000) + 's bekleniyor (deneme ' + (batchRetries+1) + '/3)');
+            await new Promise(r => setTimeout(r, bWait));
+            batchRetries++;
+            continue;
+          }
+          throw batchErr;
         }
-      );
+      }
       var sc4 = (batchRes.headers['set-cookie'] || []).join(' ');
       var cm4 = sc4.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
       if (cm4) { ideasoftCsrfToken = cm4[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
