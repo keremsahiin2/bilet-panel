@@ -1468,7 +1468,21 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         parent: { id: parentId, name: parentData.name },
         optionGroups: [
           { id: 8, title: 'Mekan', options: [mekanOption] },
-          { id: 9, title: 'Tarih & Saat', options: [{ id: newOptionId, title: tarihSaatTitle }] }
+          {
+            id: 9, title: 'Tarih & Saat',
+            options: [{
+              id: newOptionId,
+              title: tarihSaatTitle,
+              sortOrder: 9999,
+              optionGroup: {
+                id: 9,
+                title: 'Tarih & Saat',
+                options: cachedOptions.map(function(o) {
+                  return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+                })
+              }
+            }]
+          }
         ],
         optionIds: newOptionIds,
       };
