@@ -1539,6 +1539,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       if (cm4) { ideasoftCsrfToken = cm4[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
 
       var batchStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
+      console.log('Bulk [' + (si+1) + '] batch yanıtı (ilk 500 karakter):', batchStr.slice(0, 500));
       if (batchStr.includes('HTTP/1.1 4') || batchStr.includes('HTTP/1.1 5')) {
         throw new Error('Batch içinde hata: ' + batchStr.slice(0, 300));
       }
