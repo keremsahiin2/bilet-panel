@@ -918,7 +918,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
 
   var allOptions = [];
   var page = 1;
-  var limit = 200; // 100 → 200: yarı sayıda istek
+  var limit = 100;
 
   async function getPageWithRetry(p, retries) {
     retries = retries || 0;
@@ -943,35 +943,20 @@ async function fetchAllOptions(headersObj, forceRefresh) {
     }
   }
 
-  // Sayfa 1'i çek, sonra kalan sayfaları paralel çek (2 kat hız artışı)
-  try {
-    var firstRes = await getPageWithRetry(1);
-    var firstBody = firstRes.data;
-    var firstItems = Array.isArray(firstBody) ? firstBody : (Array.isArray(firstBody.data) ? firstBody.data : []);
-    allOptions = firstItems;
-
-    if (firstItems.length >= limit) {
-      // Sayfa 2'yi çek, oradan da devam et
-      page = 2;
-      while (true) {
-        try {
-          // Kısa bekleme: 300ms (700ms'den hızlı)
-          await new Promise(r => setTimeout(r, 300));
-          var res = await getPageWithRetry(page);
-          var body = res.data;
-          var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
-          if (items.length === 0) break;
-          allOptions = allOptions.concat(items);
-          if (items.length < limit) break;
-          page++;
-        } catch(e) {
-          console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
-          break;
-        }
-      }
+  while (true) {
+    try {
+      var res = await getPageWithRetry(page);
+      var body = res.data;
+      var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
+      if (items.length === 0) break;
+      allOptions = allOptions.concat(items);
+      if (items.length < limit) break;
+      page++;
+      await new Promise(r => setTimeout(r, 700)); // 1500ms → 700ms
+    } catch(e) {
+      console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
+      break;
     }
-  } catch(e) {
-    console.warn('fetchAllOptions sayfa=1 hata:', e.message, e.response && e.response.status);
   }
 
   // Cache güncelle
@@ -1745,31 +1730,111 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   }
 });
 
-// Satış verileri
-app.get('/api/sales', async function(req, res) {
-  if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
+// ─── Satışları yenile — tüm API'lerden taze veri çeker ───────────────────────
+// Yenile butonuna basınca çağrılır; Bubilet token'ı yeniler, tüm veriyi tazeler.
+app.post('/api/sales/refresh', async function(req, res) {
+  const creds = loadJson(SAVED_CREDS_FILE);
+  if (!creds || !creds.bubiletUser || !creds.bubiletPass) {
+    return res.status(401).json({ error: 'Kayıtlı kimlik bilgisi yok, tekrar giriş yapın' });
+  }
 
-  // Oturum eskidiyse (>15 dakika) bubilet + biletinial'ı arka planda tazele
-  // Bu sayede "Yenile" butonuna basınca güncel veri gelir, çıkış/giriş gerekmez
-  var SESSION_MAX_AGE_MS = 15 * 60 * 1000; // 15 dakika
-  var sessionAge = lastFetch ? (Date.now() - new Date(lastFetch).getTime()) : Infinity;
-  if (sessionAge > SESSION_MAX_AGE_MS) {
-    console.log('/api/sales: oturum ' + Math.round(sessionAge/60000) + ' dakika eski — yeniden veri çekiliyor...');
-    var creds = loadJson(SAVED_CREDS_FILE);
-    if (creds && creds.bubiletUser && creds.bubiletPass) {
+  try {
+    // Bubilet ve Biletinial'ı paralel, taze token alarak çek
+    const [newBubilet, newBiletinial] = await Promise.all([
+      fetchBubilet(creds.bubiletUser, creds.bubiletPass)
+        .then(d => { console.log('Refresh: Bubilet', d.length, 'kayit'); return d; })
+        .catch(e => {
+          console.error('Refresh: Bubilet hatasi:', e.message);
+          return bubiletData || [];  // hata olursa eski veriyi koru
+        }),
+      fetchBiletinial(creds.biletinialToken || '')
+        .then(d => { console.log('Refresh: Biletinial', d.length, 'kayit'); return d; })
+        .catch(e => {
+          console.error('Refresh: Biletinial hatasi:', e.message);
+          return biletinialData || [];
+        })
+    ]);
+
+    bubiletData    = newBubilet;
+    biletinialData = newBiletinial;
+
+    // İdeasoft: mevcut cookie ile seansları yenile
+    if (ideasoftCookies) {
       try {
-        await doLogin(
-          creds.bubiletUser, creds.bubiletPass,
-          creds.biletinialToken || '',
-          creds.ideasoftUser || '', creds.ideasoftPass || ''
-        );
-        console.log('/api/sales: oturum başarıyla yenilendi');
-      } catch(refreshErr) {
-        console.warn('/api/sales: oturum yenileme başarısız:', refreshErr.message);
-        // Hata olsa bile mevcut cached veriyle devam et
+        const freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
+        ideasoftData = freshIdeasoft;
+        console.log('Refresh: Ideasoft', ideasoftData.length, 'seans');
+      } catch(e) {
+        console.error('Refresh: Ideasoft hatasi:', e.message);
+        // ideasoftCookies süresi dolmuşsa hata mesajını yolla
+        if (e.response && (e.response.status === 401 || e.response.status === 403)) {
+          return res.status(401).json({ error: 'İdeasoft oturumu sona erdi — uygulamayı yeniden başlatın' });
+        }
+        // diğer hatada eski veri kalsın
       }
     }
+
+    lastFetch = new Date().toISOString();
+  } catch(err) {
+    console.error('Refresh genel hatasi:', err.message);
+    return res.status(500).json({ error: err.message });
   }
+
+  // Aynı /api/sales formatında yanıt dön — baseline + monthlySales hesapla
+  var ideasoftSales = null;
+  var monthlySalesFlat = {};
+  if (ideasoftData) {
+    var record = {};
+    try {
+      var binRes2 = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+        headers: { 'X-Master-Key': JSONBIN_API_KEY }
+      });
+      record = binRes2.data.record || {};
+    } catch(e) { console.error('JSONBin okuma hatasi (refresh):', e.message); }
+
+    var baseline2r     = record.baseline     || {};
+    var monthlySales2r = record.monthlySales || {};
+    var changed2r = false;
+
+    ideasoftSales = ideasoftData.map(function(s) {
+      if (!s.seanceId) return Object.assign({}, s, { baselineStock: null, soldCount: null });
+      if (baseline2r[s.seanceId] === undefined) {
+        baseline2r[s.seanceId] = CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
+        changed2r = true;
+      }
+      var base = baseline2r[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
+      return Object.assign({}, s, {
+        baselineStock: base,
+        soldCount: Math.max(0, base - (s.stockAmount !== null ? s.stockAmount : base))
+      });
+    });
+
+    var updatedMonthly2r = mergeIdeasoftIntoMonthlySales(monthlySales2r, ideasoftSales, baseline2r);
+    var monthlyChanged2r = JSON.stringify(updatedMonthly2r) !== JSON.stringify(monthlySales2r);
+
+    if (changed2r || monthlyChanged2r) {
+      try {
+        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+          { baseline: baseline2r, monthlySales: updatedMonthly2r },
+          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+      } catch(e) { console.error('JSONBin yazma hatasi (refresh):', e.message); }
+    }
+
+    monthlySalesFlat = flattenMonthlySales(updatedMonthly2r);
+  }
+
+  res.json({
+    bubilet: bubiletData,
+    biletinial: biletinialData,
+    ideasoft: ideasoftSales,
+    lastFetch,
+    monthlySales: monthlySalesFlat
+  });
+});
+
+// Satış verileri (bellekteki son veriyi döndürür — refresh için POST /api/sales/refresh kullanın)
+app.get('/api/sales', async function(req, res) {
+  if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
   var ideasoftSales = null;
   var monthlySalesFlat = {};

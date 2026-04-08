@@ -479,27 +479,14 @@ export default function App() {
   const fetchSales = async () => {
     setSalesLoading(true); setSalesError(null);
     try {
-      const res  = await fetch("/api/sales");
-      // 401 → oturum sona ermiş, otomatik yenile
-      if (res.status === 401) {
-        console.log('fetchSales: 401, oturum yenileniyor...');
-        const reloginRes = await fetch('/api/auto-login', { method:'POST' });
-        const reloginJson = await reloginRes.json();
-        if (!reloginJson.success) throw new Error('Oturum yenilenemedi, lütfen çıkış yapıp tekrar giriş yapın.');
-        // Yeniden dene
-        const res2 = await fetch("/api/sales");
-        const json2 = await res2.json();
-        if (json2.error) throw new Error(json2.error);
-        setSalesData(json2);
-        setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
-        setShowIdeasoftReport(false);
-        return;
-      }
+      // /api/sales/refresh → Bubilet/Biletinial/İdeasoft'tan taze veri çeker
+      // (eski /api/sales sadece bellekteki eski veriyi döndürüyordu)
+      const res  = await fetch("/api/sales/refresh", { method: "POST" });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setSalesData(json);
       setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
-      setShowIdeasoftReport(false); // veri yenilenince rapor kapalı kalır
+      setShowIdeasoftReport(false);
     } catch(e) { setSalesError(e.message); }
     finally { setSalesLoading(false); }
   };
@@ -1257,9 +1244,9 @@ export default function App() {
           </button>
         </div>
       ) : (
-        /* Yönetici: iki kart yan yana + Seans Yazdır yatay bar */
-        <div style={{padding:'18px',paddingTop:24,maxWidth:720,margin:'0 auto',display:'flex',flexDirection:'column',gap:12}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        /* Yönetici: iki kart yan yana + Seans Yazdır bar */
+        <>
+          <div style={S.mainActions}>
             <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
               color="#b47cff" active={mode==='sales'} loading={salesLoading}
               onClick={()=>{ setMode('sales'); fetchSales(); }} />
@@ -1267,23 +1254,27 @@ export default function App() {
               color="#4fc9ff" active={mode==='stock'}
               onClick={()=>setMode(mode==='stock'?null:'stock')} />
           </div>
-          {/* Seans Yazdır — yatay uzun bar */}
-          <button
-            style={{width:'100%',display:'flex',alignItems:'center',gap:16,
-              padding:'15px 20px',borderRadius:14,border:'1px solid #2a1a4a',cursor:'pointer',
-              background:'linear-gradient(135deg,#1a0a2e,#2d1060)',
-              boxShadow:'0 0 0px #b47cff00',
-              transition:'all 0.2s'}}
-            onClick={handleSeansYazOpen}
-          >
-            <span style={{fontSize:26,flexShrink:0}}>📅</span>
-            <div style={{textAlign:'left',flex:1}}>
-              <div style={{fontSize:14,fontWeight:800,color:'#c084fc',marginBottom:1}}>Seans Yazdır</div>
-              <div style={{fontSize:11,color:'#7c3aed',opacity:0.9}}>İdeasoft'a yeni seans ekle</div>
-            </div>
-            <span style={{fontSize:18,color:'#7c3aed'}}>›</span>
-          </button>
-        </div>
+          {/* Seans Yazdır — yatay geniş bar */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={handleSeansYazOpen}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #16a34a44',
+                cursor:'pointer', textAlign:'left',
+                background:'linear-gradient(135deg,#052e16,#0a4a22)',
+                boxShadow:'0 0 18px #16a34a22',
+                transition:'all 0.2s'
+              }}>
+              <span style={{fontSize:24}}>📅</span>
+              <div>
+                <div style={{fontSize:14, fontWeight:800, color:'#4ade80', marginBottom:2}}>Seans Yazdır</div>
+                <div style={{fontSize:11, color:'#86efac', opacity:0.8}}>İdeasoft'a yeni seans dönemleri ekle</div>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:16, color:'#4ade80'}}>›</span>
+            </button>
+          </div>
+        </>
       )}
 
       {/* ── SATIŞ PANELİ ── */}
