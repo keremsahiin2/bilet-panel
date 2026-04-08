@@ -889,18 +889,14 @@ export default function App() {
 
               {seansYazProgress && !seansYazDone && (
                 <div style={{textAlign:'center',padding:'32px 16px'}}>
-                  <div style={{fontSize:36,marginBottom:8}}>⏳</div>
-                  {/* Etkinlik adı — her zaman görünür */}
-                  <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:2}}>
-                    {getCatIcon(seansYazCat)} {seansYazCat}
-                  </div>
-                  <div style={{fontSize:13,color:'#64748b',marginBottom:16}}>seansları ekleniyor, lütfen bekleyin</div>
+                  <div style={{fontSize:36,marginBottom:12}}>⏳</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:16}}>Seanslar ekleniyor, lütfen bekleyin</div>
 
-                  {/* Şu an eklenen seans tarihi */}
+                  {/* Şu an eklenen seans */}
                   {seansYazCurrentName ? (
                     <div style={{background:'#0d1a2e',border:'1px solid #1e3a5f',borderRadius:10,
                       padding:'10px 16px',marginBottom:16,marginLeft:'auto',marginRight:'auto',maxWidth:380,textAlign:'left'}}>
-                      <div style={{fontSize:10,color:'#4fc9ff',fontWeight:700,letterSpacing:1,marginBottom:3,textTransform:'uppercase'}}>Şu an ekleniyor</div>
+                      <div style={{fontSize:10,color:'#4fc9ff',fontWeight:700,letterSpacing:1,marginBottom:3,textTransform:'uppercase'}}>Ekleniyor</div>
                       <div style={{fontSize:13,color:'#e2e8f0',fontWeight:600}}>{seansYazCurrentName}</div>
                     </div>
                   ) : (
