@@ -630,6 +630,9 @@ export default function App() {
       const data = salesDataRef.current;
       if (!data?.ideasoft) return;
       const now = new Date();
+
+      // Kapatılması gereken seansları topla
+      const toClose = [];
       data.ideasoft.forEach(s => {
         if (s.status !== 1) return; // zaten pasif
         if (!s.seanceId) return;
@@ -648,10 +651,23 @@ export default function App() {
         const startM = parseInt(startMatch[2]);
         const startTime = new Date(now.getFullYear(), monIdx, dayNum, startH, startM, 0);
         if (now >= startTime) {
-          console.log('Otomatik seans kapatma (başlangıç saati):', s.fullName);
-          handleToggleSeance(s.seanceId, true);
+          toClose.push(s);
         }
       });
+
+      if (toClose.length === 0) return;
+
+      // Rate limit'e çarpmamak için seansları sırayla, aralarında 4 saniye bekleyerek kapat
+      console.log(`Otomatik kapatma: ${toClose.length} seans sırayla kapatılacak`);
+      toClose.reduce((promise, s, i) => {
+        return promise.then(() => new Promise(resolve => {
+          setTimeout(() => {
+            console.log(`Otomatik seans kapatma (${i+1}/${toClose.length}):`, s.fullName);
+            handleToggleSeance(s.seanceId, true);
+            resolve();
+          }, i * 4000); // her seans arasında 4 saniye — İdeasoft rate limit'ini aşmamak için
+        }));
+      }, Promise.resolve());
     };
     const interval = setInterval(autoCloseCheck, 30000); // her 30 saniyede kontrol
     autoCloseCheck(); // sayfa açılınca hemen bir kez çalıştır
