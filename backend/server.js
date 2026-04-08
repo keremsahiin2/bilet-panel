@@ -18,7 +18,7 @@ let ideasoftCsrfToken  = null;
 // Options cache — fetchAllOptions sonucunu memory'de tut, her bulk'ta tekrar çekme
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
-const OPTIONS_CACHE_TTL  = 5 * 60 * 1000; // 5 dakika
+const OPTIONS_CACHE_TTL  = 30 * 60 * 1000; // 30 dakika
 
 // Seans yazdırma progress tracking — jobId → { total, done, errors, current, finished, results }
 const bulkProgressMap = {};
@@ -918,7 +918,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
 
   var allOptions = [];
   var page = 1;
-  var limit = 100;
+  var limit = 500; // 100→500: çok daha az sayfa → çok daha hızlı
 
   async function getPageWithRetry(p, retries) {
     retries = retries || 0;
@@ -952,7 +952,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
       allOptions = allOptions.concat(items);
       if (items.length < limit) break;
       page++;
-      await new Promise(r => setTimeout(r, 700)); // 1500ms → 700ms
+      // limit=500 ile genellikle tek sayfada biter — bekleme kaldırıldı
     } catch(e) {
       console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
       break;
@@ -1731,8 +1731,34 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 });
 
 // Satış verileri
+// Yenile butonuna basınca çağrılır. Eğer data yoksa veya lastFetch çok eskiyse
+// kaydedilmiş credentials ile otomatik olarak token yenileme yapar.
 app.get('/api/sales', async function(req, res) {
-  if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
+  // Eğer hiç login olmamışsa direkt hata dön
+  if (!bubiletData && !lastFetch) return res.status(401).json({ error:'Giris yapilmadi' });
+
+  // Token yenileme: lastFetch 15 dakikadan eskiyse otomatik re-login yap
+  // Bu sayede uygulamayı uzun süre açık bırakınca "yenile" düzgün çalışır
+  const REFRESH_THRESHOLD = 15 * 60 * 1000; // 15 dakika
+  const now = Date.now();
+  const lastFetchMs = lastFetch ? new Date(lastFetch).getTime() : 0;
+
+  if (!bubiletData || (now - lastFetchMs) > REFRESH_THRESHOLD) {
+    const creds = loadJson(SAVED_CREDS_FILE);
+    if (creds && creds.bubiletUser && creds.bubiletPass) {
+      console.log('/api/sales: token süresi dolmuş, otomatik yenileniyor...');
+      try {
+        await doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'');
+        console.log('/api/sales: token yenileme başarılı');
+      } catch(e) {
+        console.error('/api/sales: token yenileme başarısız:', e.message);
+        // Yenileme başarısız olsa da mevcut data varsa devam et
+        if (!bubiletData) return res.status(401).json({ error:'Oturum süresi doldu, tekrar giriş yapın: ' + e.message });
+      }
+    } else if (!bubiletData) {
+      return res.status(401).json({ error:'Giris yapilmadi' });
+    }
+  }
 
   var ideasoftSales = null;
   var monthlySalesFlat = {};
