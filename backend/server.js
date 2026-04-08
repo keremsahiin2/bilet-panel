@@ -936,15 +936,42 @@ async function createOneSeance(payload) {
     mekanOption = mekanGroup.options[0];
   }
 
+  // ── MEVCUT OPTION LİSTESİNİ ÇEK (GET /admin-app/options) ────────────────────
+  // POST body'sine mevcut tüm optionlar eklenmeli — İdeasoft bunu zorunlu tutar
+  var fetchedOptions = [];
+  try {
+    var optListRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&s=21&optionGroup=9',
+      { headers: headers(), timeout: 15000 }
+    );
+    var scList = (optListRes.headers['set-cookie'] || []).join(' ');
+    var cmList = scList.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cmList) { ideasoftCsrfToken = cmList[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    var optListBody = optListRes.data;
+    // Yanıt: { data: [...] } veya düz array
+    if (Array.isArray(optListBody)) fetchedOptions = optListBody;
+    else if (optListBody && Array.isArray(optListBody.data)) fetchedOptions = optListBody.data;
+    console.log('✓ Mevcut option sayısı çekildi:', fetchedOptions.length);
+  } catch(e) {
+    console.warn('Mevcut option listesi çekilemedi (devam ediliyor):', e.message);
+  }
+
   // ── GERÇEK OPTION ID AL: POST /admin-app/options ─────────────────────────────
   // ID'yi kendin tahmin etme — İdeasoft global auto-increment kullanır, tahmin çakışır.
-  var optionSlug = tarihSaatTitle.toLowerCase()
-    .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
-    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-
   var optionRes = await axios.post(
     'https://berkayalabalik.myideasoft.com/admin-app/options',
-    { title: tarihSaatTitle, slug: optionSlug, sortOrder: 9999, optionGroup: { id: 9 } },
+    {
+      title: tarihSaatTitle,
+      sortOrder: 9999,
+      size: String(payload.stockAmount || '10'),
+      optionGroup: {
+        id: 9,
+        title: 'Tarih & Saat',
+        options: fetchedOptions.map(function(o) {
+          return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+        })
+      }
+    },
     { headers: headers(), timeout: 15000 }
   );
   var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
@@ -956,8 +983,10 @@ async function createOneSeance(payload) {
   console.log('✓ Option ID alındı:', newOptionId, '→', tarihSaatTitle);
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Yeni Tarih & Saat option listesi = mevcut liste + yeni seans
-  var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
+  // Yeni Tarih & Saat option listesi = fetch edilen liste + yeni seans
+  var existingTarihOptions = fetchedOptions.length > 0
+    ? fetchedOptions
+    : ((tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : []);
   var newTarihOptions = existingTarihOptions.concat([{ id: newOptionId, title: tarihSaatTitle }]);
 
   // prices: parent'tan al (value=0 bırak — varyant override eder)
@@ -1138,6 +1167,44 @@ async function createOneSeance(payload) {
   }
 
   console.log('✓ Seans oluşturuldu:', payload.name, 'optionId:', newOptionId, 'batchStatus:', batchRes.status, 'innerStatus:', innerStatus);
+
+  // 5) PUT /admin-app/products/{parentId} — parent ürünü güncelle
+  // İdeasoft paneli de bu adımı yapıyor; optionGroups'u güncel listeyle gönder
+  try {
+    var allTarihOptions = newTarihOptions; // mevcut + yeni
+    var putParentPayload = Object.assign({}, parentData, {
+      optionGroups: [
+        { id: 8, title: 'Mekan', options: [mekanOption] },
+        { id: 9, title: 'Tarih & Saat', options: allTarihOptions }
+      ]
+    });
+    var putRes = await axios.put(
+      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
+      putParentPayload,
+      {
+        headers: {
+          'Cookie': cStr,
+          'X-CSRF-TOKEN': ideasoftCsrfToken || '',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'x-ideasoft-locale': 'tr',
+          'navigate-on-error': 'false',
+          'disabled-success-toastr': 'true',
+          'disabled-error-toastr': 'false',
+          'use-return-carriage': 'true',
+        },
+        timeout: 20000
+      }
+    );
+    var sc5 = (putRes.headers['set-cookie'] || []).join(' ');
+    var cm5 = sc5.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cm5) { ideasoftCsrfToken = cm5[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    console.log('✓ Parent ürün güncellendi:', parentId, 'status:', putRes.status);
+  } catch(e) {
+    // PUT başarısız olsa bile seans batch'te oluştu — sadece logla
+    console.warn('Parent PUT başarısız (seans yine de oluştu):', e.message, e.response && e.response.status);
+  }
+
   return { success: true, optionId: newOptionId, innerStatus };
 }
 
