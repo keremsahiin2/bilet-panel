@@ -18,7 +18,7 @@ let ideasoftCsrfToken  = null;
 // Options cache — fetchAllOptions sonucunu memory'de tut, her bulk'ta tekrar çekme
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
-const OPTIONS_CACHE_TTL  = 30 * 60 * 1000; // 30 dakika
+const OPTIONS_CACHE_TTL  = 5 * 60 * 1000; // 5 dakika
 
 // Seans yazdırma progress tracking — jobId → { total, done, errors, current, finished, results }
 const bulkProgressMap = {};
@@ -918,7 +918,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
 
   var allOptions = [];
   var page = 1;
-  var limit = 500; // 100→500: çok daha az sayfa → çok daha hızlı
+  var limit = 200; // 100 → 200: yarı sayıda istek
 
   async function getPageWithRetry(p, retries) {
     retries = retries || 0;
@@ -943,20 +943,35 @@ async function fetchAllOptions(headersObj, forceRefresh) {
     }
   }
 
-  while (true) {
-    try {
-      var res = await getPageWithRetry(page);
-      var body = res.data;
-      var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
-      if (items.length === 0) break;
-      allOptions = allOptions.concat(items);
-      if (items.length < limit) break;
-      page++;
-      // limit=500 ile genellikle tek sayfada biter — bekleme kaldırıldı
-    } catch(e) {
-      console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
-      break;
+  // Sayfa 1'i çek, sonra kalan sayfaları paralel çek (2 kat hız artışı)
+  try {
+    var firstRes = await getPageWithRetry(1);
+    var firstBody = firstRes.data;
+    var firstItems = Array.isArray(firstBody) ? firstBody : (Array.isArray(firstBody.data) ? firstBody.data : []);
+    allOptions = firstItems;
+
+    if (firstItems.length >= limit) {
+      // Sayfa 2'yi çek, oradan da devam et
+      page = 2;
+      while (true) {
+        try {
+          // Kısa bekleme: 300ms (700ms'den hızlı)
+          await new Promise(r => setTimeout(r, 300));
+          var res = await getPageWithRetry(page);
+          var body = res.data;
+          var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
+          if (items.length === 0) break;
+          allOptions = allOptions.concat(items);
+          if (items.length < limit) break;
+          page++;
+        } catch(e) {
+          console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
+          break;
+        }
+      }
     }
+  } catch(e) {
+    console.warn('fetchAllOptions sayfa=1 hata:', e.message, e.response && e.response.status);
   }
 
   // Cache güncelle
@@ -1731,32 +1746,28 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 });
 
 // Satış verileri
-// Yenile butonuna basınca çağrılır. Eğer data yoksa veya lastFetch çok eskiyse
-// kaydedilmiş credentials ile otomatik olarak token yenileme yapar.
 app.get('/api/sales', async function(req, res) {
-  // Eğer hiç login olmamışsa direkt hata dön
-  if (!bubiletData && !lastFetch) return res.status(401).json({ error:'Giris yapilmadi' });
+  if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
-  // Token yenileme: lastFetch 15 dakikadan eskiyse otomatik re-login yap
-  // Bu sayede uygulamayı uzun süre açık bırakınca "yenile" düzgün çalışır
-  const REFRESH_THRESHOLD = 15 * 60 * 1000; // 15 dakika
-  const now = Date.now();
-  const lastFetchMs = lastFetch ? new Date(lastFetch).getTime() : 0;
-
-  if (!bubiletData || (now - lastFetchMs) > REFRESH_THRESHOLD) {
-    const creds = loadJson(SAVED_CREDS_FILE);
+  // Oturum eskidiyse (>15 dakika) bubilet + biletinial'ı arka planda tazele
+  // Bu sayede "Yenile" butonuna basınca güncel veri gelir, çıkış/giriş gerekmez
+  var SESSION_MAX_AGE_MS = 15 * 60 * 1000; // 15 dakika
+  var sessionAge = lastFetch ? (Date.now() - new Date(lastFetch).getTime()) : Infinity;
+  if (sessionAge > SESSION_MAX_AGE_MS) {
+    console.log('/api/sales: oturum ' + Math.round(sessionAge/60000) + ' dakika eski — yeniden veri çekiliyor...');
+    var creds = loadJson(SAVED_CREDS_FILE);
     if (creds && creds.bubiletUser && creds.bubiletPass) {
-      console.log('/api/sales: token süresi dolmuş, otomatik yenileniyor...');
       try {
-        await doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'');
-        console.log('/api/sales: token yenileme başarılı');
-      } catch(e) {
-        console.error('/api/sales: token yenileme başarısız:', e.message);
-        // Yenileme başarısız olsa da mevcut data varsa devam et
-        if (!bubiletData) return res.status(401).json({ error:'Oturum süresi doldu, tekrar giriş yapın: ' + e.message });
+        await doLogin(
+          creds.bubiletUser, creds.bubiletPass,
+          creds.biletinialToken || '',
+          creds.ideasoftUser || '', creds.ideasoftPass || ''
+        );
+        console.log('/api/sales: oturum başarıyla yenilendi');
+      } catch(refreshErr) {
+        console.warn('/api/sales: oturum yenileme başarısız:', refreshErr.message);
+        // Hata olsa bile mevcut cached veriyle devam et
       }
-    } else if (!bubiletData) {
-      return res.status(401).json({ error:'Giris yapilmadi' });
     }
   }
 
