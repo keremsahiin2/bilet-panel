@@ -859,6 +859,38 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
   }
 });
 
+// ─── Tüm options sayfalarını çek (paginated) ──────────────────────────────────
+async function fetchAllOptions(headersObj) {
+  var allOptions = [];
+  var page = 1;
+  var limit = 20;
+  while (true) {
+    try {
+      var res = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/options?page=' + page + '&limit=' + limit + '&optionGroup=9',
+        { headers: headersObj, timeout: 15000 }
+      );
+      var sc = (res.headers['set-cookie'] || []).join(' ');
+      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      var body = res.data;
+      var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
+      if (items.length === 0) break;
+      allOptions = allOptions.concat(items);
+      // Sayfadan az item geldiyse son sayfadayız
+      if (items.length < limit) break;
+      page++;
+      // Sayfalar arası kısa bekleme — rate limit için
+      await new Promise(r => setTimeout(r, 500));
+    } catch(e) {
+      console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
+      break;
+    }
+  }
+  console.log('fetchAllOptions: toplam', allOptions.length, 'option,', page, 'sayfa');
+  return allOptions;
+}
+
 // ─── Seans oluşturma yardımcısı ───────────────────────────────────────────────
 // Her çağrıda İdeasoft'tan fresh CSRF alır + /admin-app/options ile gerçek option ID üretir
 async function createOneSeance(payload) {
@@ -937,23 +969,11 @@ async function createOneSeance(payload) {
   }
 
   // ── OPTION ID AL: önce mevcut listede ara, yoksa POST ────────────────────────
-  // GET /admin-app/options ile fresh liste çek — daha önce yazılmış seans varsa ID'si burada
   var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
-  var allFetchedOptions = [];
   try {
-    var optListRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&optionGroup=9',
-      { headers: headers(), timeout: 15000 }
-    );
-    var scList = (optListRes.headers['set-cookie'] || []).join(' ');
-    var cmList = scList.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cmList) { ideasoftCsrfToken = cmList[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-    var optListBody = optListRes.data;
-    if (Array.isArray(optListBody)) allFetchedOptions = optListBody;
-    else if (optListBody && Array.isArray(optListBody.data)) allFetchedOptions = optListBody.data;
-    // Başarılı GET sonrası mevcut listeyi güncelle
+    var allFetchedOptions = await fetchAllOptions(headers());
     if (allFetchedOptions.length > 0) existingTarihOptions = allFetchedOptions;
-    console.log('✓ GET options başarılı, toplam:', allFetchedOptions.length);
+    console.log('✓ GET options başarılı, toplam:', existingTarihOptions.length);
   } catch(e) {
     console.warn('GET options başarısız, mevcut liste kullanılıyor:', e.message);
   }
@@ -1305,15 +1325,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   await new Promise(r => setTimeout(r, 2000));
   var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
   try {
-    var olRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=200&optionGroup=9',
-      { headers: hdrs(), timeout: 15000 }
-    );
-    var scOl = (olRes.headers['set-cookie'] || []).join(' ');
-    var cmOl = scOl.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cmOl) { ideasoftCsrfToken = cmOl[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-    var olBody = olRes.data;
-    var fetched = Array.isArray(olBody) ? olBody : Array.isArray(olBody.data) ? olBody.data : [];
+    var fetched = await fetchAllOptions(hdrs());
     if (fetched.length > 0) cachedOptions = fetched;
     console.log('Bulk: options listesi çekildi, adet:', cachedOptions.length);
   } catch(e) {
