@@ -491,7 +491,7 @@ export default function App() {
     finally { setSalesLoading(false); }
   };
 
-  const handleStockUpdate = async (seanceId) => {
+  const handleStockUpdate = async (seanceId, currentSoldCount) => {
     const val = stockEdits[seanceId];
     if (val === undefined || val === '') return;
     setStockUpdating(p => ({...p,[seanceId]:true}));
@@ -499,7 +499,7 @@ export default function App() {
     try {
       const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, newStock:parseInt(val)})
+        body:JSON.stringify({seanceId, newStock:parseInt(val), currentSoldCount: currentSoldCount || 0})
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -1509,7 +1509,7 @@ export default function App() {
                                   onChange={e=>setStockEdits(p=>({...p,[s.seanceId]:e.target.value}))}/>
                                 <button style={{...S.updateBtnFull,...(editing&&!updating?S.updateBtnOn:{})}}
                                   disabled={!editing||updating}
-                                  onClick={()=>handleStockUpdate(s.seanceId)}>
+                                  onClick={()=>handleStockUpdate(s.seanceId, s.soldCount)}>
                                   {updating?'⟳ Güncelleniyor…':'Güncelle'}
                                 </button>
                                 {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
