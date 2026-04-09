@@ -1716,61 +1716,70 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   var cStr            = toCookieStr(ideasoftCookies);
 
   try {
-    var productRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
-      { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
-    );
+    // 1) İdeasoft GET + JSONBin GET — ikisini paralel yap (gecikmenin yarısı burada kazanılır)
+    var [productRes, binRes2] = await Promise.all([
+      axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
+        { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
+      ),
+      axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+        headers: { 'X-Master-Key': JSONBIN_API_KEY }
+      }).catch(function() { return { data: { record: {} } }; })
+    ]);
+
     var sc3 = (productRes.headers['set-cookie']||[]).join(' ');
     var m3  = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
-    // İdeasoft'a direkt "kalan kontenjan" gönder (stockAmount = kalan)
+    // 2) İdeasoft'a stok yaz
     await axios.put(
       'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
       Object.assign({}, productRes.data, { stockAmount:newStock }),
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
 
-    // Baseline hesaplama:
-    // Kullanıcı kontenjanı elle düşürüyor çünkü başka bir siteden de satış olmuş.
-    // currentSoldCount = sadece ideasoft'un sattığı miktar (baseline - ideasoft_stockAmount).
-    // Kullanıcı yeni kalan = newStock giriyor (tüm satışlar sonrası kalan).
-    //
-    // Örnek: Başlangıç 10, ideasoft 3 sattı (kalan 7), bubilet 3 sattı.
-    //   Kullanıcı kalan = 4 giriyor.
-    //   ideasoft soldCount = 3 (currentSoldCount olarak geliyor)
-    //   baseline = newStock + currentSoldCount = 4 + 3 = 7
-    //   → soldCount = 7 - 4 = 3 ✓ (ideasoft satışları korundu)
-    //
-    // Önceki baseline'dan daha büyük bir değer gelmesi mümkün değil:
-    // baseline en fazla = newStock + currentSoldCount olabilir.
-    var record2 = {};
-    try {
-      var br2 = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-        headers: { 'X-Master-Key': JSONBIN_API_KEY }
-      });
-      record2 = br2.data.record || {};
-    } catch(e) {}
-    var baseline2      = record2.baseline      || {};
-    var monthlySales2  = record2.monthlySales  || {};
-
+    // 3) Baseline güncelle — bellekteki ideasoftData'yı da anında yansıt
     // Yeni baseline: kullanıcının girdiği kalan + ideasoft'un şu ana kadar sattığı
+    // Örnek: Başlangıç 10, ideasoft 3 sattı (kalan 7), bubilet 3 sattı.
+    //   Kullanıcı kalan = 4 giriyor → baseline = 4 + 3 = 7, soldCount = 3 ✓
+    var record2     = (binRes2.data && binRes2.data.record) || {};
+    var baseline2   = record2.baseline     || {};
+    var monthlySales2 = record2.monthlySales || {};
     baseline2[seanceId] = newStock + currentSoldCount;
-    // Aylık arşivi de güncelle
-    ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
-    lastFetch    = new Date().toISOString();
-    var tmpSales = ideasoftData.map(function(s) {
-      if (!s.seanceId) return Object.assign({},s,{soldCount:null});
-      var base = baseline2[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
-      return Object.assign({},s,{ baselineStock:base, soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base)) });
-    });
-    var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, tmpSales, baseline2);
-    try {
-      await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-        { baseline: baseline2, monthlySales: updatedMonthly2 },
-        { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
-    } catch(e) { console.error('JSONBin yazma hatasi:', e.message); }
+
+    // Bellekteki ideasoftData'yı hemen güncelle (yenile butonuna basmadan ekranda doğru görünsün)
+    if (ideasoftData) {
+      ideasoftData = ideasoftData.map(function(s) {
+        if (s.seanceId !== seanceId) return s;
+        return Object.assign({}, s, {
+          stockAmount: newStock,
+          baselineStock: baseline2[seanceId],
+          soldCount: currentSoldCount
+        });
+      });
+    }
+
+    // 4) Kullanıcıya hemen başarı dön — arka plan işleri bekletme
     res.json({ success:true });
+
+    // 5) Arka planda: tüm seansları yenile + JSONBin kaydet (yavaş, ama kullanıcı beklemiyor)
+    setImmediate(async function() {
+      try {
+        var freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
+        ideasoftData = freshIdeasoft;
+        lastFetch    = new Date().toISOString();
+        var tmpSales = ideasoftData.map(function(s) {
+          if (!s.seanceId) return Object.assign({},s,{soldCount:null});
+          var base = baseline2[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
+          return Object.assign({},s,{ baselineStock:base, soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base)) });
+        });
+        var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, tmpSales, baseline2);
+        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+          { baseline: baseline2, monthlySales: updatedMonthly2 },
+          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+      } catch(e) { console.error('Stok güncelleme arka plan hatasi:', e.message); }
+    });
+
   } catch(err) {
     console.error('Stok guncelleme hatasi:', err.message);
     if (err.response && (err.response.status===401||err.response.status===403))
