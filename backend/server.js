@@ -1712,7 +1712,7 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   if (!ideasoftCookies) return res.status(401).json({ error:'İdeasoft oturumu yok - tekrar giriş yapın' });
   var seanceId        = req.body.seanceId;
   var newStock        = parseInt(req.body.newStock);        // kullanıcının girdiği "kalan kontenjan"
-  var currentSoldCount = parseInt(req.body.currentSoldCount) || 0; // şu ana kadar satılan
+  var currentSoldCount = parseInt(req.body.currentSoldCount) || 0; // şu ana kadar satılan (ideasoft satışları)
   var cStr            = toCookieStr(ideasoftCookies);
 
   try {
@@ -1731,8 +1731,19 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
       { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Content-Type':'application/json', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
     );
 
-    // Baseline = yeni kalan + mevcut satılan
-    // Örnek: kullanıcı 2 girdi, 3 satılmış → baseline=5, soldCount=5-2=3 ✓
+    // Baseline hesaplama:
+    // Kullanıcı kontenjanı elle düşürüyor çünkü başka bir siteden de satış olmuş.
+    // currentSoldCount = sadece ideasoft'un sattığı miktar (baseline - ideasoft_stockAmount).
+    // Kullanıcı yeni kalan = newStock giriyor (tüm satışlar sonrası kalan).
+    //
+    // Örnek: Başlangıç 10, ideasoft 3 sattı (kalan 7), bubilet 3 sattı.
+    //   Kullanıcı kalan = 4 giriyor.
+    //   ideasoft soldCount = 3 (currentSoldCount olarak geliyor)
+    //   baseline = newStock + currentSoldCount = 4 + 3 = 7
+    //   → soldCount = 7 - 4 = 3 ✓ (ideasoft satışları korundu)
+    //
+    // Önceki baseline'dan daha büyük bir değer gelmesi mümkün değil:
+    // baseline en fazla = newStock + currentSoldCount olabilir.
     var record2 = {};
     try {
       var br2 = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
@@ -1742,6 +1753,8 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     } catch(e) {}
     var baseline2      = record2.baseline      || {};
     var monthlySales2  = record2.monthlySales  || {};
+
+    // Yeni baseline: kullanıcının girdiği kalan + ideasoft'un şu ana kadar sattığı
     baseline2[seanceId] = newStock + currentSoldCount;
     // Aylık arşivi de güncelle
     ideasoftData = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
