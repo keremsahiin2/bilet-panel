@@ -579,6 +579,20 @@ export default function App() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({});
 
+  // ─── MALZEME STOK TAKİBİ ───────────────────────────────────────────────────
+  const [malzemeMode, setMalzemeMode] = useState(false);
+  const [malzemeSection, setMalzemeSection] = useState(null); // hangi alt bölüm
+  const [malzemeSubSection, setMalzemeSubSection] = useState(null); // boyamalı etkinlik alt bölümü
+  const [malzemeData, setMalzemeData] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('malzemeStok') || 'null') || {}; } catch { return {}; }
+  });
+  const saveMalzeme = (newData) => {
+    setMalzemeData(newData);
+    try { localStorage.setItem('malzemeStok', JSON.stringify(newData)); } catch {}
+  };
+  const getMalzeme = (key, def = '') => malzemeData[key] !== undefined ? malzemeData[key] : def;
+  const setMalzemeVal = (key, val) => saveMalzeme({ ...malzemeData, [key]: val });
+
   // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
   const [seansYazMode, setSeansYazMode]         = useState(false);   // tam sayfa ekran
   const [seansYazStep, setSeansYazStep]         = useState(1);       // 1=etkinlik seç, 2=tarih, 3=önizleme/oluştur
@@ -768,6 +782,346 @@ export default function App() {
     }
     setSeansYazDone(true);
   };
+
+  // ─── MALZEME STOK TAKİBİ TAM EKRAN ────────────────────────────────────────
+  const FIGUR_LIST = [
+    'Spiderman','Wine the poo','Stitch','Yoda','Pikaçu','Bart','Mickey mouse','Ironman','Groot',
+    'Superman','Batman','Mike','Donald','Minnie','Bugs bunny','Shrek','Shrek gözlük','Fiona',
+    'Sungerbob','Tom','Jerry','Ninja kaplumbağa','Labubu','Labubu kalpli','Garfield','Minnion',
+    'Goku','Chucky','Garen','Eşşek','Dobby','Dumbledore','Hagrid','Harry potter bust',
+    'Harry potter kuşlu','Hulk','Vecna','Şirine'
+  ];
+
+  const ANA_MALZEMELER = [
+    { key:'kraft_canta', label:'Kraft çanta' },
+    { key:'resim_canta', label:'Resim çantası' },
+    { key:'masa_kagidi', label:'Masa kağıdı' },
+    { key:'duralit_kilifi', label:'Duralit kılıfı' },
+    { key:'kursun_kalem', label:'Kurşun kalem' },
+    { key:'silgi', label:'Silgi' },
+    { key:'kalem_tras', label:'Kalem tıraş' },
+    { key:'boya_siyah', label:'Boya – Siyah', isBoya:true },
+    { key:'boya_beyaz', label:'Boya – Beyaz', isBoya:true },
+    { key:'boya_mavi', label:'Boya – Mavi', isBoya:true },
+    { key:'boya_kirmizi', label:'Boya – Kırmızı', isBoya:true },
+    { key:'boya_kahverengi', label:'Boya – Kahverengi', isBoya:true },
+    { key:'boya_yesil', label:'Boya – Yeşil', isBoya:true },
+    { key:'boya_ten', label:'Boya – Ten rengi', isBoya:true },
+    { key:'boya_pembe', label:'Boya – Pembe', isBoya:true },
+    { key:'boya_sari', label:'Boya – Sarı', isBoya:true },
+    { key:'boya_mor', label:'Boya – Mor', isBoya:true },
+    { key:'boya_turuncu', label:'Boya – Turuncu', isBoya:true },
+  ];
+
+  const PUNCH_MALZEME = [
+    { key:'punch_ip_eksik', label:'İpler (eksik ip notu)', isText:true },
+    { key:'punch_makas', label:'Punch makası', isCheck:true },
+    { key:'punch_ip_gec_tel', label:'İp geçirme teli', isCheck:true },
+    { key:'punch_igne', label:'Punch işleme iğnesi', isCheck:true },
+  ];
+
+  const MUM_MALZEME = [
+    { key:'mum_renkler', label:'Mum renkleri (eksik notlar)', isText:true },
+    { key:'mum_parafin', label:'Parafin', isCheck:true },
+    { key:'mum_soya', label:'Soya', isCheck:true },
+    { key:'mum_kavanoz', label:'Kavanoz', isCheck:true },
+    { key:'mum_fitil', label:'Fitil', isCheck:true },
+    { key:'mum_bant', label:'Çift taraflı bant', isCheck:true },
+    { key:'mum_citcit', label:'Metal çıtçıt', isCheck:true },
+    { key:'mum_krema', label:'Krema torbası', isCheck:true },
+  ];
+
+  const SERAMIK_MALZEME = [
+    { key:'seramik_kil', label:'Kil torbası', isCount:true },
+    { key:'seramik_boyalar_eksik', label:'Seramik boyaları (eksik notlar)', isText:true },
+  ];
+
+  const MALZEME_SECTIONS = [
+    { key:'ana', label:'Ana Malzemeler', icon:'🎨' },
+    { key:'heykel', label:'Heykel', icon:'🗿' },
+    { key:'boyamali', label:'Boyamalı Etkinlikler', icon:'🖌️' },
+    { key:'seramik', label:'Seramik', icon:'☕️' },
+    { key:'punch', label:'Punch', icon:'🧶' },
+    { key:'mum', label:'Mum', icon:'🕯️' },
+    { key:'figur', label:'Figürler', icon:'🪆' },
+    { key:'ozel', label:'Özel Durum Bildirme', icon:'⚠️' },
+  ];
+
+  const BOYAMALI_SUB = [
+    { key:'bez_canta', label:'Bez Çanta', icon:'👜', countKey:'bez_canta_adet', countLabel:'Bez Çanta Adedi' },
+    { key:'plak', label:'Plak Boyama', icon:'💿', countKey:'plak_adet', countLabel:'Plak Adedi' },
+    { key:'maske', label:'Maske', icon:'🎭', countKey:'maske_adet', countLabel:'Maske Adedi' },
+    { key:'resim', label:'Resim', icon:'🧑‍🎨', countKey:'tuval_adet', countLabel:'Tuval Adedi' },
+  ];
+
+  const MSS = {
+    header: {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',
+      paddingTop:'calc(env(safe-area-inset-top, 0px) + 14px)',borderBottom:'1px solid #0f1525',
+      background:'#090d17',position:'sticky',top:0,zIndex:10},
+    body: {maxWidth:720,margin:'0 auto',padding:'20px 18px'},
+    sectionBtn: {width:'100%',display:'flex',alignItems:'center',gap:14,padding:'16px 18px',
+      background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,cursor:'pointer',
+      textAlign:'left',marginBottom:10,transition:'all 0.2s'},
+    sectionIcon: {fontSize:28,flexShrink:0},
+    sectionLabel: {fontSize:15,fontWeight:700,color:'#e2e8f0'},
+    sectionArrow: {marginLeft:'auto',fontSize:20,color:'#374151'},
+    card: {background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,overflow:'hidden',marginBottom:16},
+    cardHeader: {padding:'12px 16px',borderBottom:'1px solid #0f1525',display:'flex',alignItems:'center',gap:8},
+    cardTitle: {fontSize:14,fontWeight:700,color:'#fff'},
+    row: {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderBottom:'1px solid #090d17'},
+    rowLabel: {fontSize:13,color:'#94a3b8',flex:1},
+    countWrap: {display:'flex',alignItems:'center',gap:8},
+    countBtn: {width:32,height:32,borderRadius:8,border:'1px solid #1a2035',background:'#111827',
+      color:'#e2e8f0',fontSize:18,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'},
+    countVal: {fontSize:16,fontWeight:700,color:'#fff',minWidth:32,textAlign:'center'},
+    checkBox: {width:22,height:22,borderRadius:6,border:'2px solid #1a2035',background:'#07090f',
+      cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0},
+    textInput: {padding:'8px 12px',background:'#07090f',color:'#fff',border:'1px solid #1a2035',
+      borderRadius:8,fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'},
+    subBtn: {display:'flex',alignItems:'center',gap:10,padding:'14px 16px',background:'#0d1120',
+      border:'1px solid #1a2035',borderRadius:12,cursor:'pointer',width:'100%',marginBottom:8,transition:'all 0.2s'},
+    badge: {padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700},
+    noteTa: {width:'100%',padding:'10px 12px',background:'#07090f',color:'#fff',border:'1px solid #1a2035',
+      borderRadius:10,fontSize:13,resize:'vertical',outline:'none',boxSizing:'border-box',minHeight:80},
+  };
+
+  const MalzemeCountRow = ({ label, stateKey }) => {
+    const val = parseInt(getMalzeme(stateKey, '0')) || 0;
+    return (
+      <div style={MSS.row}>
+        <span style={MSS.rowLabel}>{label}</span>
+        <div style={MSS.countWrap}>
+          <button style={MSS.countBtn} onClick={() => setMalzemeVal(stateKey, Math.max(0, val - 1))}>−</button>
+          <span style={MSS.countVal}>{val}</span>
+          <button style={MSS.countBtn} onClick={() => setMalzemeVal(stateKey, val + 1)}>+</button>
+        </div>
+      </div>
+    );
+  };
+
+  const MalzemeCheckRow = ({ label, stateKey }) => {
+    const val = getMalzeme(stateKey, false);
+    return (
+      <div style={MSS.row}>
+        <span style={MSS.rowLabel}>{label}</span>
+        <div
+          style={{...MSS.checkBox, background: val ? '#0a2a14' : '#07090f', borderColor: val ? '#22c55e' : '#1a2035'}}
+          onClick={() => setMalzemeVal(stateKey, !val)}
+        >
+          {val && <span style={{color:'#22c55e'}}>✓</span>}
+        </div>
+      </div>
+    );
+  };
+
+  const MalzemeTextRow = ({ label, stateKey }) => {
+    const val = getMalzeme(stateKey, '');
+    return (
+      <div style={{...MSS.row, flexDirection:'column', alignItems:'flex-start', gap:8}}>
+        <span style={MSS.rowLabel}>{label}</span>
+        <input
+          style={MSS.textInput}
+          value={val}
+          placeholder="Not girin…"
+          onChange={e => setMalzemeVal(stateKey, e.target.value)}
+        />
+      </div>
+    );
+  };
+
+  if (malzemeMode) {
+    // Alt bölüm — boyamalı etkinlik alt seçimi
+    if (malzemeSection === 'boyamali' && malzemeSubSection) {
+      const sub = BOYAMALI_SUB.find(s => s.key === malzemeSubSection);
+      return (
+        <div style={S.page}>
+          <div style={MSS.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn}} onClick={() => setMalzemeSubSection(null)}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{sub?.icon} {sub?.label?.toUpperCase()}</span>
+            </div>
+          </div>
+          <div style={MSS.body}>
+            <div style={MSS.card}>
+              <div style={MSS.cardHeader}><span style={MSS.cardTitle}>📦 {sub?.countLabel}</span></div>
+              <MalzemeCountRow label={sub?.countLabel} stateKey={sub?.countKey} />
+            </div>
+            <div style={MSS.card}>
+              <div style={MSS.cardHeader}><span style={MSS.cardTitle}>📝 Notlar</span></div>
+              <div style={{padding:'12px 16px'}}>
+                <textarea
+                  style={MSS.noteTa}
+                  value={getMalzeme(sub?.key + '_not', '')}
+                  placeholder="Ek notlar…"
+                  onChange={e => setMalzemeVal(sub?.key + '_not', e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Alt bölüm render
+    if (malzemeSection) {
+      const sec = MALZEME_SECTIONS.find(s => s.key === malzemeSection);
+      return (
+        <div style={S.page}>
+          <div style={MSS.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn}} onClick={() => setMalzemeSection(null)}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{sec?.icon} {sec?.label?.toUpperCase()}</span>
+            </div>
+          </div>
+          <div style={MSS.body}>
+
+            {/* ANA MALZEMELER */}
+            {malzemeSection === 'ana' && (
+              <>
+                <div style={MSS.card}>
+                  <div style={MSS.cardHeader}><span style={MSS.cardTitle}>📦 Genel Malzemeler</span></div>
+                  {ANA_MALZEMELER.filter(m => !m.isBoya).map(m => (
+                    <MalzemeCountRow key={m.key} label={m.label} stateKey={m.key} />
+                  ))}
+                </div>
+                <div style={MSS.card}>
+                  <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🎨 Boyalar</span></div>
+                  {ANA_MALZEMELER.filter(m => m.isBoya).map(m => (
+                    <MalzemeCountRow key={m.key} label={m.label} stateKey={m.key} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* HEYKEL */}
+            {malzemeSection === 'heykel' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🗿 Heykel Malzemeleri</span></div>
+                <MalzemeCountRow label="Kil torbası adedi" stateKey="heykel_kil" />
+                <div style={{...MSS.row, flexDirection:'column', alignItems:'flex-start', gap:8}}>
+                  <span style={MSS.rowLabel}>Notlar</span>
+                  <textarea style={MSS.noteTa} value={getMalzeme('heykel_not','')} placeholder="Ek notlar…"
+                    onChange={e=>setMalzemeVal('heykel_not',e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {/* BOYAMALI ETKİNLİKLER */}
+            {malzemeSection === 'boyamali' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🖌️ Boyamalı Etkinlikler</span></div>
+                {BOYAMALI_SUB.map(sub => {
+                  const cnt = parseInt(getMalzeme(sub.countKey, '0')) || 0;
+                  return (
+                    <button key={sub.key}
+                      style={{...MSS.subBtn}}
+                      onMouseOver={e=>{e.currentTarget.style.borderColor='#4fc9ff';e.currentTarget.style.background='#0f1525';}}
+                      onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}
+                      onClick={() => setMalzemeSubSection(sub.key)}
+                    >
+                      <span style={{fontSize:22}}>{sub.icon}</span>
+                      <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0',flex:1}}>{sub.label}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:cnt>0?'#4fc9ff':'#374151',
+                        background:'#0a1a28',border:'1px solid '+(cnt>0?'#4fc9ff44':'#1a2035'),
+                        borderRadius:6,padding:'2px 10px'}}>{cnt} adet</span>
+                      <span style={{fontSize:18,color:'#374151'}}>›</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* SERAMİK */}
+            {malzemeSection === 'seramik' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>☕️ Seramik Malzemeleri</span></div>
+                <MalzemeCountRow label="Kil torbası adedi" stateKey="seramik_kil" />
+                <MalzemeTextRow label="Seramik boyaları (eksik notlar)" stateKey="seramik_boyalar_eksik" />
+              </div>
+            )}
+
+            {/* PUNCH */}
+            {malzemeSection === 'punch' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🧶 Punch Malzemeleri</span></div>
+                <MalzemeTextRow label="İpler (hangi ip eksik?)" stateKey="punch_ip_eksik" />
+                <MalzemeCheckRow label="Punch makası" stateKey="punch_makas" />
+                <MalzemeCheckRow label="İp geçirme teli" stateKey="punch_ip_gec_tel" />
+                <MalzemeCheckRow label="Punch işleme iğnesi" stateKey="punch_igne" />
+              </div>
+            )}
+
+            {/* MUM */}
+            {malzemeSection === 'mum' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🕯️ Mum Malzemeleri</span></div>
+                <MalzemeTextRow label="Mum renkleri (eksik notlar)" stateKey="mum_renkler" />
+                <MalzemeCheckRow label="Parafin" stateKey="mum_parafin" />
+                <MalzemeCheckRow label="Soya" stateKey="mum_soya" />
+                <MalzemeCheckRow label="Kavanoz" stateKey="mum_kavanoz" />
+                <MalzemeCheckRow label="Fitil" stateKey="mum_fitil" />
+                <MalzemeCheckRow label="Çift taraflı bant" stateKey="mum_bant" />
+                <MalzemeCheckRow label="Metal çıtçıt" stateKey="mum_citcit" />
+                <MalzemeCheckRow label="Krema torbası" stateKey="mum_krema" />
+              </div>
+            )}
+
+            {/* FIGÜRLER */}
+            {malzemeSection === 'figur' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>🪆 Figür Stokları</span></div>
+                {FIGUR_LIST.map(figur => (
+                  <MalzemeCountRow key={figur} label={figur} stateKey={'figur_' + figur.replace(/\s+/g,'_').toLowerCase()} />
+                ))}
+              </div>
+            )}
+
+            {/* ÖZEL DURUM */}
+            {malzemeSection === 'ozel' && (
+              <div style={MSS.card}>
+                <div style={MSS.cardHeader}><span style={MSS.cardTitle}>⚠️ Özel Durum Bildirme</span></div>
+                <div style={{padding:'12px 16px'}}>
+                  <textarea
+                    style={{...MSS.noteTa, minHeight:160}}
+                    value={getMalzeme('ozel_durum','')}
+                    placeholder="Özel bir durum veya acil bildirim giriniz…"
+                    onChange={e=>setMalzemeVal('ozel_durum',e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    // Malzeme ana menüsü
+    return (
+      <div style={S.page}>
+        <div style={MSS.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn}} onClick={() => { setMalzemeMode(false); setMalzemeSection(null); setMalzemeSubSection(null); }}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📋 MALZEME STOK TAKİBİ</span>
+          </div>
+        </div>
+        <div style={MSS.body}>
+          {MALZEME_SECTIONS.map(sec => (
+            <button key={sec.key}
+              style={MSS.sectionBtn}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.background='#0a1a10';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}
+              onClick={() => { setMalzemeSection(sec.key); setMalzemeSubSection(null); }}
+            >
+              <span style={MSS.sectionIcon}>{sec.icon}</span>
+              <span style={MSS.sectionLabel}>{sec.label}</span>
+              <span style={MSS.sectionArrow}>›</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // ─── SEANS YAZDIRMA TAM EKRAN ──────────────────────────────────────────────
   if (seansYazMode) {
@@ -1294,6 +1648,28 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
                 <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Malzeme Stok Takibi — yatay geniş bar */}
+          <div style={{padding:'0 18px 18px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={() => { setMalzemeMode(true); setMalzemeSection(null); setMalzemeSubSection(null); }}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                cursor:'pointer', textAlign:'left',
+                background:'#0d1120',
+                boxShadow:'none',
+                transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0a1a10';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>📋</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Malzeme Stok Takibi</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Malzeme sayımı ve stok durumu</span>
               </div>
               <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
             </button>
