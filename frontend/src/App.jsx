@@ -739,6 +739,58 @@ export default function App() {
   const [seansYazErrors, setSeansYazErrors] = useState([]); // hatalı seans detayları
   const [seansYazCurrentName, setSeansYazCurrentName] = useState('');
 
+  // ─── MAIL AT ───────────────────────────────────────────────────────────────
+  const [mailMode, setMailMode]             = useState(false);
+  const [mailStep, setMailStep]             = useState(1); // 1=platform, 2=etkinlik, 3=seans, 4=işlem, 5=kontenjan, 6=önizleme
+  const [mailPlatform, setMailPlatform]     = useState(null); // 'bubilet' | 'biletinial'
+  const [mailEvent, setMailEvent]           = useState(null);
+  const [mailSeans, setMailSeans]           = useState(null); // { dateKey, slot }
+  const [mailIslem, setMailIslem]           = useState(null); // 'kontenjan' | 'tukendi' | 'iptal'
+  const [mailKontenjan, setMailKontenjan]   = useState('');
+  const [mailSending, setMailSending]       = useState(false);
+  const [mailResult, setMailResult]         = useState(null); // { success, error, testMode, to }
+
+  const MAIL_EVENTS = ['Heykel','Bez Çanta','Plak Boyama','Maske','Resim','Mekanda Seç','Cupcake Mum','Seramik','Punch','3D Figür','Quiz Night'];
+
+  const handleMailOpen = () => {
+    setMailMode(true); setMailStep(1); setMailPlatform(null); setMailEvent(null);
+    setMailSeans(null); setMailIslem(null); setMailKontenjan(''); setMailSending(false); setMailResult(null);
+  };
+
+  const getMailSeansListForEvent = (eventName) => {
+    // Temel kategori bul
+    var baseCat = eventName;
+    if (eventName && eventName.startsWith('Quiz Night')) baseCat = 'Quiz Night';
+    return generateSeansListForCat(baseCat, (() => {
+      const d = new Date(); return d.toISOString().slice(0,10);
+    })(), (() => {
+      const d = new Date(); d.setDate(d.getDate()+60); return d.toISOString().slice(0,10);
+    })());
+  };
+
+  const handleMailSend = async () => {
+    setMailSending(true); setMailResult(null);
+    try {
+      const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
+      const res = await fetch('/api/send-mail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform: mailPlatform,
+          eventName: mailEvent,
+          seansLabel,
+          islemTipi: mailIslem,
+          kontenjan: mailKontenjan,
+        })
+      });
+      const json = await res.json();
+      setMailResult(json);
+    } catch(e) {
+      setMailResult({ error: e.message });
+    }
+    setMailSending(false);
+  };
+
   const handleSeansYazCreate = async () => {
     const jobId = 'job_' + Date.now();
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
@@ -784,6 +836,241 @@ export default function App() {
     }
     setSeansYazDone(true);
   };
+
+  // ─── MAIL AT TAM EKRAN ─────────────────────────────────────────────────────
+  if (mailMode) {
+    const PLATFORM_LABELS = { bubilet: 'Bubilet', biletinial: 'Biletini Al' };
+    const PLATFORM_COLORS = { bubilet: '#b47cff', biletinial: '#ff9f4a' };
+    const ISLEM_OPTIONS = [
+      { key:'kontenjan', icon:'📉', label:'Kontenjanı Azalt' },
+      { key:'tukendi',   icon:'🚫', label:'Tükendi Yap' },
+      { key:'iptal',     icon:'❌', label:'Etkinlik İptali & Ücret İadesi' },
+    ];
+    const MAIL_TARGETS = { bubilet:'keremsahiin1@gmail.com', biletinial:'keremsahiin2@gmail.com' };
+    const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
+    const toEmail = mailPlatform ? MAIL_TARGETS[mailPlatform] : '';
+    const mailSeansOptions = mailEvent ? getMailSeansListForEvent(mailEvent) : [];
+    const pColor = mailPlatform ? PLATFORM_COLORS[mailPlatform] : '#4fc9ff';
+
+    const mailBodyPreview = () => {
+      if (mailIslem === 'kontenjan') return `${seansLabel} bu seansın kalan kontenjanının ${mailKontenjan} olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      if (mailIslem === 'tukendi')   return `${seansLabel} bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      if (mailIslem === 'iptal')     return `${seansLabel} bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      return '';
+    };
+    const mailSubjectPreview = () => {
+      if (mailIslem === 'kontenjan') return 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
+      if (mailIslem === 'tukendi')   return 'ACİL TÜKENDİ YAPMA İŞLEMİ';
+      if (mailIslem === 'iptal')     return 'ACİL ETKİNLİK İPTALİ';
+      return '';
+    };
+
+    const stepBack = () => {
+      if (mailResult) { setMailResult(null); return; }
+      if (mailStep === 5) { setMailIslem(null); setMailStep(4); return; }
+      if (mailStep > 1) setMailStep(s => s - 1);
+      else setMailMode(false);
+    };
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={stepBack}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>✉️ MAIL AT</span>
+          </div>
+        </div>
+        <div style={{maxWidth:720,margin:'0 auto',padding:'24px 18px'}}>
+
+          {/* SONUÇ */}
+          {mailResult && (
+            <div style={{textAlign:'center',paddingTop:20}}>
+              {mailResult.error ? (
+                <>
+                  <div style={{fontSize:48,marginBottom:12}}>❌</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#fca5a5',marginBottom:8}}>Mail gönderilemedi</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:24}}>{mailResult.error}</div>
+                </>
+              ) : mailResult.testMode ? (
+                <>
+                  <div style={{fontSize:48,marginBottom:12}}>🧪</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#ff9f4a',marginBottom:8}}>Test Modu — SMTP ayarlı değil</div>
+                  <div style={{fontSize:12,color:'#64748b',marginBottom:4}}>Sunucuda MAIL_USER / MAIL_PASS env değişkenleri tanımlanmadı.</div>
+                  <div style={{fontSize:12,color:'#64748b',marginBottom:16}}>Mail içeriği hazır ve doğru, gönderilecek adres: <b style={{color:'#fff'}}>{mailResult.to}</b></div>
+                  <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,padding:'14px',textAlign:'left',marginBottom:20}}>
+                    <div style={{fontSize:11,color:'#64748b',marginBottom:4,fontWeight:700}}>KONU</div>
+                    <div style={{fontSize:13,color:'#fff',marginBottom:10}}>{mailResult.subject}</div>
+                    <div style={{fontSize:11,color:'#64748b',marginBottom:4,fontWeight:700}}>İÇERİK</div>
+                    <pre style={{fontSize:12,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit'}}>{mailResult.body}</pre>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{fontSize:48,marginBottom:12}}>✅</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#22c55e',marginBottom:8}}>Mail başarıyla gönderildi!</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:24}}>Alıcı: <b style={{color:'#fff'}}>{mailResult.to}</b></div>
+                </>
+              )}
+              <button onClick={() => setMailMode(false)} style={{...S.loginBtn,maxWidth:280,display:'inline-block'}}>
+                Ana Ekrana Dön
+              </button>
+            </div>
+          )}
+
+          {!mailResult && (
+            <>
+              {/* ADIM 1 — Platform seç */}
+              {mailStep === 1 && (
+                <div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Mail gönderilecek platformu seçin</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                    {['bubilet','biletinial'].map(p => (
+                      <button key={p} onClick={()=>{setMailPlatform(p);setMailStep(2);}}
+                        style={{background:'#0d1120',border:`1px solid ${PLATFORM_COLORS[p]}44`,borderRadius:14,
+                          padding:'20px 22px',cursor:'pointer',display:'flex',alignItems:'center',gap:14,textAlign:'left'}}>
+                        <span style={{fontSize:28}}>{p==='bubilet'?'🎟':'🎫'}</span>
+                        <div>
+                          <div style={{fontSize:15,fontWeight:700,color:PLATFORM_COLORS[p],marginBottom:2}}>{PLATFORM_LABELS[p]}</div>
+                          <div style={{fontSize:12,color:'#475569'}}>{MAIL_TARGETS[p]}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ADIM 2 — Etkinlik seç */}
+              {mailStep === 2 && (
+                <div>
+                  <div style={{fontSize:11,color:pColor,marginBottom:4,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]}</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Etkinliği seçin</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    {MAIL_EVENTS.map(evt => (
+                      <button key={evt} onClick={()=>{setMailEvent(evt);setMailStep(3);}}
+                        style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
+                          padding:'16px 12px',cursor:'pointer',display:'flex',flexDirection:'column',
+                          alignItems:'center',textAlign:'center',gap:6}}>
+                        <span style={{fontSize:24}}>{getCatIcon(evt)}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{evt}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ADIM 3 — Seans seç */}
+              {mailStep === 3 && (
+                <div>
+                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Seansı seçin</div>
+                  {mailSeansOptions.length === 0 ? (
+                    <div style={{color:'#64748b',textAlign:'center',padding:24}}>Önümüzdeki 60 günde seans bulunamadı.</div>
+                  ) : (
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      {mailSeansOptions.map((s,i) => (
+                        <button key={i} onClick={()=>{setMailSeans(s);setMailStep(4);}}
+                          style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,
+                            padding:'14px 18px',cursor:'pointer',display:'flex',alignItems:'center',
+                            justifyContent:'space-between',gap:10}}>
+                          <span style={{fontSize:13,color:'#94a3b8',fontWeight:600}}>{s.dateKey}</span>
+                          <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{s.slot}</span>
+                          <span style={{color:'#374151',fontSize:18}}>›</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ADIM 4 — İşlem seç */}
+              {mailStep === 4 && (
+                <div>
+                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
+                  <div style={{fontSize:13,color:'#94a3b8',marginBottom:16,fontWeight:600}}>{seansLabel}</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>İşlem türünü seçin</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                    {ISLEM_OPTIONS.map(opt => (
+                      <button key={opt.key}
+                        onClick={()=>{
+                          setMailIslem(opt.key);
+                          if (opt.key === 'kontenjan') setMailStep(5);
+                          else setMailStep(6);
+                        }}
+                        style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
+                          padding:'18px 20px',cursor:'pointer',display:'flex',alignItems:'center',gap:14,textAlign:'left'}}>
+                        <span style={{fontSize:26}}>{opt.icon}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{opt.label}</span>
+                        <span style={{marginLeft:'auto',color:'#374151',fontSize:18}}>›</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ADIM 5 — Kontenjan sayısı */}
+              {mailStep === 5 && (
+                <div>
+                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
+                  <div style={{fontSize:13,color:'#94a3b8',marginBottom:20,fontWeight:600}}>{seansLabel}</div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Kontenjan kaça düşürülsün?</div>
+                  <input
+                    type="number" min="0"
+                    value={mailKontenjan}
+                    onChange={e=>setMailKontenjan(e.target.value)}
+                    placeholder="Örn: 3"
+                    style={{...S.input, fontSize:20, padding:'14px', marginBottom:16, textAlign:'center'}}
+                  />
+                  <button
+                    onClick={()=>setMailStep(6)}
+                    disabled={!mailKontenjan || isNaN(parseInt(mailKontenjan))}
+                    style={{
+                      width:'100%',padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
+                      background: (!mailKontenjan||isNaN(parseInt(mailKontenjan))) ? '#1a2035' : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                      color: (!mailKontenjan||isNaN(parseInt(mailKontenjan))) ? '#374151' : '#fff',
+                      transition:'all 0.15s'
+                    }}>
+                    Devam →
+                  </button>
+                </div>
+              )}
+
+              {/* ADIM 6 — Önizleme & Gönder */}
+              {mailStep === 6 && (
+                <div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Mail Önizleme</div>
+                  <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'18px',marginBottom:20}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,paddingBottom:12,borderBottom:'1px solid #0f1525'}}>
+                      <span style={{fontSize:22}}>{mailPlatform==='bubilet'?'🎟':'🎫'}</span>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:700,color:pColor}}>{PLATFORM_LABELS[mailPlatform]}</div>
+                        <div style={{fontSize:11,color:'#475569'}}>{toEmail}</div>
+                      </div>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,color:'#64748b',marginBottom:3,fontWeight:700,letterSpacing:1}}>KONU</div>
+                      <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>{mailSubjectPreview()}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,color:'#64748b',marginBottom:3,fontWeight:700,letterSpacing:1}}>İÇERİK</div>
+                      <pre style={{fontSize:13,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit',lineHeight:1.7}}>{mailBodyPreview()}</pre>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleMailSend}
+                    disabled={mailSending}
+                    style={{width:'100%',padding:'16px',background:mailSending?'#1a2035':'linear-gradient(135deg,#22c55e,#16a34a)',
+                      color:mailSending?'#374151':'#fff',border:'none',borderRadius:14,fontSize:16,fontWeight:800,
+                      cursor:mailSending?'default':'pointer',transition:'all 0.15s'}}>
+                    {mailSending ? '⏳ Gönderiliyor…' : '✉️ Maili Gönder'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // ─── SEANS YAZDIRMA TAM EKRAN ──────────────────────────────────────────────
   if (seansYazMode) {
@@ -1310,6 +1597,28 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
                 <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Mail At — yatay geniş bar */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={handleMailOpen}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                cursor:'pointer', textAlign:'left',
+                background:'#0d1120',
+                boxShadow:'none',
+                transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>✉️</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Mail At</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Bubilet veya Biletini Al'a kontenjan / iptal maili gönder</span>
               </div>
               <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
             </button>
