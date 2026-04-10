@@ -494,19 +494,39 @@ export default function App() {
   const handleStockUpdate = async (seanceId, currentSoldCount) => {
     const val = stockEdits[seanceId];
     if (val === undefined || val === '') return;
+    const newStock = parseInt(val);
     setStockUpdating(p => ({...p,[seanceId]:true}));
     setStockMsg(p => ({...p,[seanceId]:''}));
+
+    // Önce local state'i hemen güncelle — sunucu yanıtı bekleme
+    // Satış sayısı değişmez; sadece kalan kontenjan ve baseline güncellenir
+    setSalesData(prev => {
+      if (!prev || !prev.ideasoft) return prev;
+      return {
+        ...prev,
+        ideasoft: prev.ideasoft.map(s => {
+          if (s.seanceId !== seanceId) return s;
+          const newBaseline = newStock + (currentSoldCount || 0);
+          return { ...s, stockAmount: newStock, baselineStock: newBaseline, soldCount: currentSoldCount || 0 };
+        })
+      };
+    });
+
     try {
       const res  = await fetch("/api/ideasoft/update-stock", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({seanceId, newStock:parseInt(val), currentSoldCount: currentSoldCount || 0})
+        body:JSON.stringify({seanceId, newStock, currentSoldCount: currentSoldCount || 0})
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setStockMsg(p => ({...p,[seanceId]:'✓'}));
       setStockEdits(p => { const n={...p}; delete n[seanceId]; return n; });
-      if (salesData) fetchSales();
-    } catch(e) { setStockMsg(p => ({...p,[seanceId]:'✗'})); }
+      // fetchSales ÇAĞIRILMIYOR — local state zaten güncellendi, satışlar korundu
+    } catch(e) {
+      setStockMsg(p => ({...p,[seanceId]:'✗ ' + e.message}));
+      // Hata durumunda state'i geri al — veriyi yenile
+      fetchSales();
+    }
     finally { setStockUpdating(p => ({...p,[seanceId]:false})); }
   };
 
@@ -657,19 +677,15 @@ export default function App() {
 
       if (toClose.length === 0) return;
 
-      // Rate limit'e çarpmamak için seansları sırayla, aralarında 4 saniye bekleyerek kapat
-      console.log(`Otomatik kapatma: ${toClose.length} seans sırayla kapatılacak`);
-      toClose.reduce((promise, s, i) => {
-        return promise.then(() => new Promise(resolve => {
-          setTimeout(() => {
-            console.log(`Otomatik seans kapatma (${i+1}/${toClose.length}):`, s.fullName);
-            handleToggleSeance(s.seanceId, true);
-            resolve();
-          }, i * 4000); // her seans arasında 4 saniye — İdeasoft rate limit'ini aşmamak için
-        }));
-      }, Promise.resolve());
+      // Seansları sunucu queue'suna bırak — client tarafında delay yok, sunucu 1.5s aralıkla işler
+      // Her toggle zaten toggleQueue'ya giriyor, eş zamanlı istekler otomatik sıralanıyor
+      console.log(`Otomatik kapatma: ${toClose.length} seans sunucu queue'suna ekleniyor`);
+      toClose.forEach((s, i) => {
+        console.log(`Otomatik seans kapatma (${i+1}/${toClose.length}):`, s.fullName);
+        handleToggleSeance(s.seanceId, true);
+      });
     };
-    const interval = setInterval(autoCloseCheck, 30000); // her 30 saniyede kontrol
+    const interval = setInterval(autoCloseCheck, 60000); // her 60 saniyede kontrol — rate limit için
     autoCloseCheck(); // sayfa açılınca hemen bir kez çalıştır
     return () => clearInterval(interval);
   }, []); // bağımlılık yok — ref'ler üzerinden güncel veriye erişiliyor
