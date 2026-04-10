@@ -2019,9 +2019,9 @@ app.post('/api/send-mail', async function(req, res) {
     // Gmail SMTP — uygulama şifresi gerekir
     // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var mailUser = _savedCreds.mailUser || process.env.MAIL_USER || 'sosyalsanathane.ankara@gmail.com';
-    var mailPass = _savedCreds.mailPass || process.env.MAIL_PASS || 'gjzvmxcswqbwvuf';
-
+    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
+    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
+    console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
     if (!mailUser || !mailPass) {
       // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)
       console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
