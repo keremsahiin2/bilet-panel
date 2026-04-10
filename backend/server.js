@@ -548,8 +548,10 @@ app.get('/api/saved-credentials', function(req, res) {
     bubiletUser:      creds.bubiletUser      || '',
     biletinialToken:  creds.biletinialToken  || '',
     ideasoftUser:     creds.ideasoftUser     || '',
+    mailUser:         creds.mailUser         || '',
     bubiletPassFilled:   !!(creds.bubiletPass),
-    ideasoftPassFilled:  !!(creds.ideasoftPass)
+    ideasoftPassFilled:  !!(creds.ideasoftPass),
+    mailPassFilled:      !!(creds.mailPass)
   });
 });
 
@@ -608,7 +610,9 @@ app.post('/api/save-credentials', function(req, res) {
       bubiletPass:     req.body.bubiletPass     || existing.bubiletPass     || '',
       biletinialToken: req.body.biletinialToken || existing.biletinialToken || '',
       ideasoftUser:    req.body.ideasoftUser    || existing.ideasoftUser    || '',
-      ideasoftPass:    req.body.ideasoftPass    || existing.ideasoftPass    || ''
+      ideasoftPass:    req.body.ideasoftPass    || existing.ideasoftPass    || '',
+      mailUser:        req.body.mailUser        || existing.mailUser        || '',
+      mailPass:        req.body.mailPass        || existing.mailPass        || ''
     });
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
@@ -665,7 +669,7 @@ app.post('/api/login', async function(req, res) {
     const ideasoftPass   = req.body.ideasoftPass   || saved.ideasoftPass   || '';
 
     if (req.body.rememberMe) {
-      saveJson(SAVED_CREDS_FILE, { bubiletUser, bubiletPass, biletinialToken:biletToken, ideasoftUser, ideasoftPass });
+      saveJson(SAVED_CREDS_FILE, { bubiletUser, bubiletPass, biletinialToken:biletToken, ideasoftUser, ideasoftPass, mailUser: saved.mailUser||'', mailPass: saved.mailPass||'' });
     }
 
     await doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass);
@@ -2013,9 +2017,10 @@ app.post('/api/send-mail', async function(req, res) {
   try {
     var nodemailer = require('nodemailer');
     // Gmail SMTP — uygulama şifresi gerekir
-    // MAIL_USER ve MAIL_PASS environment variable'lardan okunur
-    var mailUser = process.env.MAIL_USER || '';
-    var mailPass = process.env.MAIL_PASS || '';
+    // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
+    var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
+    var mailUser = _savedCreds.mailUser || process.env.MAIL_USER || 'sosyalsanathane.ankara@gmail.com';
+    var mailPass = _savedCreds.mailPass || process.env.MAIL_PASS || 'gjzvmxcswqbwvuf';
 
     if (!mailUser || !mailPass) {
       // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)

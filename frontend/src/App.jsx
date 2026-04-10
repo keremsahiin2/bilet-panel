@@ -974,7 +974,7 @@ export default function App() {
                 <>
                   <div style={{fontSize:48,marginBottom:12}}>🧪</div>
                   <div style={{fontSize:16,fontWeight:700,color:'#ff9f4a',marginBottom:8}}>Test Modu — SMTP ayarlı değil</div>
-                  <div style={{fontSize:12,color:'#64748b',marginBottom:4}}>Sunucuda MAIL_USER / MAIL_PASS env değişkenleri tanımlanmadı.</div>
+                  <div style={{fontSize:12,color:'#64748b',marginBottom:4}}>Sunucuda mail kimlik bilgileri bulunamadı.</div>
                   <div style={{fontSize:12,color:'#64748b',marginBottom:16}}>Mail içeriği hazır ve doğru, gönderilecek adres: <b style={{color:'#fff'}}>{mailResult.to}</b></div>
                   <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,padding:'14px',textAlign:'left',marginBottom:20}}>
                     <div style={{fontSize:11,color:'#64748b',marginBottom:4,fontWeight:700}}>KONU</div>
