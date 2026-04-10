@@ -1603,118 +1603,24 @@ export default function App() {
     );
   }
 
-  // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
-  const seances = buildSeanceMap(salesData);
-
-  return (
-    <div style={S.page}>
-      <div style={S.header}>
-        <div style={S.headerLeft}><span style={S.brandIcon}>🎟</span><span style={S.headerTitle}>BİLET PANELİ</span></div>
-        <div style={S.headerRight}>
-          {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
-          {role && (
-            <span style={{fontSize:11, color: role==='admin'?'#b47cff':'#0ea5e9',
-              background: role==='admin'?'#1a0a2e':'#0a1a2e',
-              border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
-              borderRadius:6, padding:'3px 10px', fontWeight:700}}>
-              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
-            </span>
-          )}
-          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
-        </div>
-      </div>
-
-      {/* Ana Butonlar */}
-      {role === 'staff' ? (
-        /* Çalışan: tek geniş yatay buton */
-        <div style={{padding:'18px',maxWidth:720,margin:'0 auto'}}>
-          <button
-            style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
-              padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
-              background: mode==='sales'
-                ? 'linear-gradient(135deg,#7c3aff,#b47cff)'
-                : 'linear-gradient(135deg,#b47cff,#7c3aff)',
-              boxShadow: mode==='sales' ? '0 0 24px #b47cff44' : 'none',
-              transition:'all 0.2s'}}
-            onClick={()=>{ setMode('sales'); fetchSales(); }}
-          >
-            <span style={{fontSize:32}}>📊</span>
-            <div style={{textAlign:'left'}}>
-              <div style={{fontSize:16,fontWeight:800,color:'#fff',marginBottom:2}}>
-                {salesLoading ? '⟳ Yükleniyor…' : 'Satışları Getir'}
-              </div>
-              <div style={{fontSize:12,color:'#e2e8f0',opacity:0.75}}>3 platformdaki seans satışlarını listele</div>
-            </div>
-          </button>
-        </div>
-      ) : (
-        /* Yönetici: iki kart yan yana + Seans Yazdır bar */
-        <>
-          <div style={S.mainActions}>
-            <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
-              color="#b47cff" active={mode==='sales'} loading={salesLoading}
-              onClick={()=>{ setMode('sales'); fetchSales(); }} />
-            <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
-              color="#4fc9ff" active={mode==='stock'}
-              onClick={()=>setMode(mode==='stock'?null:'stock')} />
+  // ─── SATIŞ EKRANI (tam sayfa) ────────────────────────────────────────────────
+  if (mode === 'sales') {
+    const seancesSales = buildSeanceMap(salesData);
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SATIŞ PANELİ</span>
           </div>
-          {/* Seans Yazdır — yatay geniş bar */}
-          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
-            <button
-              onClick={handleSeansYazOpen}
-              style={{
-                width:'100%', display:'flex', alignItems:'center', gap:14,
-                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
-                cursor:'pointer', textAlign:'left',
-                background:'#0d1120',
-                boxShadow:'none',
-                transition:'all 0.2s'
-              }}
-              onMouseOver={e=>{e.currentTarget.style.borderColor='#ff9f4a';e.currentTarget.style.boxShadow='0 0 18px #ff9f4a22';e.currentTarget.style.background='#0f1525';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
-              <span style={{fontSize:26}}>📅</span>
-              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
-                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
-              </div>
-              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
-            </button>
-          </div>
-          {/* Mail At — yatay geniş bar */}
-          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
-            <button
-              onClick={handleMailOpen}
-              style={{
-                width:'100%', display:'flex', alignItems:'center', gap:14,
-                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
-                cursor:'pointer', textAlign:'left',
-                background:'#0d1120',
-                boxShadow:'none',
-                transition:'all 0.2s'
-              }}
-              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0f1525';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
-              <span style={{fontSize:26}}>✉️</span>
-              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Mail At</span>
-                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Bubilet veya Biletini Al'a kontenjan / iptal maili gönder</span>
-              </div>
-              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* ── SATIŞ PANELİ ── */}
-      {mode==='sales' && (
-        <div style={S.panel}>
-          <div style={S.panelHeader}>
-            <span style={S.panelTitle}>📊 Seans Bazlı Satışlar</span>
+          <div style={S.headerRight}>
             <button style={S.refreshBtn} onClick={fetchSales} disabled={salesLoading}>
               {salesLoading ? '⟳ Yükleniyor…' : '⟳ Yenile'}
             </button>
+            {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
           </div>
-
+        </div>
+        <div style={S.panel}>
           {salesData && (() => {
             const bubiletOk  = (salesData.bubilet  || []).length > 0;
             const bialOk     = (salesData.biletinial|| []).length > 0;
@@ -1739,12 +1645,11 @@ export default function App() {
           {salesError && <div style={S.errBox}>{salesError}</div>}
           {salesLoading && !salesData && <div style={S.loadMsg}>⟳ Veriler çekiliyor…</div>}
 
-          {seances.map(s => {
+          {seancesSales.map(s => {
             const key   = `${s.dateKey}|${s.timeSlot}`;
             const open  = expandedSeance === key;
             const cats  = Object.entries(s.categories);
             const total = cats.reduce((a,[,v])=>a+v.bubilet+v.biletinial+v.ideasoft, 0);
-
             return (
               <div key={key} style={{...S.seanceCard,...(total>0?{borderColor:'#1e293b'}:{})}}>
                 <div style={S.seanceHeader} onClick={()=>setExpandedSeance(open?null:key)}>
@@ -1766,7 +1671,6 @@ export default function App() {
                     <span style={{...S.chevron,...(open?{transform:'rotate(90deg)',color:'#94a3b8'}:{})}}>›</span>
                   </div>
                 </div>
-
                 {open && (
                   <div style={S.detailWrap}>
                     {[...cats].sort((a,b)=>(b[1].bubilet+b[1].biletinial+b[1].ideasoft)-(a[1].bubilet+a[1].biletinial+a[1].ideasoft)).map(([cat,v]) => {
@@ -1795,18 +1699,95 @@ export default function App() {
             );
           })}
 
-          {!salesLoading && seances.length===0 && salesData && (
+          {!salesLoading && seancesSales.length===0 && salesData && (
             <div style={S.empty}>Veri bulunamadı.</div>
           )}
-        </div>
-      )}
 
-      {/* ── STOK PANELİ ── */}
-      {mode==='stock' && (
-        <div style={S.panel}>
-          <div style={S.panelHeader}>
-            <span style={S.panelTitle}>📦 Stok Yönetimi</span>
+          {/* İdeasoft Toplam Satış Raporu */}
+          {salesData && salesData.ideasoft && (() => {
+            const dayMap = {};
+            const TR_MONTHS_SHORT = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+            salesData.ideasoft.forEach(s => {
+              if (!s.soldCount || s.soldCount === 0) return;
+              const m = s.fullName.match(/- (\d+) (\w+) (\w+)/u);
+              if (!m) return;
+              const dayKey = m[1] + ' ' + m[2] + ' ' + m[3];
+              const cat    = s.category;
+              if (!dayMap[dayKey]) dayMap[dayKey] = {};
+              dayMap[dayKey][cat] = (dayMap[dayKey][cat] || 0) + s.soldCount;
+            });
+            const monthMap = salesData.monthlySales || {};
+            const days = Object.keys(dayMap).sort((a, b) => {
+              const [dA, mA] = a.split(' ');
+              const [dB, mB] = b.split(' ');
+              const miA = TR_MONTHS_SHORT.indexOf(mA);
+              const miB = TR_MONTHS_SHORT.indexOf(mB);
+              return miA !== miB ? miA - miB : parseInt(dA) - parseInt(dB);
+            });
+            const hasSales = days.length > 0 || Object.keys(monthMap).length > 0;
+            return (
+              <div style={{marginTop:16}}>
+                <button style={{...S.ideasoftReportBtn}} onClick={()=>setShowIdeasoftReport(p=>!p)}>
+                  <span>📈 İdeasoft Toplam Satış Raporu</span>
+                  <span style={{...S.chevron,...(showIdeasoftReport?{transform:'rotate(90deg)',color:'#94a3b8'}:{}),...{fontSize:16}}}>›</span>
+                </button>
+                {showIdeasoftReport && (
+                  <div style={S.reportPanel}>
+                    {!hasSales && <div style={S.empty}>Henüz İdeasoft satışı yok.</div>}
+                    {days.map(day => {
+                      const cats = Object.entries(dayMap[day]).sort((a,b)=>b[1]-a[1]);
+                      return (
+                        <div key={day} style={S.reportDayBlock}>
+                          <div style={S.reportDayTitle}>{day}</div>
+                          {cats.map(([cat, count]) => (
+                            <div key={cat} style={S.reportRow}>
+                              <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
+                              <span style={S.reportCount}>{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {Object.keys(monthMap).map(month => {
+                      const cats = Object.entries(monthMap[month]).sort((a,b)=>b[1]-a[1]);
+                      const total = cats.reduce((s,[,v])=>s+v,0);
+                      return (
+                        <div key={month} style={S.reportMonthBlock}>
+                          <div style={S.reportMonthTitle}>{month.toUpperCase()} AYI TOPLAM</div>
+                          {cats.map(([cat, count]) => (
+                            <div key={cat} style={S.reportMonthRow}>
+                              <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
+                              <span style={{...S.reportCount,color:'#b47cff',fontSize:16,fontWeight:800}}>{count}</span>
+                            </div>
+                          ))}
+                          <div style={{...S.reportMonthRow,borderTop:'1px solid #1e293b',marginTop:4,paddingTop:8}}>
+                            <span style={{...S.reportCat,color:'#fff',fontWeight:700}}>Toplam</span>
+                            <span style={{...S.reportCount,color:'#fff',fontSize:17,fontWeight:800}}>{total}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── STOK EKRANI (tam sayfa) ─────────────────────────────────────────────────
+  if (mode === 'stock') {
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📦 STOK YÖNETİMİ</span>
           </div>
+        </div>
+        <div style={S.panel}>
           <div style={S.catGrid}>
             {Object.keys(CAT_ICON).map(cat=>(
               <button key={cat} style={{...S.catBtn,...(selectedCat===cat?S.catBtnActive:{})}}
@@ -1941,96 +1922,111 @@ export default function App() {
               )}
             </div>
           )}
-
-          {/* ── İDEASOFT TOPLAM SATIŞ RAPORU ── */}
-          {salesData && salesData.ideasoft && (() => {
-            // Gün bazlı harita: aktif seanslardan hesaplanır (canlı veri)
-            const dayMap = {}; // { "5 Nisan Pazar": { "Heykel": 2, ... } }
-            const TR_MONTHS_SHORT = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-
-            salesData.ideasoft.forEach(s => {
-              if (!s.soldCount || s.soldCount === 0) return;
-              const m = s.fullName.match(/- (\d+) (\w+) (\w+)/u);
-              if (!m) return;
-              const dayKey   = m[1] + ' ' + m[2] + ' ' + m[3];
-              const cat      = s.category;
-              if (!dayMap[dayKey]) dayMap[dayKey] = {};
-              dayMap[dayKey][cat] = (dayMap[dayKey][cat] || 0) + s.soldCount;
-            });
-
-            // Aylık harita: server'dan gelen kalıcı arşiv (seanslar silinse bile korunur)
-            const monthMap = salesData.monthlySales || {};
-
-            const days = Object.keys(dayMap).sort((a, b) => {
-              const [dA, mA] = a.split(' ');
-              const [dB, mB] = b.split(' ');
-              const miA = TR_MONTHS_SHORT.indexOf(mA);
-              const miB = TR_MONTHS_SHORT.indexOf(mB);
-              return miA !== miB ? miA - miB : parseInt(dA) - parseInt(dB);
-            });
-
-            const hasSales = days.length > 0 || Object.keys(monthMap).length > 0;
-
-            return (
-              <div style={{marginTop:16}}>
-                <button
-                  style={{...S.ideasoftReportBtn}}
-                  onClick={()=>setShowIdeasoftReport(p=>!p)}>
-                  <span>📈 İdeasoft Toplam Satış Raporu</span>
-                  <span style={{...S.chevron,...(showIdeasoftReport?{transform:'rotate(90deg)',color:'#94a3b8'}:{}),...{fontSize:16}}}>›</span>
-                </button>
-
-                {showIdeasoftReport && (
-                  <div style={S.reportPanel}>
-                    {!hasSales && (
-                      <div style={S.empty}>Henüz İdeasoft satışı yok.</div>
-                    )}
-
-                    {/* Gün gün */}
-                    {days.map(day => {
-                      const cats = Object.entries(dayMap[day]).sort((a,b)=>b[1]-a[1]);
-                      return (
-                        <div key={day} style={S.reportDayBlock}>
-                          <div style={S.reportDayTitle}>{day}</div>
-                          {cats.map(([cat, count]) => (
-                            <div key={cat} style={S.reportRow}>
-                              <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
-                              <span style={S.reportCount}>{count}</span>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-
-                    {/* Aylık toplamlar */}
-                    {Object.keys(monthMap).map(month => {
-                      const cats = Object.entries(monthMap[month]).sort((a,b)=>b[1]-a[1]);
-                      const total = cats.reduce((s,[,v])=>s+v,0);
-                      return (
-                        <div key={month} style={S.reportMonthBlock}>
-                          <div style={S.reportMonthTitle}>{month.toUpperCase()} AYI TOPLAM</div>
-                          {cats.map(([cat, count]) => (
-                            <div key={cat} style={S.reportMonthRow}>
-                              <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
-                              <span style={{...S.reportCount,color:'#b47cff',fontSize:16,fontWeight:800}}>{count}</span>
-                            </div>
-                          ))}
-                          <div style={{...S.reportMonthRow,borderTop:'1px solid #1e293b',marginTop:4,paddingTop:8}}>
-                            <span style={{...S.reportCat,color:'#fff',fontWeight:700}}>Toplam</span>
-                            <span style={{...S.reportCount,color:'#fff',fontSize:17,fontWeight:800}}>{total}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-
         </div>
+      </div>
+    );
+  }
+
+  // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
+  const seances = buildSeanceMap(salesData);
+
+  return (
+    <div style={S.page}>
+      <div style={S.header}>
+        <div style={S.headerLeft}><span style={S.brandIcon}>🎟</span><span style={S.headerTitle}>BİLET PANELİ</span></div>
+        <div style={S.headerRight}>
+          {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
+          {role && (
+            <span style={{fontSize:11, color: role==='admin'?'#b47cff':'#0ea5e9',
+              background: role==='admin'?'#1a0a2e':'#0a1a2e',
+              border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
+              borderRadius:6, padding:'3px 10px', fontWeight:700}}>
+              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
+            </span>
+          )}
+          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
+        </div>
+      </div>
+
+      {/* Ana Butonlar */}
+      {role === 'staff' ? (
+        /* Çalışan: tek geniş yatay buton */
+        <div style={{padding:'18px',maxWidth:720,margin:'0 auto'}}>
+          <button
+            style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
+              padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
+              background: 'linear-gradient(135deg,#b47cff,#7c3aff)',
+              boxShadow: 'none',
+              transition:'all 0.2s'}}
+            onClick={()=>{ setMode('sales'); fetchSales(); }}
+          >
+            <span style={{fontSize:32}}>📊</span>
+            <div style={{textAlign:'left'}}>
+              <div style={{fontSize:16,fontWeight:800,color:'#fff',marginBottom:2}}>
+                {salesLoading ? '⟳ Yükleniyor…' : 'Satışları Getir'}
+              </div>
+              <div style={{fontSize:12,color:'#e2e8f0',opacity:0.75}}>3 platformdaki seans satışlarını listele</div>
+            </div>
+          </button>
+        </div>
+      ) : (
+        /* Yönetici: iki kart yan yana + Seans Yazdır bar */
+        <>
+          <div style={S.mainActions}>
+            <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
+              color="#b47cff" active={false} loading={salesLoading}
+              onClick={()=>{ setMode('sales'); fetchSales(); }} />
+            <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
+              color="#4fc9ff" active={false}
+              onClick={()=>setMode('stock')} />
+          </div>
+          {/* Seans Yazdır — yatay geniş bar */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={handleSeansYazOpen}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                cursor:'pointer', textAlign:'left',
+                background:'#0d1120',
+                boxShadow:'none',
+                transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#ff9f4a';e.currentTarget.style.boxShadow='0 0 18px #ff9f4a22';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>📅</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Mail At — yatay geniş bar */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={handleMailOpen}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                cursor:'pointer', textAlign:'left',
+                background:'#0d1120',
+                boxShadow:'none',
+                transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>✉️</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Mail At</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Bubilet veya Biletini Al'a kontenjan / iptal maili gönder</span>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+            </button>
+          </div>
+        </>
       )}
+
     </div>
   );
 }
