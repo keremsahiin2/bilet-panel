@@ -758,9 +758,51 @@ export default function App() {
   };
 
   const getMailSeansListForEvent = (eventName) => {
-    // Temel kategori bul
+    // Temel kategori bul (Quiz Night - Konsept → Quiz Night)
     var baseCat = eventName;
     if (eventName && eventName.startsWith('Quiz Night')) baseCat = 'Quiz Night';
+
+    const now = new Date();
+
+    // İdeasoft'tan gerçek aktif seansları al
+    const ideasoftSeances = (salesData?.ideasoft || [])
+      .filter(s => s.category === baseCat && s.status === 1)
+      .map(s => {
+        const parsed = parseIdeasoftName(s.fullName);
+        if (!parsed) return null;
+        return { dateKey: parsed.dateKey, slot: parsed.timeSlot };
+      })
+      .filter(Boolean)
+      .filter(s => {
+        // Geçmiş seansları filtrele
+        const dayNum = parseInt(s.dateKey);
+        let monIdx = -1;
+        for (let i = 0; i < TR_MONTHS.length; i++) {
+          if (s.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+        }
+        if (monIdx === -1) return true;
+        const startMatch = s.slot.match(/^(\d{2}):(\d{2})/);
+        if (!startMatch) return true;
+        const startTime = new Date(now.getFullYear(), monIdx, dayNum, parseInt(startMatch[1]), parseInt(startMatch[2]), 0);
+        return now < startTime;
+      })
+      .sort((a, b) => {
+        const toDate = (s) => {
+          const dayNum = parseInt(s.dateKey);
+          let monIdx = -1;
+          for (let i = 0; i < TR_MONTHS.length; i++) {
+            if (s.dateKey.includes(TR_MONTHS[i])) { monIdx = i; break; }
+          }
+          const startMatch = s.slot.match(/^(\d{2}):(\d{2})/);
+          const [h, m] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
+          return new Date(now.getFullYear(), monIdx >= 0 ? monIdx : 0, dayNum, h, m, 0);
+        };
+        return toDate(a) - toDate(b);
+      });
+
+    // İdeasoft'ta veri varsa onu kullan, yoksa sabit takvimden üret (fallback)
+    if (ideasoftSeances.length > 0) return ideasoftSeances;
+
     return generateSeansListForCat(baseCat, (() => {
       const d = new Date(); return d.toISOString().slice(0,10);
     })(), (() => {
@@ -847,15 +889,52 @@ export default function App() {
       { key:'iptal',     icon:'❌', label:'Etkinlik İptali & Ücret İadesi' },
     ];
     const MAIL_TARGETS = { bubilet:'keremsahiin1@gmail.com', biletinial:'keremsahiin2@gmail.com' };
+    const PLATFORM_LINKS = {
+      bubilet: {
+        'Heykel':      'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Bez Çanta':   'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Plak Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Maske':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Resim':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Mekanda Seç': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Cupcake Mum': 'https://www.bubilet.com.tr/ankara/etkinlik/cupcake-mum-workshop-sosyal-sanathane-ankara--etkinlik-takvimi',
+        'Punch':       'https://www.bubilet.com.tr/ankara/etkinlik/punch-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
+        'Seramik':     'https://www.bubilet.com.tr/ankara/etkinlik/seramik-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
+        '3D Figür':    'https://www.bubilet.com.tr/ankara/etkinlik/3d-figur-boyama-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
+        'Quiz Night':  'https://www.bubilet.com.tr/mekan/ara-sokak-pub',
+      },
+      biletinial: {
+        'Heykel':      'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Bez Çanta':   'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Plak Boyama': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Maske':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Resim':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Mekanda Seç': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Cupcake Mum': 'https://biletinial.com/tr-tr/egitim/cupcake-mum-workshop-sosyal-sanathane-ankara',
+        'Seramik':     'https://biletinial.com/tr-tr/egitim/seramik-workshop-sosyal-sanathane-ankara',
+        'Punch':       'https://biletinial.com/tr-tr/egitim/punch-workshop-sosyal-sanathane-ankara',
+        '3D Figür':    'https://biletinial.com/tr-tr/egitim/3d-figur-boyama-workshop-sosyal-sanathane-ankara',
+        'Quiz Night':  'https://biletinial.com/tr-tr/tiyatro/sosyal-sanathane-ankara-quiz-night',
+      },
+    };
     const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
     const toEmail = mailPlatform ? MAIL_TARGETS[mailPlatform] : '';
     const mailSeansOptions = mailEvent ? getMailSeansListForEvent(mailEvent) : [];
     const pColor = mailPlatform ? PLATFORM_COLORS[mailPlatform] : '#4fc9ff';
 
+    const getMailLink = () => {
+      if (!mailPlatform || !mailEvent) return '';
+      var baseCat = mailEvent;
+      if (mailEvent && mailEvent.startsWith('Quiz Night')) baseCat = 'Quiz Night';
+      return (PLATFORM_LINKS[mailPlatform] && PLATFORM_LINKS[mailPlatform][baseCat]) || '';
+    };
+
     const mailBodyPreview = () => {
-      if (mailIslem === 'kontenjan') return `${seansLabel} bu seansın kalan kontenjanının ${mailKontenjan} olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
-      if (mailIslem === 'tukendi')   return `${seansLabel} bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
-      if (mailIslem === 'iptal')     return `${seansLabel} bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      const link = getMailLink();
+      const linkLine = link ? link + '\n' : '';
+      if (mailIslem === 'kontenjan') return `${linkLine}${seansLabel} bu seansın kalan kontenjanının ${mailKontenjan} olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      if (mailIslem === 'tukendi')   return `${linkLine}${seansLabel} bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
+      if (mailIslem === 'iptal')     return `${linkLine}${seansLabel} bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
       return '';
     };
     const mailSubjectPreview = () => {
