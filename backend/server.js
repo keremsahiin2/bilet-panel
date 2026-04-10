@@ -696,8 +696,8 @@ function runToggleQueue() {
   var job = toggleQueue.shift();
   job().finally(function() {
     toggleRunning = false;
-    // Sonraki isteği 1.5 saniye sonra işle — rate limit için nefes al
-    setTimeout(runToggleQueue, 1500);
+    // Sonraki isteği 2.5 saniye sonra işle — rate limit için nefes al (otomatik kapatmada çok toggle gelir)
+    setTimeout(runToggleQueue, 2500);
   });
 }
 
@@ -1762,21 +1762,23 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     // 4) Kullanıcıya hemen başarı dön — arka plan işleri bekletme
     res.json({ success:true });
 
-    // 5) Arka planda: tüm seansları yenile + JSONBin kaydet (yavaş, ama kullanıcı beklemiyor)
+    // 5) Arka planda: JSONBin kaydet + seansları yenile
     setImmediate(async function() {
       try {
+        // Önce baseline'ı kaydet — sonra çekince soldCount doğru hesaplanır
+        var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, ideasoftData, baseline2);
+        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+          { baseline: baseline2, monthlySales: updatedMonthly2 },
+          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+
+        // Sonra seansları yenile — artık güncel baseline ile soldCount hesaplanacak
         var freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
-        ideasoftData = freshIdeasoft;
-        lastFetch    = new Date().toISOString();
-        var tmpSales = ideasoftData.map(function(s) {
+        ideasoftData = freshIdeasoft.map(function(s) {
           if (!s.seanceId) return Object.assign({},s,{soldCount:null});
           var base = baseline2[s.seanceId] || CATEGORY_BASELINE[s.category] || DEFAULT_BASELINE;
           return Object.assign({},s,{ baselineStock:base, soldCount: Math.max(0, base-(s.stockAmount!==null?s.stockAmount:base)) });
         });
-        var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, tmpSales, baseline2);
-        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-          { baseline: baseline2, monthlySales: updatedMonthly2 },
-          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+        lastFetch = new Date().toISOString();
       } catch(e) { console.error('Stok güncelleme arka plan hatasi:', e.message); }
     });
 
