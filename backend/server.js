@@ -1994,26 +1994,16 @@ app.post('/api/send-mail', async function(req, res) {
   else if (islemTipi === 'iptal')   subject = 'ACİL ETKİNLİK İPTALİ';
   else return res.status(400).json({ error: 'Geçersiz işlem tipi' });
 
-  // Transporter — tek seferde oluştur, her platform için tekrar kullan
+  // Resend API ile gönder — Render SMTP kısıtlamasını aşar
   try {
-    var nodemailer = require('nodemailer');
-    var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
-    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
-
-    if (!mailUser || !mailPass) {
+    var { Resend } = require('resend');
+    var resendApiKey = process.env.RESEND_API_KEY || '';
+    if (!resendApiKey) {
       return res.json({ results: platformList.map(p => ({
         platform: p, testMode: true, to: MAIL_TARGETS[p] || p
       }))});
     }
-
-    var transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      family: 4,
-      auth: { user: mailUser, pass: mailPass }
-    });
+    var resendClient = new Resend(resendApiKey);
 
     // Sırayla gönder — paralel değil, timeout önlenir
     var results = [];
@@ -2036,8 +2026,8 @@ app.post('/api/send-mail', async function(req, res) {
       }
 
       try {
-        await transporter.sendMail({
-          from: '"Sosyal Sanathane" <' + mailUser + '>',
+        await resendClient.emails.send({
+          from: 'Sosyal Sanathane <onboarding@resend.dev>',
           to: toEmail,
           subject: subject,
           text: body,
@@ -2051,7 +2041,7 @@ app.post('/api/send-mail', async function(req, res) {
 
     res.json({ results });
   } catch(err) {
-    console.error('Mail transporter hatasi:', err.message);
+    console.error('Mail genel hatasi:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
