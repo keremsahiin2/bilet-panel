@@ -2023,12 +2023,23 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Nodemailer transporter kur
+  // Gmail API OAuth2 ile gönder
   var nodemailer = require('nodemailer');
-  var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-  var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
-  var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
-  console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
+  var GMAIL_USER          = 'sosyalsanathane.ankara@gmail.com';
+  var GMAIL_CLIENT_ID     = '461295990472-6rcuj5qsmd51g49du5l6lc3k6te975p9.apps.googleusercontent.com';
+  var GMAIL_CLIENT_SECRET = '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';
+  var GMAIL_REFRESH_TOKEN = '1//04n7nut0iogb7CgYIARAAGAQSNwF-L9Irlf_GyCc93VU8HluK-eX_jUXVlcdCB3Yb9P547ousV5qxzYRkMM4ZVaDza4_y5yjxkok';
+
+  var transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      type: 'OAuth2',
+      user: GMAIL_USER,
+      clientId: GMAIL_CLIENT_ID,
+      clientSecret: GMAIL_CLIENT_SECRET,
+      refreshToken: GMAIL_REFRESH_TOKEN,
+    }
+  });
 
   // Her platform için mail gönder
   var results = [];
@@ -2040,23 +2051,9 @@ app.post('/api/send-mail', async function(req, res) {
     var content = buildMailContent(p);
     if (!content) { results.push({ platform: p, error: 'Geçersiz işlem tipi' }); continue; }
 
-    if (!mailUser || !mailPass) {
-      // Test modu
-      console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
-      results.push({ platform: p, success: true, testMode: true, to: toEmail, subject: content.subject, body: content.body });
-      continue;
-    }
-
     try {
-      var transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true,
-        family: 4,
-        auth: { user: mailUser, pass: mailPass }
-      });
       await transporter.sendMail({
-        from: '"Sosyal Sanathane" <' + mailUser + '>',
+        from: '"Sosyal Sanathane" <' + GMAIL_USER + '>',
         to: toEmail,
         subject: content.subject,
         text: content.body,
