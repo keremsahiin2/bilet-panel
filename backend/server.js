@@ -1945,17 +1945,20 @@ app.get('/api/sales', async function(req, res) {
 
 // ─── Mail Gönder ───────────────────────────────────────────────────────────────
 app.post('/api/send-mail', async function(req, res) {
-  const { platform, eventName, seansLabel, islemTipi, kontenjan } = req.body;
+  const { platforms, platform, eventName, seansLabel, islemTipi, kontenjan } = req.body;
 
-  // Platform mail adresleri
+  // Geriye dönük uyumluluk: platform (tekil) veya platforms (dizi)
+  const platformList = Array.isArray(platforms) ? platforms : (platform ? [platform] : []);
+  if (platformList.length === 0) return res.status(400).json({ error: 'Platform belirtilmedi' });
+
   const MAIL_TARGETS = {
     bubilet:    'keremsahiin1@gmail.com',
     biletinial: 'keremsahiin2@gmail.com',
   };
 
-  // Platform linkleri
   const PLATFORM_LINKS = {
     bubilet: {
+      'Klasik Etkinlikler': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Heykel':      'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Bez Çanta':   'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Plak Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
@@ -1969,6 +1972,7 @@ app.post('/api/send-mail', async function(req, res) {
       'Quiz Night':  'https://www.bubilet.com.tr/mekan/ara-sokak-pub',
     },
     biletinial: {
+      'Klasik Etkinlikler': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Heykel':      'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Bez Çanta':   'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Plak Boyama': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
@@ -1983,66 +1987,78 @@ app.post('/api/send-mail', async function(req, res) {
     },
   };
 
-  const toEmail = MAIL_TARGETS[platform];
-  if (!toEmail) return res.status(400).json({ error: 'Geçersiz platform' });
+  // Konu oluştur
+  var subject;
+  if (islemTipi === 'kontenjan')   subject = 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
+  else if (islemTipi === 'tukendi') subject = 'ACİL TÜKENDİ YAPMA İŞLEMİ';
+  else if (islemTipi === 'iptal')   subject = 'ACİL ETKİNLİK İPTALİ';
+  else return res.status(400).json({ error: 'Geçersiz işlem tipi' });
 
-  // Etkinlik adından base kategori bul (Quiz Night - Konsept → Quiz Night)
-  var baseCat = eventName;
-  if (eventName && eventName.startsWith('Quiz Night')) baseCat = 'Quiz Night';
-
-  var link = (PLATFORM_LINKS[platform] && PLATFORM_LINKS[platform][baseCat]) || '(link bulunamadı)';
-
-  // Konu ve gövde oluştur
-  var subject, body;
-  if (islemTipi === 'kontenjan') {
-    subject = 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın kalan kontenjanının ' + kontenjan + ' olarak güncellenmesini talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else if (islemTipi === 'tukendi') {
-    subject = 'ACİL TÜKENDİ YAPMA İŞLEMİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else if (islemTipi === 'iptal') {
-    subject = 'ACİL ETKİNLİK İPTALİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else {
-    return res.status(400).json({ error: 'Geçersiz işlem tipi' });
-  }
-
-  // Nodemailer ile gönder
+  // Gmail SMTP — IPv4 zorlamalı
   try {
     var nodemailer = require('nodemailer');
-    // Gmail SMTP — uygulama şifresi gerekir
-    // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
+    var dns = require('dns');
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
     var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
     var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
-    console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
+
     if (!mailUser || !mailPass) {
-      // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)
-      console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
-      return res.json({ success: true, testMode: true, to: toEmail, subject, body });
+      return res.json({ results: platformList.map(p => ({
+        platform: p, testMode: true, to: MAIL_TARGETS[p] || p
+      }))});
     }
 
+    // Gmail'in IPv4 adresini manuel resolve et
+    var gmailIp = await new Promise((resolve, reject) => {
+      dns.lookup('smtp.gmail.com', { family: 4 }, (err, addr) => {
+        if (err) reject(err); else resolve(addr);
+      });
+    });
+
     var transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: mailUser, pass: mailPass }
+      host: gmailIp,
+      port: 465,
+      secure: true,
+      auth: { user: mailUser, pass: mailPass },
+      tls: { servername: 'smtp.gmail.com' }
     });
 
-    await transporter.sendMail({
-      from: '"Sosyal Sanathane" <' + mailUser + '>',
-      to: toEmail,
-      subject: subject,
-      text: body,
-    });
+    var results = [];
+    for (var p of platformList) {
+      var toEmail = MAIL_TARGETS[p];
+      if (!toEmail) { results.push({ platform: p, error: 'Geçersiz platform' }); continue; }
 
-    res.json({ success: true, to: toEmail });
+      var baseCat = eventName;
+      if (eventName && eventName.startsWith('Quiz Night')) baseCat = 'Quiz Night';
+      var link = (PLATFORM_LINKS[p] && PLATFORM_LINKS[p][baseCat]) || '';
+      var linkLine = link ? link + '\n' : '';
+
+      var body;
+      if (islemTipi === 'kontenjan') {
+        body = linkLine + seansLabel + ' bu seansın kalan kontenjanının ' + kontenjan + ' olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi';
+      } else if (islemTipi === 'tukendi') {
+        body = linkLine + seansLabel + ' bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi';
+      } else {
+        body = linkLine + seansLabel + ' bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\nSosyal Sanathane Ekibi';
+      }
+
+      try {
+        await transporter.sendMail({
+          from: '"Sosyal Sanathane" <' + mailUser + '>',
+          to: toEmail,
+          subject: subject,
+          text: body,
+        });
+        results.push({ platform: p, success: true, to: toEmail });
+      } catch(err) {
+        console.error('Mail gönderme hatasi (' + p + '):', err.message);
+        results.push({ platform: p, error: err.message });
+      }
+    }
+
+    res.json({ results });
   } catch(err) {
-    console.error('Mail gönderme hatasi:', err.message);
+    console.error('Mail genel hatasi:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
