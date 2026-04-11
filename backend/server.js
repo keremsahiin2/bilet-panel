@@ -1994,16 +1994,18 @@ app.post('/api/send-mail', async function(req, res) {
   else if (islemTipi === 'iptal')   subject = 'ACİL ETKİNLİK İPTALİ';
   else return res.status(400).json({ error: 'Geçersiz işlem tipi' });
 
-  // Resend API ile gönder — Render SMTP kısıtlamasını aşar
+  // Brevo SMTP ile gönder
   try {
-    var { Resend } = require('resend');
-    var resendApiKey = process.env.RESEND_API_KEY || '';
-    if (!resendApiKey) {
-      return res.json({ results: platformList.map(p => ({
-        platform: p, testMode: true, to: MAIL_TARGETS[p] || p
-      }))});
-    }
-    var resendClient = new Resend(resendApiKey);
+    var nodemailer = require('nodemailer');
+    var brevoUser = process.env.BREVO_USER || 'a7c84a001@smtp-brevo.com';
+    var brevoPass = process.env.BREVO_PASS || '6xHbrVRn3YNyLUI7';
+
+    var transporter = nodemailer.createTransport({
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      secure: false,
+      auth: { user: brevoUser, pass: brevoPass }
+    });
 
     // Sırayla gönder — paralel değil, timeout önlenir
     var results = [];
@@ -2026,8 +2028,8 @@ app.post('/api/send-mail', async function(req, res) {
       }
 
       try {
-        await resendClient.emails.send({
-          from: 'Sosyal Sanathane <onboarding@resend.dev>',
+        await transporter.sendMail({
+          from: '"Sosyal Sanathane" <sosyalsanathane.ankara@gmail.com>',
           to: toEmail,
           subject: subject,
           text: body,
