@@ -2013,39 +2013,33 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Brevo SMTP ile gönder
+  // Brevo REST API ile gönder
   try {
-    var nodemailer = require('nodemailer');
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var brevoUser = process.env.BREVO_USER || _savedCreds.brevoUser || '';
-    var brevoPass = process.env.BREVO_PASS || _savedCreds.brevoPass || '';
+    var brevoApiKey = process.env.BREVO_API_KEY || _savedCreds.brevoApiKey || '';
 
-    if (!brevoUser || !brevoPass) {
-      console.log('⚠️  Brevo ayarlanmamış — test modu');
+    if (!brevoApiKey) {
+      console.log('⚠️  Brevo API key ayarlanmamış — test modu');
       return res.json({ success: true, testMode: true, to: toEmail, subject, body });
     }
 
-    var transporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false,
-      auth: { user: brevoUser, pass: brevoPass },
-      connectionTimeout: 10000,
-      greetingTimeout: 5000,
-      socketTimeout: 10000,
-    });
-
-    await transporter.sendMail({
-      from: '"Sosyal Sanathane" <sosyalsanathane.ankara@gmail.com>',
-      to: toEmail,
+    await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: { name: 'Sosyal Sanathane', email: 'sosyalsanathane.ankara@gmail.com' },
+      to: [{ email: toEmail }],
       subject: subject,
-      text: body,
+      textContent: body,
+    }, {
+      headers: {
+        'api-key': brevoApiKey,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
     });
 
     console.log('Mail gönderildi:', toEmail, subject);
     res.json({ success: true, to: toEmail });
   } catch(err) {
-    console.error('Mail gönderme hatasi:', err.message);
+    console.error('Mail gönderme hatasi:', err.message, err.response && JSON.stringify(err.response.data));
     res.status(500).json({ error: err.message });
   }
 });
