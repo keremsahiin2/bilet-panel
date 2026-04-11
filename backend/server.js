@@ -1945,7 +1945,7 @@ app.get('/api/sales', async function(req, res) {
 
 // ─── Mail Gönder ───────────────────────────────────────────────────────────────
 app.post('/api/send-mail', async function(req, res) {
-  const { platform, eventName, seansLabel, islemTipi, kontenjan } = req.body;
+  const { platform, platforms, eventName, seansLabel, islemTipi, kontenjan } = req.body;
 
   // Platform mail adresleri
   const MAIL_TARGETS = {
@@ -1983,68 +1983,89 @@ app.post('/api/send-mail', async function(req, res) {
     },
   };
 
-  const toEmail = MAIL_TARGETS[platform];
-  if (!toEmail) return res.status(400).json({ error: 'Geçersiz platform' });
+  // platforms array veya tekil platform — ikisini de destekle
+  var platformList = Array.isArray(platforms) && platforms.length > 0
+    ? platforms
+    : (platform ? [platform] : []);
+
+  if (platformList.length === 0) return res.status(400).json({ error: 'Platform belirtilmedi' });
 
   // Etkinlik adından base kategori bul (Quiz Night - Konsept → Quiz Night)
   var baseCat = eventName;
   if (eventName && eventName.startsWith('Quiz Night')) baseCat = 'Quiz Night';
 
-  var link = (PLATFORM_LINKS[platform] && PLATFORM_LINKS[platform][baseCat]) || '(link bulunamadı)';
+  // Mail içeriği oluştur
+  function buildMailContent(p) {
+    var link = (PLATFORM_LINKS[p] && PLATFORM_LINKS[p][baseCat]) || '(link bulunamadı)';
+    var subject, body;
+    if (islemTipi === 'kontenjan') {
+      subject = 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
+      body = link + '\n' +
+        seansLabel + ' bu seansın kalan kontenjanının ' + kontenjan + ' olarak güncellenmesini talep ediyoruz.\n\n' +
+        'Sosyal Sanathane Ekibi';
+    } else if (islemTipi === 'tukendi') {
+      subject = 'ACİL TÜKENDİ YAPMA İŞLEMİ';
+      body = link + '\n' +
+        seansLabel + ' bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\n' +
+        'Sosyal Sanathane Ekibi';
+    } else if (islemTipi === 'iptal') {
+      subject = 'ACİL ETKİNLİK İPTALİ';
+      body = link + '\n' +
+        seansLabel + ' bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\n' +
+        'Sosyal Sanathane Ekibi';
+    } else {
+      return null;
+    }
+    return { subject, body };
+  }
 
-  // Konu ve gövde oluştur
-  var subject, body;
-  if (islemTipi === 'kontenjan') {
-    subject = 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın kalan kontenjanının ' + kontenjan + ' olarak güncellenmesini talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else if (islemTipi === 'tukendi') {
-    subject = 'ACİL TÜKENDİ YAPMA İŞLEMİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else if (islemTipi === 'iptal') {
-    subject = 'ACİL ETKİNLİK İPTALİ';
-    body = link + '\n' +
-      seansLabel + ' bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\n' +
-      'Sosyal Sanathane Ekibi';
-  } else {
+  if (!['kontenjan','tukendi','iptal'].includes(islemTipi)) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Nodemailer ile gönder
-  try {
-    var nodemailer = require('nodemailer');
-    // Gmail SMTP — uygulama şifresi gerekir
-    // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
-    var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
-    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
-    console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
+  // Nodemailer transporter kur
+  var nodemailer = require('nodemailer');
+  var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
+  var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
+  var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
+  console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
+
+  // Her platform için mail gönder
+  var results = [];
+  for (var i = 0; i < platformList.length; i++) {
+    var p = platformList[i];
+    var toEmail = MAIL_TARGETS[p];
+    if (!toEmail) { results.push({ platform: p, error: 'Geçersiz platform' }); continue; }
+
+    var content = buildMailContent(p);
+    if (!content) { results.push({ platform: p, error: 'Geçersiz işlem tipi' }); continue; }
+
     if (!mailUser || !mailPass) {
-      // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)
+      // Test modu
       console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
-      return res.json({ success: true, testMode: true, to: toEmail, subject, body });
+      results.push({ platform: p, success: true, testMode: true, to: toEmail, subject: content.subject, body: content.body });
+      continue;
     }
 
-    var transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: mailUser, pass: mailPass }
-    });
-
-    await transporter.sendMail({
-      from: '"Sosyal Sanathane" <' + mailUser + '>',
-      to: toEmail,
-      subject: subject,
-      text: body,
-    });
-
-    res.json({ success: true, to: toEmail });
-  } catch(err) {
-    console.error('Mail gönderme hatasi:', err.message);
-    res.status(500).json({ error: err.message });
+    try {
+      var transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: mailUser, pass: mailPass }
+      });
+      await transporter.sendMail({
+        from: '"Sosyal Sanathane" <' + mailUser + '>',
+        to: toEmail,
+        subject: content.subject,
+        text: content.body,
+      });
+      results.push({ platform: p, success: true, to: toEmail });
+    } catch(err) {
+      console.error('Mail gönderme hatasi (' + p + '):', err.message);
+      results.push({ platform: p, error: err.message });
+    }
   }
+
+  res.json({ results });
 });
 
 // Frontend dist klasörünü servis et (PWA için)
