@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
 const axios   = require('axios');
@@ -2025,7 +2026,6 @@ app.post('/api/send-mail', async function(req, res) {
 
   // Gmail API OAuth2 ile gönder
   var nodemailer = require('nodemailer');
-  require('dotenv').config();
   var GMAIL_USER          = process.env.GMAIL_USER;
   var GMAIL_CLIENT_ID     = process.env.GMAIL_CLIENT_ID;
   var GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
