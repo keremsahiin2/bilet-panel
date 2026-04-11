@@ -2008,7 +2008,10 @@ app.post('/api/send-mail', async function(req, res) {
     }
 
     var transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      family: 4,
       auth: { user: mailUser, pass: mailPass }
     });
 
