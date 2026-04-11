@@ -530,7 +530,7 @@ export default function App() {
     finally { setStockUpdating(p => ({...p,[seanceId]:false})); }
   };
 
-  const handleToggleSeance = async (seanceId, currentlyActive) => {
+  const handleToggleSeance = async (seanceId, currentlyActive, isAutoClose = false) => {
     setToggling(p => ({...p,[seanceId]:true}));
     try {
       const res  = await fetch("/api/ideasoft/toggle-seance", {
@@ -549,7 +549,10 @@ export default function App() {
           )
         };
       });
-    } catch(e) { alert('Hata: ' + e.message); }
+    } catch(e) {
+      if (isAutoClose) { console.warn('Otomatik kapatma hatası:', e.message); }
+      else { alert('Hata: ' + e.message); }
+    }
     finally { setToggling(p => ({...p,[seanceId]:false})); }
   };
 
@@ -682,7 +685,7 @@ export default function App() {
       console.log(`Otomatik kapatma: ${toClose.length} seans sunucu queue'suna ekleniyor`);
       toClose.forEach((s, i) => {
         console.log(`Otomatik seans kapatma (${i+1}/${toClose.length}):`, s.fullName);
-        handleToggleSeance(s.seanceId, true);
+        handleToggleSeance(s.seanceId, true, true); // true = otomatik kapatma, hata sessiz
       });
     };
     const interval = setInterval(autoCloseCheck, 60000); // her 60 saniyede kontrol — rate limit için
@@ -749,6 +752,7 @@ export default function App() {
   const [mailKontenjan, setMailKontenjan]   = useState('');
   const [mailSending, setMailSending]       = useState(false);
   const [mailResult, setMailResult]         = useState(null); // { results: [{platform, success, error, to}] }
+  const [expandedMailBody, setExpandedMailBody] = useState({});
 
   // Klasik etkinlikler = tek buton, gerisi ayrı
   const MAIL_EVENTS_DISPLAY = [
@@ -1146,8 +1150,16 @@ export default function App() {
                           <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>{mailSubjectPreview()}</div>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:'#64748b',marginBottom:2,fontWeight:700,letterSpacing:1}}>İÇERİK</div>
-                          <pre style={{fontSize:12,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit',lineHeight:1.7}}>{mailBodyPreview(p)}</pre>
+                          <div
+                            onClick={() => setExpandedMailBody(prev => ({...prev, [p]: !prev[p]}))}
+                            style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:4}}
+                          >
+                            <div style={{fontSize:10,color:'#64748b',fontWeight:700,letterSpacing:1}}>İÇERİK</div>
+                            <span style={{fontSize:10,color:'#475569'}}>{expandedMailBody[p] ? '▲ gizle' : '▼ göster'}</span>
+                          </div>
+                          {expandedMailBody[p] && (
+                            <pre style={{fontSize:12,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit',lineHeight:1.7}}>{mailBodyPreview(p)}</pre>
+                          )}
                         </div>
                       </div>
                     ))}
