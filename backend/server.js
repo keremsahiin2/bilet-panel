@@ -2013,33 +2013,27 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Nodemailer ile gönder
+  // Resend ile gönder
   try {
-    var nodemailer = require('nodemailer');
-    // Gmail SMTP — uygulama şifresi gerekir
-    // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
+    var { Resend } = require('resend');
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
-    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
-    console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
-    if (!mailUser || !mailPass) {
-      // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)
-      console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
+    var resendApiKey = process.env.RESEND_API_KEY || _savedCreds.resendApiKey || '';
+
+    if (!resendApiKey) {
+      console.log('⚠️  RESEND_API_KEY ayarlanmamış — test modu');
       return res.json({ success: true, testMode: true, to: toEmail, subject, body });
     }
 
-    var transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: mailUser, pass: mailPass }
-    });
+    var resend = new Resend(resendApiKey);
 
-    await transporter.sendMail({
-      from: '"Sosyal Sanathane" <' + mailUser + '>',
+    await resend.emails.send({
+      from: 'Sosyal Sanathane <onboarding@resend.dev>',
       to: toEmail,
       subject: subject,
       text: body,
     });
 
+    console.log('Mail gönderildi:', toEmail, subject);
     res.json({ success: true, to: toEmail });
   } catch(err) {
     console.error('Mail gönderme hatasi:', err.message);
