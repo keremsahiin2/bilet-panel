@@ -2024,23 +2024,31 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Gmail API OAuth2 ile gönder
-  var nodemailer = require('nodemailer');
+  // Gmail API ile gönder
+  var { google } = require('googleapis');
   var GMAIL_USER          = process.env.GMAIL_USER;
   var GMAIL_CLIENT_ID     = process.env.GMAIL_CLIENT_ID;
   var GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
   var GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN;
 
-  var transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      type: 'OAuth2',
-      user: GMAIL_USER,
-      clientId: GMAIL_CLIENT_ID,
-      clientSecret: GMAIL_CLIENT_SECRET,
-      refreshToken: GMAIL_REFRESH_TOKEN,
-    }
-  });
+  var oauth2Client = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, 'https://developers.google.com/oauthplayground');
+  oauth2Client.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN });
+
+  var gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+  function makeMailBody(to, subject, body) {
+    var rawLines = [
+      'From: "Sosyal Sanathane" <' + GMAIL_USER + '>',
+      'To: ' + to,
+      'Subject: =?UTF-8?B?' + Buffer.from(subject).toString('base64') + '?=',
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(body).toString('base64')
+    ].join('\r\n');
+    return Buffer.from(rawLines).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
 
   // Her platform için mail gönder
   var results = [];
@@ -2053,11 +2061,9 @@ app.post('/api/send-mail', async function(req, res) {
     if (!content) { results.push({ platform: p, error: 'Geçersiz işlem tipi' }); continue; }
 
     try {
-      await transporter.sendMail({
-        from: '"Sosyal Sanathane" <' + GMAIL_USER + '>',
-        to: toEmail,
-        subject: content.subject,
-        text: content.body,
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: makeMailBody(toEmail, content.subject, content.body) }
       });
       results.push({ platform: p, success: true, to: toEmail });
     } catch(err) {
