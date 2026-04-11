@@ -2029,7 +2029,10 @@ app.post('/api/send-mail', async function(req, res) {
       host: 'smtp-relay.brevo.com',
       port: 587,
       secure: false,
-      auth: { user: brevoUser, pass: brevoPass }
+      auth: { user: brevoUser, pass: brevoPass },
+      connectionTimeout: 10000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
     });
 
     await transporter.sendMail({
