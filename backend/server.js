@@ -1994,17 +1994,22 @@ app.post('/api/send-mail', async function(req, res) {
   else if (islemTipi === 'iptal')   subject = 'ACİL ETKİNLİK İPTALİ';
   else return res.status(400).json({ error: 'Geçersiz işlem tipi' });
 
-  // Brevo SMTP ile gönder
+  // Transporter — tek seferde oluştur, her platform için tekrar kullan
   try {
     var nodemailer = require('nodemailer');
-    var brevoUser = process.env.BREVO_USER || 'a7c84a001@smtp-brevo.com';
-    var brevoPass = process.env.BREVO_PASS || '6xHbrVRn3YNyLUI7';
+    var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
+    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
+    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
+
+    if (!mailUser || !mailPass) {
+      return res.json({ results: platformList.map(p => ({
+        platform: p, testMode: true, to: MAIL_TARGETS[p] || p
+      }))});
+    }
 
     var transporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false,
-      auth: { user: brevoUser, pass: brevoPass }
+      service: 'gmail',
+      auth: { user: mailUser, pass: mailPass }
     });
 
     // Sırayla gönder — paralel değil, timeout önlenir
@@ -2029,7 +2034,7 @@ app.post('/api/send-mail', async function(req, res) {
 
       try {
         await transporter.sendMail({
-          from: '"Sosyal Sanathane" <sosyalsanathane.ankara@gmail.com>',
+          from: '"Sosyal Sanathane" <' + mailUser + '>',
           to: toEmail,
           subject: subject,
           text: body,
@@ -2043,7 +2048,7 @@ app.post('/api/send-mail', async function(req, res) {
 
     res.json({ results });
   } catch(err) {
-    console.error('Mail genel hatasi:', err.message);
+    console.error('Mail transporter hatasi:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
