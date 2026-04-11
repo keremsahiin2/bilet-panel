@@ -741,19 +741,27 @@ export default function App() {
 
   // ─── MAIL AT ───────────────────────────────────────────────────────────────
   const [mailMode, setMailMode]             = useState(false);
-  const [mailStep, setMailStep]             = useState(1); // 1=platform, 2=etkinlik, 3=seans, 4=işlem, 5=kontenjan, 6=önizleme
-  const [mailPlatform, setMailPlatform]     = useState(null); // 'bubilet' | 'biletinial'
+  const [mailStep, setMailStep]             = useState(1); // 1=etkinlik, 2=seans, 3=platform, 4=işlem, 5=kontenjan, 6=önizleme
+  const [mailPlatforms, setMailPlatforms]   = useState([]); // ['bubilet','biletinial']
   const [mailEvent, setMailEvent]           = useState(null);
   const [mailSeans, setMailSeans]           = useState(null); // { dateKey, slot }
   const [mailIslem, setMailIslem]           = useState(null); // 'kontenjan' | 'tukendi' | 'iptal'
   const [mailKontenjan, setMailKontenjan]   = useState('');
   const [mailSending, setMailSending]       = useState(false);
-  const [mailResult, setMailResult]         = useState(null); // { success, error, testMode, to }
+  const [mailResult, setMailResult]         = useState(null); // { results: [{platform, success, error, to}] }
 
-  const MAIL_EVENTS = ['Heykel','Bez Çanta','Plak Boyama','Maske','Resim','Mekanda Seç','Cupcake Mum','Seramik','Punch','3D Figür','Quiz Night'];
+  // Klasik etkinlikler = tek buton, gerisi ayrı
+  const MAIL_EVENTS_DISPLAY = [
+    { key: 'Klasik Etkinlikler', icon: '🎨', cats: ['Heykel','Bez Çanta','Plak Boyama','Maske','Resim','Mekanda Seç'] },
+    { key: 'Cupcake Mum',        icon: '🧁', cats: ['Cupcake Mum'] },
+    { key: 'Seramik',            icon: '☕️', cats: ['Seramik'] },
+    { key: 'Punch',              icon: '🧶', cats: ['Punch'] },
+    { key: '3D Figür',           icon: '🪆', cats: ['3D Figür'] },
+    { key: 'Quiz Night',         icon: '🏆', cats: ['Quiz Night'] },
+  ];
 
   const handleMailOpen = () => {
-    setMailMode(true); setMailStep(1); setMailPlatform(null); setMailEvent(null);
+    setMailMode(true); setMailStep(1); setMailPlatforms([]); setMailEvent(null);
     setMailSeans(null); setMailIslem(null); setMailKontenjan(''); setMailSending(false); setMailResult(null);
   };
 
@@ -814,21 +822,29 @@ export default function App() {
     setMailSending(true); setMailResult(null);
     try {
       const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
-      const res = await fetch('/api/send-mail', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: mailPlatform,
-          eventName: mailEvent,
-          seansLabel,
-          islemTipi: mailIslem,
-          kontenjan: mailKontenjan,
-        })
-      });
-      const json = await res.json();
-      setMailResult(json);
+      // Her platform için ayrı istek at
+      const results = await Promise.all(mailPlatforms.map(async (platform) => {
+        try {
+          const res = await fetch('/api/send-mail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              platform,
+              eventName: mailEvent,
+              seansLabel,
+              islemTipi: mailIslem,
+              kontenjan: mailKontenjan,
+            })
+          });
+          const json = await res.json();
+          return { platform, ...json };
+        } catch(e) {
+          return { platform, error: e.message };
+        }
+      }));
+      setMailResult({ results });
     } catch(e) {
-      setMailResult({ error: e.message });
+      setMailResult({ results: [{ platform: 'genel', error: e.message }] });
     }
     setMailSending(false);
   };
@@ -891,12 +907,7 @@ export default function App() {
     const MAIL_TARGETS = { bubilet:'keremsahiin1@gmail.com', biletinial:'keremsahiin2@gmail.com' };
     const PLATFORM_LINKS = {
       bubilet: {
-        'Heykel':      'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Bez Çanta':   'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Plak Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Maske':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Resim':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Mekanda Seç': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Klasik Etkinlikler': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
         'Cupcake Mum': 'https://www.bubilet.com.tr/ankara/etkinlik/cupcake-mum-workshop-sosyal-sanathane-ankara--etkinlik-takvimi',
         'Punch':       'https://www.bubilet.com.tr/ankara/etkinlik/punch-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
         'Seramik':     'https://www.bubilet.com.tr/ankara/etkinlik/seramik-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
@@ -904,12 +915,7 @@ export default function App() {
         'Quiz Night':  'https://www.bubilet.com.tr/mekan/ara-sokak-pub',
       },
       biletinial: {
-        'Heykel':      'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Bez Çanta':   'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Plak Boyama': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Maske':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Resim':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
-        'Mekanda Seç': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Klasik Etkinlikler': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
         'Cupcake Mum': 'https://biletinial.com/tr-tr/egitim/cupcake-mum-workshop-sosyal-sanathane-ankara',
         'Seramik':     'https://biletinial.com/tr-tr/egitim/seramik-workshop-sosyal-sanathane-ankara',
         'Punch':       'https://biletinial.com/tr-tr/egitim/punch-workshop-sosyal-sanathane-ankara',
@@ -917,31 +923,29 @@ export default function App() {
         'Quiz Night':  'https://biletinial.com/tr-tr/tiyatro/sosyal-sanathane-ankara-quiz-night',
       },
     };
+
     const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
-    const toEmail = mailPlatform ? MAIL_TARGETS[mailPlatform] : '';
-    const mailSeansOptions = mailEvent ? getMailSeansListForEvent(mailEvent) : [];
-    const pColor = mailPlatform ? PLATFORM_COLORS[mailPlatform] : '#4fc9ff';
+    const mailSeansOptions = mailEvent ? getMailSeansListForEvent(
+      mailEvent === 'Klasik Etkinlikler' ? 'Heykel' : mailEvent
+    ) : [];
 
-    const getMailLink = () => {
-      if (!mailPlatform || !mailEvent) return '';
-      var baseCat = mailEvent;
-      if (mailEvent && mailEvent.startsWith('Quiz Night')) baseCat = 'Quiz Night';
-      return (PLATFORM_LINKS[mailPlatform] && PLATFORM_LINKS[mailPlatform][baseCat]) || '';
+    const mailSubjectPreview = () => {
+      if (mailIslem === 'kontenjan') return 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
+      if (mailIslem === 'tukendi')   return 'ACİL TÜKENDİ YAPMA İŞLEMİ';
+      if (mailIslem === 'iptal')     return 'ACİL ETKİNLİK İPTALİ';
+      return '';
     };
-
-    const mailBodyPreview = () => {
-      const link = getMailLink();
+    const mailBodyPreview = (platform) => {
+      const link = (PLATFORM_LINKS[platform] && PLATFORM_LINKS[platform][mailEvent]) || '';
       const linkLine = link ? link + '\n' : '';
       if (mailIslem === 'kontenjan') return `${linkLine}${seansLabel} bu seansın kalan kontenjanının ${mailKontenjan} olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
       if (mailIslem === 'tukendi')   return `${linkLine}${seansLabel} bu seansın kalan kontenjanının 0 yapılmasını (tükendi) olarak güncellenmesini talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
       if (mailIslem === 'iptal')     return `${linkLine}${seansLabel} bu seansın iptalinin gerçekleşmesini ve varsa bilet satışlarının ücret iadesi yapılmasını talep ediyoruz.\n\nSosyal Sanathane Ekibi`;
       return '';
     };
-    const mailSubjectPreview = () => {
-      if (mailIslem === 'kontenjan') return 'ACİL KONTENJAN DÜZENLEME İŞLEMİ';
-      if (mailIslem === 'tukendi')   return 'ACİL TÜKENDİ YAPMA İŞLEMİ';
-      if (mailIslem === 'iptal')     return 'ACİL ETKİNLİK İPTALİ';
-      return '';
+
+    const togglePlatform = (p) => {
+      setMailPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
     };
 
     const stepBack = () => {
@@ -950,6 +954,13 @@ export default function App() {
       if (mailStep > 1) setMailStep(s => s - 1);
       else setMailMode(false);
     };
+
+    // Adım başlığı breadcrumb
+    const breadcrumb = [
+      mailEvent,
+      mailSeans ? seansLabel : null,
+      mailPlatforms.length > 0 ? mailPlatforms.map(p => PLATFORM_LABELS[p]).join(' + ') : null,
+    ].filter(Boolean).join(' › ');
 
     return (
       <div style={S.page}>
@@ -961,35 +972,30 @@ export default function App() {
         </div>
         <div style={{maxWidth:720,margin:'0 auto',padding:'24px 18px'}}>
 
+          {/* Breadcrumb */}
+          {breadcrumb && !mailResult && (
+            <div style={{fontSize:11,color:'#4fc9ff',marginBottom:16,fontWeight:600,letterSpacing:0.5}}>{breadcrumb}</div>
+          )}
+
           {/* SONUÇ */}
           {mailResult && (
-            <div style={{textAlign:'center',paddingTop:20}}>
-              {mailResult.error ? (
-                <>
-                  <div style={{fontSize:48,marginBottom:12}}>❌</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#fca5a5',marginBottom:8}}>Mail gönderilemedi</div>
-                  <div style={{fontSize:13,color:'#64748b',marginBottom:24}}>{mailResult.error}</div>
-                </>
-              ) : mailResult.testMode ? (
-                <>
-                  <div style={{fontSize:48,marginBottom:12}}>🧪</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#ff9f4a',marginBottom:8}}>Test Modu — SMTP ayarlı değil</div>
-                  <div style={{fontSize:12,color:'#64748b',marginBottom:4}}>Sunucuda mail kimlik bilgileri bulunamadı.</div>
-                  <div style={{fontSize:12,color:'#64748b',marginBottom:16}}>Mail içeriği hazır ve doğru, gönderilecek adres: <b style={{color:'#fff'}}>{mailResult.to}</b></div>
-                  <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,padding:'14px',textAlign:'left',marginBottom:20}}>
-                    <div style={{fontSize:11,color:'#64748b',marginBottom:4,fontWeight:700}}>KONU</div>
-                    <div style={{fontSize:13,color:'#fff',marginBottom:10}}>{mailResult.subject}</div>
-                    <div style={{fontSize:11,color:'#64748b',marginBottom:4,fontWeight:700}}>İÇERİK</div>
-                    <pre style={{fontSize:12,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit'}}>{mailResult.body}</pre>
+            <div style={{paddingTop:10}}>
+              <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Gönderim Sonuçları</div>
+              <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:24}}>
+                {mailResult.results.map((r, i) => (
+                  <div key={i} style={{background:'#0d1120',border:`1px solid ${r.error ? '#7f1d1d' : '#14532d'}`,borderRadius:14,padding:'16px 18px',display:'flex',alignItems:'center',gap:14}}>
+                    <span style={{fontSize:28}}>{r.error ? '❌' : '✅'}</span>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color: r.error ? '#fca5a5' : '#22c55e',marginBottom:2}}>
+                        {PLATFORM_LABELS[r.platform] || r.platform}
+                      </div>
+                      <div style={{fontSize:12,color:'#64748b'}}>
+                        {r.error ? r.error : `→ ${MAIL_TARGETS[r.platform]}`}
+                      </div>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <>
-                  <div style={{fontSize:48,marginBottom:12}}>✅</div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#22c55e',marginBottom:8}}>Mail başarıyla gönderildi!</div>
-                  <div style={{fontSize:13,color:'#64748b',marginBottom:24}}>Alıcı: <b style={{color:'#fff'}}>{mailResult.to}</b></div>
-                </>
-              )}
+                ))}
+              </div>
               <button onClick={() => setMailMode(false)} style={{...S.loginBtn,maxWidth:280,display:'inline-block'}}>
                 Ana Ekrana Dön
               </button>
@@ -998,56 +1004,38 @@ export default function App() {
 
           {!mailResult && (
             <>
-              {/* ADIM 1 — Platform seç */}
+              {/* ADIM 1 — Etkinlik seç */}
               {mailStep === 1 && (
                 <div>
-                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Mail gönderilecek platformu seçin</div>
-                  <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                    {['bubilet','biletinial'].map(p => (
-                      <button key={p} onClick={()=>{setMailPlatform(p);setMailStep(2);}}
-                        style={{background:'#0d1120',border:`1px solid ${PLATFORM_COLORS[p]}44`,borderRadius:14,
-                          padding:'20px 22px',cursor:'pointer',display:'flex',alignItems:'center',gap:14,textAlign:'left'}}>
-                        <span style={{fontSize:28}}>{p==='bubilet'?'🎟':'🎫'}</span>
-                        <div>
-                          <div style={{fontSize:15,fontWeight:700,color:PLATFORM_COLORS[p],marginBottom:2}}>{PLATFORM_LABELS[p]}</div>
-                          <div style={{fontSize:12,color:'#475569'}}>{MAIL_TARGETS[p]}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ADIM 2 — Etkinlik seç */}
-              {mailStep === 2 && (
-                <div>
-                  <div style={{fontSize:11,color:pColor,marginBottom:4,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]}</div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Etkinliği seçin</div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                    {MAIL_EVENTS.map(evt => (
-                      <button key={evt} onClick={()=>{setMailEvent(evt);setMailStep(3);}}
+                    {MAIL_EVENTS_DISPLAY.map(evt => (
+                      <button key={evt.key} onClick={()=>{setMailEvent(evt.key);setMailStep(2);}}
                         style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
                           padding:'16px 12px',cursor:'pointer',display:'flex',flexDirection:'column',
-                          alignItems:'center',textAlign:'center',gap:6}}>
-                        <span style={{fontSize:24}}>{getCatIcon(evt)}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{evt}</span>
+                          alignItems:'center',textAlign:'center',gap:6,
+                          gridColumn: evt.key === 'Klasik Etkinlikler' ? 'span 2' : 'span 1'}}>
+                        <span style={{fontSize:24}}>{evt.icon}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{evt.key}</span>
+                        {evt.key === 'Klasik Etkinlikler' && (
+                          <span style={{fontSize:10,color:'#475569'}}>Heykel · Bez Çanta · Resim · Plak · Maske · Mekanda Seç</span>
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* ADIM 3 — Seans seç */}
-              {mailStep === 3 && (
+              {/* ADIM 2 — Seans seç */}
+              {mailStep === 2 && (
                 <div>
-                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Seansı seçin</div>
                   {mailSeansOptions.length === 0 ? (
                     <div style={{color:'#64748b',textAlign:'center',padding:24}}>Önümüzdeki 60 günde seans bulunamadı.</div>
                   ) : (
                     <div style={{display:'flex',flexDirection:'column',gap:8}}>
                       {mailSeansOptions.map((s,i) => (
-                        <button key={i} onClick={()=>{setMailSeans(s);setMailStep(4);}}
+                        <button key={i} onClick={()=>{setMailSeans(s);setMailStep(3);}}
                           style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,
                             padding:'14px 18px',cursor:'pointer',display:'flex',alignItems:'center',
                             justifyContent:'space-between',gap:10}}>
@@ -1061,11 +1049,47 @@ export default function App() {
                 </div>
               )}
 
+              {/* ADIM 3 — Platform seç (çoklu) */}
+              {mailStep === 3 && (
+                <div>
+                  <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Platform seçin (birden fazla olabilir)</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:20}}>
+                    {['bubilet','biletinial'].map(p => {
+                      const selected = mailPlatforms.includes(p);
+                      return (
+                        <button key={p} onClick={()=>togglePlatform(p)}
+                          style={{background: selected ? '#0a1a28' : '#0d1120',
+                            border:`2px solid ${selected ? PLATFORM_COLORS[p] : '#1a2035'}`,
+                            borderRadius:14,padding:'20px 22px',cursor:'pointer',
+                            display:'flex',alignItems:'center',gap:14,textAlign:'left',transition:'all 0.15s'}}>
+                          <span style={{fontSize:28}}>{p==='bubilet'?'🎟':'🎫'}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:15,fontWeight:700,color:PLATFORM_COLORS[p],marginBottom:2}}>{PLATFORM_LABELS[p]}</div>
+                            <div style={{fontSize:12,color:'#475569'}}>{MAIL_TARGETS[p]}</div>
+                          </div>
+                          <div style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${selected ? PLATFORM_COLORS[p] : '#374151'}`,
+                            background: selected ? PLATFORM_COLORS[p] : 'transparent',
+                            display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            {selected && <span style={{color:'#fff',fontSize:12,fontWeight:800}}>✓</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={()=>setMailStep(4)}
+                    disabled={mailPlatforms.length === 0}
+                    style={{width:'100%',padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor: mailPlatforms.length===0 ? 'default':'pointer',
+                      background: mailPlatforms.length===0 ? '#1a2035' : 'linear-gradient(135deg,#b47cff,#7c3aff)',
+                      color: mailPlatforms.length===0 ? '#374151' : '#fff', transition:'all 0.15s'}}>
+                    Devam → {mailPlatforms.length > 0 && `(${mailPlatforms.length} platform)`}
+                  </button>
+                </div>
+              )}
+
               {/* ADIM 4 — İşlem seç */}
               {mailStep === 4 && (
                 <div>
-                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
-                  <div style={{fontSize:13,color:'#94a3b8',marginBottom:16,fontWeight:600}}>{seansLabel}</div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>İşlem türünü seçin</div>
                   <div style={{display:'flex',flexDirection:'column',gap:10}}>
                     {ISLEM_OPTIONS.map(opt => (
@@ -1089,8 +1113,6 @@ export default function App() {
               {/* ADIM 5 — Kontenjan sayısı */}
               {mailStep === 5 && (
                 <div>
-                  <div style={{fontSize:11,color:pColor,marginBottom:2,fontWeight:700}}>{PLATFORM_LABELS[mailPlatform]} › {mailEvent}</div>
-                  <div style={{fontSize:13,color:'#94a3b8',marginBottom:20,fontWeight:600}}>{seansLabel}</div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Kontenjan kaça düşürülsün?</div>
                   <input
                     type="number" min="0"
@@ -1117,22 +1139,26 @@ export default function App() {
               {mailStep === 6 && (
                 <div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Mail Önizleme</div>
-                  <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'18px',marginBottom:20}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,paddingBottom:12,borderBottom:'1px solid #0f1525'}}>
-                      <span style={{fontSize:22}}>{mailPlatform==='bubilet'?'🎟':'🎫'}</span>
-                      <div>
-                        <div style={{fontSize:13,fontWeight:700,color:pColor}}>{PLATFORM_LABELS[mailPlatform]}</div>
-                        <div style={{fontSize:11,color:'#475569'}}>{toEmail}</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:20}}>
+                    {mailPlatforms.map(p => (
+                      <div key={p} style={{background:'#0d1120',border:`1px solid ${PLATFORM_COLORS[p]}44`,borderRadius:14,padding:'18px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,paddingBottom:10,borderBottom:'1px solid #0f1525'}}>
+                          <span style={{fontSize:20}}>{p==='bubilet'?'🎟':'🎫'}</span>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:700,color:PLATFORM_COLORS[p]}}>{PLATFORM_LABELS[p]}</div>
+                            <div style={{fontSize:11,color:'#475569'}}>{MAIL_TARGETS[p]}</div>
+                          </div>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div style={{fontSize:10,color:'#64748b',marginBottom:2,fontWeight:700,letterSpacing:1}}>KONU</div>
+                          <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>{mailSubjectPreview()}</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:'#64748b',marginBottom:2,fontWeight:700,letterSpacing:1}}>İÇERİK</div>
+                          <pre style={{fontSize:12,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit',lineHeight:1.7}}>{mailBodyPreview(p)}</pre>
+                        </div>
                       </div>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <div style={{fontSize:11,color:'#64748b',marginBottom:3,fontWeight:700,letterSpacing:1}}>KONU</div>
-                      <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>{mailSubjectPreview()}</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,color:'#64748b',marginBottom:3,fontWeight:700,letterSpacing:1}}>İÇERİK</div>
-                      <pre style={{fontSize:13,color:'#e2e8f0',whiteSpace:'pre-wrap',margin:0,fontFamily:'inherit',lineHeight:1.7}}>{mailBodyPreview()}</pre>
-                    </div>
+                    ))}
                   </div>
                   <button
                     onClick={handleMailSend}
@@ -1140,7 +1166,7 @@ export default function App() {
                     style={{width:'100%',padding:'16px',background:mailSending?'#1a2035':'linear-gradient(135deg,#22c55e,#16a34a)',
                       color:mailSending?'#374151':'#fff',border:'none',borderRadius:14,fontSize:16,fontWeight:800,
                       cursor:mailSending?'default':'pointer',transition:'all 0.15s'}}>
-                    {mailSending ? '⏳ Gönderiliyor…' : '✉️ Maili Gönder'}
+                    {mailSending ? '⏳ Gönderiliyor…' : `✉️ ${mailPlatforms.length > 1 ? mailPlatforms.length + ' Platforma ' : ''}Mail Gönder`}
                   </button>
                 </div>
               )}
