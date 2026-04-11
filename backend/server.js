@@ -2025,10 +2025,11 @@ app.post('/api/send-mail', async function(req, res) {
 
   // Gmail API OAuth2 ile gönder
   var nodemailer = require('nodemailer');
-  var GMAIL_USER          = 'sosyalsanathane.ankara@gmail.com';
-  var GMAIL_CLIENT_ID     = '461295990472-6rcuj5qsmd51g49du5l6lc3k6te975p9.apps.googleusercontent.com';
-  var GMAIL_CLIENT_SECRET = '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';
-  var GMAIL_REFRESH_TOKEN = '1//04n7nut0iogb7CgYIARAAGAQSNwF-L9Irlf_GyCc93VU8HluK-eX_jUXVlcdCB3Yb9P547ousV5qxzYRkMM4ZVaDza4_y5yjxkok';
+  require('dotenv').config();
+  var GMAIL_USER          = process.env.GMAIL_USER;
+  var GMAIL_CLIENT_ID     = process.env.GMAIL_CLIENT_ID;
+  var GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
+  var GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN;
 
   var transporter = nodemailer.createTransport({
     service: 'gmail',
