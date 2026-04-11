@@ -900,7 +900,7 @@ export default function App() {
       { key:'tukendi',   icon:'🚫', label:'Tükendi Yap' },
       { key:'iptal',     icon:'❌', label:'Etkinlik İptali & Ücret İadesi' },
     ];
-    const MAIL_TARGETS = { bubilet:'keremsahiin1@gmail.com', biletinial:'keremsahiin2@gmail.com' };
+    const MAIL_TARGETS = { bubilet:'info@bubilet.com.tr', biletinial:'info@biletinial.com' };
     const PLATFORM_LINKS = {
       bubilet: {
         'Klasik Etkinlikler': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
