@@ -2013,21 +2013,27 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Resend ile gönder
+  // Brevo SMTP ile gönder
   try {
-    var { Resend } = require('resend');
+    var nodemailer = require('nodemailer');
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var resendApiKey = process.env.RESEND_API_KEY || _savedCreds.resendApiKey || '';
+    var brevoUser = process.env.BREVO_USER || _savedCreds.brevoUser || '';
+    var brevoPass = process.env.BREVO_PASS || _savedCreds.brevoPass || '';
 
-    if (!resendApiKey) {
-      console.log('⚠️  RESEND_API_KEY ayarlanmamış — test modu');
+    if (!brevoUser || !brevoPass) {
+      console.log('⚠️  Brevo ayarlanmamış — test modu');
       return res.json({ success: true, testMode: true, to: toEmail, subject, body });
     }
 
-    var resend = new Resend(resendApiKey);
+    var transporter = nodemailer.createTransport({
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      secure: false,
+      auth: { user: brevoUser, pass: brevoPass }
+    });
 
-    await resend.emails.send({
-      from: 'Sosyal Sanathane <onboarding@resend.dev>',
+    await transporter.sendMail({
+      from: '"Sosyal Sanathane" <sosyalsanathane.ankara@gmail.com>',
       to: toEmail,
       subject: subject,
       text: body,
