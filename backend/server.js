@@ -2013,33 +2013,36 @@ app.post('/api/send-mail', async function(req, res) {
     return res.status(400).json({ error: 'Geçersiz işlem tipi' });
   }
 
-  // Brevo REST API ile gönder
+  // Nodemailer ile gönder
   try {
+    var nodemailer = require('nodemailer');
+    // Gmail SMTP — uygulama şifresi gerekir
+    // Önce saved_credentials.json'dan oku, yoksa environment variable'a bak
     var _savedCreds = loadJson(SAVED_CREDS_FILE) || {};
-    var brevoApiKey = process.env.BREVO_API_KEY || _savedCreds.brevoApiKey || '';
-
-    if (!brevoApiKey) {
-      console.log('⚠️  Brevo API key ayarlanmamış — test modu');
+    var mailUser = process.env.MAIL_USER || _savedCreds.mailUser || '';
+    var mailPass = process.env.MAIL_PASS || _savedCreds.mailPass || '';
+    console.log('MAIL DEBUG:', mailUser, mailPass ? mailPass.substring(0,4)+'****' : 'BOŞ');
+    if (!mailUser || !mailPass) {
+      // SMTP ayarlanmamışsa mail içeriğini döndür (test modu)
+      console.log('⚠️  MAIL_USER/MAIL_PASS ayarlanmamış — test modu');
       return res.json({ success: true, testMode: true, to: toEmail, subject, body });
     }
 
-    await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'Sosyal Sanathane', email: 'sosyalsanathane.ankara@gmail.com' },
-      to: [{ email: toEmail }],
-      subject: subject,
-      textContent: body,
-    }, {
-      headers: {
-        'api-key': brevoApiKey,
-        'Content-Type': 'application/json',
-      },
-      timeout: 15000,
+    var transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: mailUser, pass: mailPass }
     });
 
-    console.log('Mail gönderildi:', toEmail, subject);
+    await transporter.sendMail({
+      from: '"Sosyal Sanathane" <' + mailUser + '>',
+      to: toEmail,
+      subject: subject,
+      text: body,
+    });
+
     res.json({ success: true, to: toEmail });
   } catch(err) {
-    console.error('Mail gönderme hatasi:', err.message, err.response && JSON.stringify(err.response.data));
+    console.error('Mail gönderme hatasi:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
