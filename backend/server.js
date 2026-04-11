@@ -1950,10 +1950,9 @@ app.post('/api/send-mail', async function(req, res) {
 
   // Platform mail adresleri
   const MAIL_TARGETS = {
-    bubilet:    'keremsahiin1@gmail.com',
-    biletinial: 'keremsahiin2@gmail.com',
-  };
-
+   bubilet:    ['info@bubilet.com.tr', 'zeynep@bubilet.com.tr'],
+   biletinial: ['info@biletinial.com', 'etkinlik@biletinial.com', 'deniz.gozeler@biletinial.com']
+ };
   // Platform linkleri
   const PLATFORM_LINKS = {
     bubilet: {
