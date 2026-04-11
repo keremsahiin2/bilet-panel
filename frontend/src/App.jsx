@@ -822,27 +822,19 @@ export default function App() {
     setMailSending(true); setMailResult(null);
     try {
       const seansLabel = mailSeans ? `${mailSeans.dateKey} ${mailSeans.slot}` : '';
-      // Her platform için ayrı istek at
-      const results = await Promise.all(mailPlatforms.map(async (platform) => {
-        try {
-          const res = await fetch('/api/send-mail', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              platform,
-              eventName: mailEvent,
-              seansLabel,
-              islemTipi: mailIslem,
-              kontenjan: mailKontenjan,
-            })
-          });
-          const json = await res.json();
-          return { platform, ...json };
-        } catch(e) {
-          return { platform, error: e.message };
-        }
-      }));
-      setMailResult({ results });
+      const res = await fetch('/api/send-mail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platforms: mailPlatforms,
+          eventName: mailEvent,
+          seansLabel,
+          islemTipi: mailIslem,
+          kontenjan: mailKontenjan,
+        })
+      });
+      const json = await res.json();
+      setMailResult(json);
     } catch(e) {
       setMailResult({ results: [{ platform: 'genel', error: e.message }] });
     }
