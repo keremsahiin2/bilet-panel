@@ -308,36 +308,76 @@ function biletinialTicketTypeToCategory(ticketTypeName) {
 // ─── Biletini Al ───────────────────────────────────────────────────────────────
 async function fetchBiletinial(token) {
   if (!token) return [];
+
+  const biletinialHeaders = {
+    'Authorization': 'Bearer ' + token,
+    'xapikey': 'TPJDtRG0cP',
+    'allow-origin': 'http://localhost:3000',
+    'origin': 'https://partner.biletinial.com',
+    'referer': 'https://partner.biletinial.com/'
+  };
+
   var now = new Date();
   var future = new Date();
   future.setDate(future.getDate() + 30);
-  var res = await axios.get(
-    'https://reportapi2.biletinial.com/api/Report/GetActiveEventDetailList' +
-    '?FirstDate=' + encodeURIComponent(now.toUTCString()) +
-    '&LastDate=' + encodeURIComponent(future.toUTCString()) + '&lang=tr',
-    { headers:{ 'Authorization':'Bearer '+token, 'xapikey':'TPJDtRG0cP',
-        'allow-origin':'http://localhost:3000', 'origin':'https://partner.biletinial.com',
-        'referer':'https://partner.biletinial.com/' }}
-  );
-  const biletinialHeaders = {
-    'Authorization':'Bearer '+token, 'xapikey':'TPJDtRG0cP',
-    'allow-origin':'http://localhost:3000', 'origin':'https://partner.biletinial.com',
-    'referer':'https://partner.biletinial.com/'
-  };
-  const allSeances = res.data.Data || [];
 
-  // Workshop kırılım seanslarını bul: sadece "Workshop: Etkinlik Takvimi" ile başlayanlar
-  // Punch Workshop, Seramik Workshop vb. ayrı etkinlikler — onlara kırılım gerekmez
-  const workshopSeances = allSeances.filter(s =>
+  // ── 1) Aktif seanslar (GetActiveEventDetailList) ──────────────────────────
+  var activeSeances = [];
+  try {
+    var activeRes = await axios.get(
+      'https://reportapi2.biletinial.com/api/Report/GetActiveEventDetailList' +
+      '?FirstDate=' + encodeURIComponent(now.toUTCString()) +
+      '&LastDate='  + encodeURIComponent(future.toUTCString()) + '&lang=tr',
+      { headers: biletinialHeaders }
+    );
+    activeSeances = activeRes.data.Data || [];
+    console.log('Biletini Al: aktif seans sayisi:', activeSeances.length);
+  } catch (err) {
+    console.error('Biletini Al GetActiveEventDetailList hatasi:', err.message);
+  }
+
+  // ── 2) Tamamlanmış seanslar (GetSeanceListWithCapacityByDate) ─────────────
+  // Bugünden 7 gün geriye + bugüne kadar olan tamamlanmışları çek
+  // (etkinlik saati gelince aktiften buraya geçiyor, TotalSoldTicketCount doğru kalıyor)
+  var completedSeances = [];
+  try {
+    var pastFrom = new Date();
+    pastFrom.setDate(pastFrom.getDate() - 7);
+    var firstDate = pastFrom.toISOString().slice(0, 10);   // "YYYY-MM-DD"
+    var lastDate  = now.toISOString().slice(0, 10);         // bugün
+
+    var completedRes = await axios.get(
+      'https://reportapi2.biletinial.com/api/Report/GetSeanceListWithCapacityByDate' +
+      '?firstDate=' + firstDate + '&lastDate=' + lastDate,
+      { headers: biletinialHeaders, timeout: 10000 }
+    );
+    var rawCompleted = completedRes.data.Data || [];
+    // Sadece satışı > 0 olanları al (0 olan tamamlanmışları göstermeye gerek yok)
+    completedSeances = rawCompleted.filter(s => s.TotalSoldTicketCount > 0);
+    console.log('Biletini Al: tamamlanmis seans sayisi (satisli):', completedSeances.length, '/', rawCompleted.length);
+  } catch (err) {
+    console.error('Biletini Al GetSeanceListWithCapacityByDate hatasi:', err.message);
+  }
+
+  // ── 3) İki listeyi birleştir — SeanceId bazında aktif öncelikli ──────────
+  // Aynı SeanceId aktif listede varsa tamamlanmış listeden alma (henüz bitmemiş)
+  const activeIds = new Set(activeSeances.map(s => s.SeanceId));
+  const mergedSeances = [
+    ...activeSeances,
+    ...completedSeances.filter(s => !activeIds.has(s.SeanceId))
+  ];
+
+  // ── 4) Workshop kırılımı — her iki listede de aynı mantık ────────────────
+  const workshopSeances = mergedSeances.filter(s =>
     s.EventName && s.EventName.startsWith('Workshop: Etkinlik Takvimi')
   );
-  const normalSeances = allSeances.filter(s =>
+  const normalSeances = mergedSeances.filter(s =>
     !s.EventName || !s.EventName.startsWith('Workshop: Etkinlik Takvimi')
   );
 
   console.log('Biletini Al: Workshop seans sayisi:', workshopSeances.length);
 
-  // Workshop seansları için GetSeanceTicketTypeCounts çek (paralel)
+  // Workshop seansları için GetTicketTypeSalesReport çek (paralel)
   const workshopExpanded = await Promise.all(
     workshopSeances.map(async (s) => {
       if (!s.SeanceId) return [s];
@@ -353,7 +393,7 @@ async function fetchBiletinial(token) {
         for (const item of detay.Data) {
           if (!item.TotalSoldTicketCount || item.TotalSoldTicketCount === 0) continue;
           const cat = biletinialTicketTypeToCategory(item.TicketTypeName);
-          if (!cat) continue; // Davetli/Kupon/Toplu Satis vb. yoksay
+          if (!cat) continue;
           rows.push({
             ...s,
             _workshopCat: cat,
@@ -364,7 +404,7 @@ async function fetchBiletinial(token) {
         console.log('Biletini Al Workshop SeanceId=' + s.SeanceId + ':', rows.length, 'tur');
         return rows.length > 0 ? rows : [s];
       } catch (err) {
-        console.error('Biletini Al GetSeanceTicketTypeCounts hatasi SeanceId=' + s.SeanceId + ':', err.message);
+        console.error('Biletini Al GetTicketTypeSalesReport hatasi SeanceId=' + s.SeanceId + ':', err.message);
         return [s];
       }
     })

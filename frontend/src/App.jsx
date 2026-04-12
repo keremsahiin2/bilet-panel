@@ -170,7 +170,7 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
   };
 }
 
-function buildSeanceMap(data, biletinialPeak) {
+function buildSeanceMap(data) {
   if (!data) return [];
   const map = {};
 
@@ -316,14 +316,7 @@ function buildSeanceMap(data, biletinialPeak) {
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.SeanceDate));
     ensureCat(key, cat);
-    const rawCount = s.SalesTicketTotalCount || 0;
-    // Peak map: biletinial 0'a düşünce (etkinlik saatinde) son bilinen değeri koru
-    const peakKey = key + '|' + cat;
-    const peakVal = (biletinialPeak && biletinialPeak[peakKey]) || 0;
-    const useVal = Math.max(rawCount, peakVal);
-    map[key].categories[cat].biletinial += useVal;
-    // Peak'i güncelle (artıyorsa)
-    if (biletinialPeak && rawCount > peakVal) biletinialPeak[peakKey] = rawCount;
+    map[key].categories[cat].biletinial += (s.SalesTicketTotalCount || 0);
   });
 
   // Bubilet
@@ -428,9 +421,6 @@ export default function App() {
   const [toggling, setToggling]                   = useState({});
   const [deleting, setDeleting]                   = useState({});
   const [deleteConfirm, setDeleteConfirm]         = useState({});
-  // biletinial peak değerleri — etkinlik saatinde 0'a düşünce son bilinen değeri korur
-  // { "dateKey|timeSlot|cat": peakCount }
-  const biletinialPeakRef = useRef({});
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
@@ -1703,7 +1693,7 @@ export default function App() {
 
   // ─── SATIŞ EKRANI (tam sayfa) ────────────────────────────────────────────────
   if (mode === 'sales') {
-    const seancesSales = buildSeanceMap(salesData, biletinialPeakRef.current);
+    const seancesSales = buildSeanceMap(salesData);
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -2026,7 +2016,7 @@ export default function App() {
   }
 
   // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
-  const seances = buildSeanceMap(salesData, biletinialPeakRef.current);
+  const seances = buildSeanceMap(salesData);
 
   return (
     <div style={S.page}>
