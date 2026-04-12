@@ -879,6 +879,75 @@ export default function App() {
     setMailSending(false);
   };
 
+  // ─── STOK İÇİ MAİL ────────────────────────────────────────────────────────
+  // stockMailModal: { seanceId, seansLabel, eventCat } | null
+  const [stockMailModal, setStockMailModal]     = useState(null);
+  const [stockMailStep, setStockMailStep]       = useState(1); // 1=islem, 2=kontenjan, 3=platform, 4=sonuç
+  const [stockMailIslem, setStockMailIslem]     = useState(null);
+  const [stockMailKontenjan, setStockMailKontenjan] = useState('');
+  const [stockMailPlatforms, setStockMailPlatforms] = useState([]);
+  const [stockMailSending, setStockMailSending] = useState(false);
+  const [stockMailResult, setStockMailResult]   = useState(null);
+
+  const openStockMail = (s) => {
+    const parsed = parseIdeasoftName(s.fullName);
+    const seansLabel = parsed ? `${parsed.dateKey} ${parsed.timeSlot}` : s.fullName;
+    setStockMailModal({ seanceId: s.seanceId, seansLabel, eventCat: s.category });
+    setStockMailStep(1);
+    setStockMailIslem(null);
+    setStockMailKontenjan('');
+    setStockMailPlatforms([]);
+    setStockMailSending(false);
+    setStockMailResult(null);
+  };
+
+  const closeStockMail = () => setStockMailModal(null);
+
+  const toggleStockMailPlatform = (p) => {
+    setStockMailPlatforms(prev => prev.includes(p) ? prev.filter(x=>x!==p) : [...prev, p]);
+  };
+
+  const handleStockMailSend = async () => {
+    if (!stockMailModal) return;
+    setStockMailSending(true);
+    try {
+      const res = await fetch('/api/send-mail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platforms: stockMailPlatforms,
+          eventName: stockMailModal.eventCat,
+          seansLabel: stockMailModal.seansLabel,
+          islemTipi: stockMailIslem,
+          kontenjan: stockMailKontenjan,
+        })
+      });
+      const json = await res.json();
+      setStockMailResult(json);
+      // Etiket kaydet
+      const anySuccess = (json.results||[]).some(r=>r.success);
+      if (anySuccess) {
+        const labelKey = `${stockMailModal.eventCat}|${stockMailModal.seansLabel}`;
+        const newEntry = {
+          islem: stockMailIslem,
+          kontenjan: stockMailIslem==='kontenjan' ? stockMailKontenjan : null,
+          platforms: stockMailPlatforms.filter(p=>(json.results||[]).find(r=>r.platform===p&&r.success)),
+          ts: new Date().toLocaleString('tr-TR')
+        };
+        setMailLabels(prev => {
+          const updated = {...prev, [labelKey]: [...(prev[labelKey]||[]), newEntry]};
+          fetch('/api/mail-labels', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({labels:updated}) }).catch(()=>{});
+          return updated;
+        });
+      }
+      setStockMailStep(4);
+    } catch(e) {
+      setStockMailResult({ results:[{platform:'genel',error:e.message}] });
+      setStockMailStep(4);
+    }
+    setStockMailSending(false);
+  };
+
   const handleSeansYazCreate = async () => {
     const jobId = 'job_' + Date.now();
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
@@ -1867,8 +1936,146 @@ export default function App() {
 
   // ─── STOK EKRANI (tam sayfa) ─────────────────────────────────────────────────
   if (mode === 'stock') {
+    const PLATFORM_COLORS_SM = { bubilet:'#b47cff', biletinial:'#ff9f4a' };
+    const PLATFORM_LABELS_SM = { bubilet:'Bubilet', biletinial:'Biletini Al' };
+    const MAIL_TARGETS_SM    = { bubilet:'info@bubilet.com.tr', biletinial:'info@biletinial.com' };
+    const ISLEM_OPTIONS_SM = [
+      { key:'kontenjan', icon:'📉', label:'Kontenjanı Azalt' },
+      { key:'tukendi',   icon:'🚫', label:'Tükendi Yap' },
+      { key:'iptal',     icon:'❌', label:'İptal & Ücret İadesi' },
+    ];
+
+    // Inline mail modal overlay
+    const renderMailModal = () => {
+      if (!stockMailModal) return null;
+      const { seansLabel, eventCat } = stockMailModal;
+      return (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}
+          onClick={e=>{if(e.target===e.currentTarget)closeStockMail();}}>
+          <div style={{background:'#0d1120',borderRadius:'20px 20px 0 0',padding:'24px 20px 40px',width:'100%',maxWidth:520,
+            boxShadow:'0 -8px 40px rgba(0,0,0,0.5)',maxHeight:'85vh',overflowY:'auto'}}>
+
+            {/* Handle bar */}
+            <div style={{width:40,height:4,borderRadius:2,background:'#1e293b',margin:'0 auto 20px'}}/>
+
+            {/* Başlık */}
+            <div style={{fontSize:11,color:'#4fc9ff',fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:'uppercase'}}>✉️ Mail At</div>
+            <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:4}}>{getCatIcon(eventCat)} {eventCat}</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:20}}>{seansLabel}</div>
+
+            {/* ADIM 1 — İşlem seç */}
+            {stockMailStep === 1 && (
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{fontSize:11,color:'#475569',fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:'uppercase'}}>İşlem türü</div>
+                {ISLEM_OPTIONS_SM.map(opt=>(
+                  <button key={opt.key}
+                    onClick={()=>{ setStockMailIslem(opt.key); opt.key==='kontenjan'?setStockMailStep(2):setStockMailStep(3); }}
+                    style={{background:'#111827',border:'1px solid #1e293b',borderRadius:12,padding:'16px 18px',
+                      cursor:'pointer',display:'flex',alignItems:'center',gap:12,textAlign:'left'}}>
+                    <span style={{fontSize:22}}>{opt.icon}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{opt.label}</span>
+                    <span style={{marginLeft:'auto',color:'#374151',fontSize:18}}>›</span>
+                  </button>
+                ))}
+                <button onClick={closeStockMail} style={{...S.smallBtn,width:'100%',textAlign:'center',marginTop:6}}>İptal</button>
+              </div>
+            )}
+
+            {/* ADIM 2 — Kontenjan sayısı */}
+            {stockMailStep === 2 && (
+              <div>
+                <div style={{fontSize:11,color:'#475569',fontWeight:700,letterSpacing:1,marginBottom:10,textTransform:'uppercase'}}>Kontenjan kaça düşürülsün?</div>
+                <input type="number" min="0"
+                  value={stockMailKontenjan}
+                  onChange={e=>setStockMailKontenjan(e.target.value)}
+                  placeholder="Örn: 3"
+                  style={{...S.input,fontSize:20,padding:'14px',marginBottom:16,textAlign:'center'}}
+                />
+                <button
+                  onClick={()=>setStockMailStep(3)}
+                  disabled={!stockMailKontenjan||isNaN(parseInt(stockMailKontenjan))}
+                  style={{width:'100%',padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
+                    background:(!stockMailKontenjan||isNaN(parseInt(stockMailKontenjan)))?'#1a2035':'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                    color:(!stockMailKontenjan||isNaN(parseInt(stockMailKontenjan)))?'#374151':'#fff',marginBottom:10}}>
+                  Devam →
+                </button>
+                <button onClick={()=>setStockMailStep(1)} style={{...S.smallBtn,width:'100%',textAlign:'center'}}>← Geri</button>
+              </div>
+            )}
+
+            {/* ADIM 3 — Platform seç */}
+            {stockMailStep === 3 && (
+              <div>
+                <div style={{fontSize:11,color:'#475569',fontWeight:700,letterSpacing:1,marginBottom:12,textTransform:'uppercase'}}>Platform seçin</div>
+                <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+                  {['bubilet','biletinial'].map(p=>{
+                    const sel = stockMailPlatforms.includes(p);
+                    return (
+                      <button key={p} onClick={()=>toggleStockMailPlatform(p)}
+                        style={{background:sel?'#0a1a28':'#111827',
+                          border:`2px solid ${sel?PLATFORM_COLORS_SM[p]:'#1e293b'}`,
+                          borderRadius:12,padding:'16px 18px',cursor:'pointer',
+                          display:'flex',alignItems:'center',gap:12,transition:'all 0.15s'}}>
+                        <span style={{fontSize:22}}>{p==='bubilet'?'🎟':'🎫'}</span>
+                        <div style={{flex:1,textAlign:'left'}}>
+                          <div style={{fontSize:14,fontWeight:700,color:PLATFORM_COLORS_SM[p]}}>{PLATFORM_LABELS_SM[p]}</div>
+                          <div style={{fontSize:11,color:'#475569'}}>{MAIL_TARGETS_SM[p]}</div>
+                        </div>
+                        <div style={{width:20,height:20,borderRadius:'50%',
+                          border:`2px solid ${sel?PLATFORM_COLORS_SM[p]:'#374151'}`,
+                          background:sel?PLATFORM_COLORS_SM[p]:'transparent',
+                          display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                          {sel&&<span style={{color:'#fff',fontSize:11,fontWeight:800}}>✓</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={handleStockMailSend}
+                  disabled={stockMailPlatforms.length===0||stockMailSending}
+                  style={{width:'100%',padding:'15px',borderRadius:12,fontSize:15,fontWeight:800,border:'none',
+                    background:stockMailPlatforms.length===0||stockMailSending?'#1a2035':'linear-gradient(135deg,#22c55e,#16a34a)',
+                    color:stockMailPlatforms.length===0||stockMailSending?'#374151':'#fff',cursor:'pointer',marginBottom:10}}>
+                  {stockMailSending?'⏳ Gönderiliyor…':'✉️ Mail Gönder'}
+                </button>
+                <button onClick={()=>setStockMailStep(stockMailIslem==='kontenjan'?2:1)}
+                  style={{...S.smallBtn,width:'100%',textAlign:'center'}}>← Geri</button>
+              </div>
+            )}
+
+            {/* ADIM 4 — Sonuç */}
+            {stockMailStep === 4 && stockMailResult && (
+              <div>
+                <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:20}}>
+                  {(stockMailResult.results||[]).map((r,i)=>(
+                    <div key={i} style={{background:'#07090f',border:`1px solid ${r.error?'#7f1d1d':'#14532d'}`,
+                      borderRadius:12,padding:'14px 16px',display:'flex',alignItems:'center',gap:12}}>
+                      <span style={{fontSize:24}}>{r.error?'❌':'✅'}</span>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:700,color:r.error?'#fca5a5':'#22c55e'}}>
+                          {PLATFORM_LABELS_SM[r.platform]||r.platform}
+                        </div>
+                        <div style={{fontSize:11,color:'#475569'}}>{r.error?r.error:`→ ${MAIL_TARGETS_SM[r.platform]}`}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={closeStockMail}
+                  style={{width:'100%',padding:'14px',background:'linear-gradient(135deg,#b47cff,#7c3aff)',
+                    color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+                  Kapat
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div style={S.page}>
+        {renderMailModal()}
         <div style={S.header}>
           <div style={S.headerLeft}>
             <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
@@ -1899,7 +2106,7 @@ export default function App() {
                         onClick={()=>handleBulkDeletePast(selectedCat)}
                         disabled={bulkDeleting}
                         style={{
-                          padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',border:'none',
+                          padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',
                           background: confirming ? '#3f0f0f' : '#1a1a1a',
                           color: confirming ? '#ff4444' : '#64748b',
                           border: confirming ? '1px solid #7f1d1d' : '1px solid #1e293b',
@@ -1923,81 +2130,100 @@ export default function App() {
                 <div>
                   {getIdeasoftForCat(selectedCat).length===0
                     ? <div style={S.empty}>Bu kategoride seans bulunamadı.</div>
-                    : getIdeasoftForCat(selectedCat).map(s=>{
+                    : getIdeasoftForCat(selectedCat).map((s, idx, arr)=>{
                         const editing  = stockEdits[s.seanceId]!==undefined && stockEdits[s.seanceId]!=='';
                         const updating = stockUpdating[s.seanceId];
                         const msg      = stockMsg[s.seanceId];
+                        const isLast   = idx === arr.length - 1;
                         return (
-                          <div key={s.seanceId||s.productId} style={S.stockRow}>
-                            <div style={S.stockRowLeft}>
-                              <span style={S.stockRowName}>
-                                {s.fullName.replace('Farabi Sokak: Sosyal Sanathane - ','').replace('Tunalı: Ara Sokak Pub - ','')}
-                              </span>
-                              <div style={{...S.badgeRow, alignItems:'center'}}>
+                          <div key={s.seanceId||s.productId}>
+                            {/* ── Seans kartı ── */}
+                            <div style={{
+                              padding:'16px 16px 14px',
+                              background: idx % 2 === 0 ? '#0d1120' : '#0a0e1a',
+                            }}>
+                              {/* Seans adı */}
+                              <div style={{fontSize:13,color:'#94a3b8',fontWeight:600,marginBottom:10,lineHeight:1.4}}>
+                                📅 {s.fullName.replace('Farabi Sokak: Sosyal Sanathane - ','').replace('Tunalı: Ara Sokak Pub - ','')}
+                              </div>
+
+                              {/* Badge satırı + toggle */}
+                              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12,flexWrap:'wrap'}}>
                                 <SBadge label="Mevcut"    value={s.stockAmount??'—'} color="#4fc9ff"/>
                                 {s.soldCount!=null   && <SBadge label="Satılan"    value={s.soldCount}    color="#ff9f4a"/>}
-                                {s.baselineStock!=null && <SBadge label="Başlangıç" value={s.baselineStock} color="#555"/>}
+                                {s.baselineStock!=null && <SBadge label="Başlangıç" value={s.baselineStock} color="#475569"/>}
                                 {s.seanceId && (
                                   <div
                                     onClick={()=>!toggling[s.seanceId]&&handleToggleSeance(s.seanceId, s.status===1)}
-                                    style={{
-                                      marginLeft:'auto',
-                                      display:'flex',alignItems:'center',gap:6,
+                                    style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,
                                       cursor:toggling[s.seanceId]?'wait':'pointer',
-                                      opacity:toggling[s.seanceId]?0.6:1,
-                                      flexShrink:0
-                                    }}>
-                                    <span style={{
-                                      fontSize:10,fontWeight:700,letterSpacing:1,
-                                      color:s.status===1?'#22c55e':'#64748b',
-                                      textTransform:'uppercase'
-                                    }}>
-                                      {s.status===1?'SEANS AÇIK':'SEANS KAPALI'}
+                                      opacity:toggling[s.seanceId]?0.6:1,flexShrink:0}}>
+                                    <span style={{fontSize:10,fontWeight:700,letterSpacing:1,
+                                      color:s.status===1?'#22c55e':'#64748b',textTransform:'uppercase'}}>
+                                      {s.status===1?'AÇIK':'KAPALI'}
                                     </span>
-                                    <div style={{
-                                      width:44,height:24,borderRadius:12,
+                                    <div style={{width:44,height:24,borderRadius:12,
                                       background:s.status===1?'#22c55e':'#3a3a3a',
-                                      position:'relative',
-                                      transition:'background 0.25s',
-                                      flexShrink:0
-                                    }}>
-                                      <div style={{
-                                        position:'absolute',
-                                        top:3,
+                                      position:'relative',transition:'background 0.25s',flexShrink:0}}>
+                                      <div style={{position:'absolute',top:3,
                                         left:s.status===1?23:3,
-                                        width:18,height:18,borderRadius:'50%',
-                                        background:'#fff',
-                                        boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
-                                        transition:'left 0.25s'
-                                      }}/>
+                                        width:18,height:18,borderRadius:'50%',background:'#fff',
+                                        boxShadow:'0 1px 4px rgba(0,0,0,0.3)',transition:'left 0.25s'}}/>
                                     </div>
                                   </div>
                                 )}
                               </div>
+
+                              {/* Stok güncelle + Mail At + Sil — yatay grid */}
+                              {s.seanceId && (
+                                <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                                  {/* Stok input + güncelle */}
+                                  <div style={{display:'flex',gap:7}}>
+                                    <input style={{...S.stockInputFull,flex:1,marginBottom:0}}
+                                      type="number" min="0" placeholder="Yeni stok"
+                                      value={stockEdits[s.seanceId]??''}
+                                      onChange={e=>setStockEdits(p=>({...p,[s.seanceId]:e.target.value}))}/>
+                                    <button style={{...S.updateBtnFull,...(editing&&!updating?S.updateBtnOn:{}),
+                                      flex:'0 0 110px',padding:'9px 0'}}
+                                      disabled={!editing||updating}
+                                      onClick={()=>handleStockUpdate(s.seanceId, s.soldCount)}>
+                                      {updating?'⟳ …':'Güncelle'}
+                                    </button>
+                                  </div>
+                                  {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171'}}>{msg}</span>}
+
+                                  {/* Mail At + Sil — yan yana */}
+                                  <div style={{display:'flex',gap:7}}>
+                                    <button
+                                      onClick={()=>openStockMail(s)}
+                                      style={{flex:1,padding:'9px 0',borderRadius:8,fontSize:13,fontWeight:700,
+                                        cursor:'pointer',border:'none',
+                                        background:'linear-gradient(135deg,#1a3a2a,#0d2a1a)',
+                                        color:'#22c55e',
+                                        border:'1px solid #22c55e44',
+                                        transition:'all 0.15s'}}>
+                                      ✉️ Mail At
+                                    </button>
+                                    <button
+                                      disabled={deleting[s.seanceId]}
+                                      onClick={()=>handleDeleteOption(s.seanceId)}
+                                      style={{flex:1,padding:'9px 0',borderRadius:8,fontSize:13,fontWeight:700,
+                                        cursor:'pointer',border:'none',
+                                        background: deleteConfirm[s.seanceId] ? '#3f0f0f' : '#111827',
+                                        color: deleteConfirm[s.seanceId] ? '#ff4444' : '#475569',
+                                        border: deleteConfirm[s.seanceId] ? '1px solid #7f1d1d' : '1px solid #1e293b',
+                                        opacity: deleting[s.seanceId] ? 0.5 : 1,
+                                        transition:'all 0.2s'}}>
+                                      {deleting[s.seanceId] ? '⟳ …' : deleteConfirm[s.seanceId] ? '⚠️ Emin misin?' : '🗑 Sil'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            {s.seanceId && (
-                              <div style={S.stockUpdateBlock}>
-                                <input style={S.stockInputFull} type="number" min="0" placeholder="Yeni stok"
-                                  value={stockEdits[s.seanceId]??''}
-                                  onChange={e=>setStockEdits(p=>({...p,[s.seanceId]:e.target.value}))}/>
-                                <button style={{...S.updateBtnFull,...(editing&&!updating?S.updateBtnOn:{})}}
-                                  disabled={!editing||updating}
-                                  onClick={()=>handleStockUpdate(s.seanceId, s.soldCount)}>
-                                  {updating?'⟳ Güncelleniyor…':'Güncelle'}
-                                </button>
-                                {msg && <span style={{fontSize:12,fontWeight:600,color:msg==='✓'?'#4ade80':'#f87171',paddingTop:2}}>{msg}</span>}
-                                <button
-                                  disabled={deleting[s.seanceId]}
-                                  onClick={()=>handleDeleteOption(s.seanceId)}
-                                  style={{width:'100%',padding:'9px 12px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',border:'none',
-                                    background: deleteConfirm[s.seanceId] ? '#3f0f0f' : '#1a1a1a',
-                                    color: deleteConfirm[s.seanceId] ? '#ff4444' : '#64748b',
-                                    border: deleteConfirm[s.seanceId] ? '1px solid #7f1d1d' : '1px solid #1e293b',
-                                    opacity: deleting[s.seanceId] ? 0.5 : 1,
-                                    transition:'all 0.2s'}}>
-                                  {deleting[s.seanceId] ? '⟳ Siliniyor…' : deleteConfirm[s.seanceId] ? '⚠️ Emin misin? Tekrar bas!' : '🗑 Seansı Sil'}
-                                </button>
-                              </div>
+
+                            {/* ── Seanslar arası ayırıcı ── */}
+                            {!isLast && (
+                              <div style={{height:1,background:'linear-gradient(90deg,transparent,#1e3a5f88,transparent)',margin:'0 12px'}}/>
                             )}
                           </div>
                         );
@@ -2086,28 +2312,6 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
                 <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
-              </div>
-              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
-            </button>
-          </div>
-          {/* Mail At — yatay geniş bar */}
-          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
-            <button
-              onClick={handleMailOpen}
-              style={{
-                width:'100%', display:'flex', alignItems:'center', gap:14,
-                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
-                cursor:'pointer', textAlign:'left',
-                background:'#0d1120',
-                boxShadow:'none',
-                transition:'all 0.2s'
-              }}
-              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0f1525';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
-              <span style={{fontSize:26}}>✉️</span>
-              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Mail At</span>
-                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Bubilet veya Biletini Al'a kontenjan / iptal maili gönder</span>
               </div>
               <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
             </button>
