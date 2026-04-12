@@ -1967,16 +1967,45 @@ export default function App() {
             {stockMailStep === 1 && (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
                 <div style={{fontSize:11,color:'#475569',fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:'uppercase'}}>İşlem türü</div>
-                {ISLEM_OPTIONS_SM.map(opt=>(
-                  <button key={opt.key}
-                    onClick={()=>{ setStockMailIslem(opt.key); opt.key==='kontenjan'?setStockMailStep(2):setStockMailStep(3); }}
-                    style={{background:'#111827',border:'1px solid #1e293b',borderRadius:12,padding:'16px 18px',
-                      cursor:'pointer',display:'flex',alignItems:'center',gap:12,textAlign:'left'}}>
-                    <span style={{fontSize:22}}>{opt.icon}</span>
-                    <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{opt.label}</span>
-                    <span style={{marginLeft:'auto',color:'#374151',fontSize:18}}>›</span>
-                  </button>
-                ))}
+                {ISLEM_OPTIONS_SM.map(opt => {
+                  // Bu seans + bu işlem için daha önce atılmış mailler
+                  const labelKey = `${eventCat}|${seansLabel}`;
+                  const prevLabels = (mailLabels[labelKey] || []).filter(lb => lb.islem === opt.key);
+                  return (
+                    <div key={opt.key} style={{display:'flex',flexDirection:'column',gap:0}}>
+                      {/* Geçmiş etiketler — butonun üzerinde */}
+                      {prevLabels.length > 0 && (
+                        <div style={{display:'flex',flexWrap:'wrap',gap:4,paddingBottom:6,paddingLeft:4}}>
+                          {prevLabels.map((lb, li) => {
+                            let tag, color;
+                            if (lb.islem === 'kontenjan') { tag = `📉 Kontenjan ${lb.kontenjan}'e düşürüldü`; color = '#0ea5e9'; }
+                            else if (lb.islem === 'tukendi') { tag = '🚫 Tükendi yapıldı'; color = '#f59e0b'; }
+                            else if (lb.islem === 'iptal')   { tag = '❌ İptal & İade yapıldı'; color = '#ef4444'; }
+                            else { tag = lb.islem; color = '#64748b'; }
+                            return (
+                              <div key={li} style={{display:'flex',flexDirection:'column',gap:1}}>
+                                <span style={{fontSize:11,fontWeight:700,color,
+                                  background:color+'18',border:`1px solid ${color}44`,
+                                  borderRadius:6,padding:'3px 9px',whiteSpace:'nowrap'}}>
+                                  {tag}
+                                </span>
+                                <span style={{fontSize:9,color:'#334155',paddingLeft:4}}>{lb.ts}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <button
+                        onClick={()=>{ setStockMailIslem(opt.key); opt.key==='kontenjan'?setStockMailStep(2):setStockMailStep(3); }}
+                        style={{background:'#111827',border:'1px solid #1e293b',borderRadius:12,padding:'16px 18px',
+                          cursor:'pointer',display:'flex',alignItems:'center',gap:12,textAlign:'left'}}>
+                        <span style={{fontSize:22}}>{opt.icon}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{opt.label}</span>
+                        <span style={{marginLeft:'auto',color:'#374151',fontSize:18}}>›</span>
+                      </button>
+                    </div>
+                  );
+                })}
                 <button onClick={closeStockMail} style={{...S.smallBtn,width:'100%',textAlign:'center',marginTop:6}}>İptal</button>
               </div>
             )}
