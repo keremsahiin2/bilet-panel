@@ -1944,6 +1944,21 @@ app.get('/api/sales', async function(req, res) {
   res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, monthlySales: monthlySalesFlat });
 });
 
+// ─── Mail Etiketleri (kalıcı) ──────────────────────────────────────────────────
+const MAIL_LABELS_FILE = path.join(__dirname, 'mail_labels.json');
+
+app.get('/api/mail-labels', function(req, res) {
+  const labels = loadJson(MAIL_LABELS_FILE) || {};
+  res.json({ labels });
+});
+
+app.post('/api/mail-labels', function(req, res) {
+  try {
+    saveJson(MAIL_LABELS_FILE, req.body.labels || {});
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── Mail Gönder ───────────────────────────────────────────────────────────────
 app.post('/api/send-mail', async function(req, res) {
   const { platform, platforms, eventName, seansLabel, islemTipi, kontenjan } = req.body;

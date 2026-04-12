@@ -170,7 +170,7 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
   };
 }
 
-function buildSeanceMap(data) {
+function buildSeanceMap(data, biletinialPeak) {
   if (!data) return [];
   const map = {};
 
@@ -316,7 +316,14 @@ function buildSeanceMap(data) {
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.SeanceDate));
     ensureCat(key, cat);
-    map[key].categories[cat].biletinial += (s.SalesTicketTotalCount || 0);
+    const rawCount = s.SalesTicketTotalCount || 0;
+    // Peak map: biletinial 0'a düşünce (etkinlik saatinde) son bilinen değeri koru
+    const peakKey = key + '|' + cat;
+    const peakVal = (biletinialPeak && biletinialPeak[peakKey]) || 0;
+    const useVal = Math.max(rawCount, peakVal);
+    map[key].categories[cat].biletinial += useVal;
+    // Peak'i güncelle (artıyorsa)
+    if (biletinialPeak && rawCount > peakVal) biletinialPeak[peakKey] = rawCount;
   });
 
   // Bubilet
@@ -421,6 +428,9 @@ export default function App() {
   const [toggling, setToggling]                   = useState({});
   const [deleting, setDeleting]                   = useState({});
   const [deleteConfirm, setDeleteConfirm]         = useState({});
+  // biletinial peak değerleri — etkinlik saatinde 0'a düşünce son bilinen değeri korur
+  // { "dateKey|timeSlot|cat": peakCount }
+  const biletinialPeakRef = useRef({});
 
   // Sayfa açılınca otomatik login dene
   useState(() => {
@@ -451,6 +461,15 @@ export default function App() {
       })
       .catch(() => {})
       .finally(() => setAutoLoginLoading(false));
+  }, []);
+
+  // Mail etiketlerini sunucudan yükle
+  useEffect(() => {
+    fetch('/api/mail-labels')
+      .then(r => r.json())
+      .then(d => { if (d.labels) setMailLabels(d.labels); })
+      .catch(() => {})
+      .finally(() => setMailLabelsLoaded(true));
   }, []);
 
   const handleLogin = async () => {
@@ -753,6 +772,9 @@ export default function App() {
   const [mailSending, setMailSending]       = useState(false);
   const [mailResult, setMailResult]         = useState(null); // { results: [{platform, success, error, to}] }
   const [expandedMailBody, setExpandedMailBody] = useState({});
+  // Mail etiketleri: { "Punch|12 Nisan Pazar 18:30 - 20:30": [{islem:'kontenjan',kontenjan:'4',ts:'...'}, ...] }
+  const [mailLabels, setMailLabels]             = useState({});
+  const [mailLabelsLoaded, setMailLabelsLoaded] = useState(false);
 
   // Klasik etkinlikler = tek buton, gerisi ayrı
   const MAIL_EVENTS_DISPLAY = [
@@ -839,6 +861,28 @@ export default function App() {
       });
       const json = await res.json();
       setMailResult(json);
+
+      // Başarılı gönderimler varsa etiket kaydet
+      const anySuccess = (json.results || []).some(r => r.success);
+      if (anySuccess && mailEvent && mailSeans) {
+        const labelKey = `${mailEvent}|${seansLabel}`;
+        const newEntry = {
+          islem: mailIslem,
+          kontenjan: mailIslem === 'kontenjan' ? mailKontenjan : null,
+          platforms: mailPlatforms.filter(p => (json.results||[]).find(r=>r.platform===p&&r.success)),
+          ts: new Date().toLocaleString('tr-TR')
+        };
+        setMailLabels(prev => {
+          const updated = { ...prev, [labelKey]: [...(prev[labelKey]||[]), newEntry] };
+          // Sunucuya kaydet
+          fetch('/api/mail-labels', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: updated })
+          }).catch(() => {});
+          return updated;
+        });
+      }
     } catch(e) {
       setMailResult({ results: [{ platform: 'genel', error: e.message }] });
     }
@@ -1022,7 +1066,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* ADIM 2 — Seans seç */}
               {mailStep === 2 && (
                 <div>
                   <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>Seansı seçin</div>
@@ -1030,16 +1073,41 @@ export default function App() {
                     <div style={{color:'#64748b',textAlign:'center',padding:24}}>Önümüzdeki 60 günde seans bulunamadı.</div>
                   ) : (
                     <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                      {mailSeansOptions.map((s,i) => (
-                        <button key={i} onClick={()=>{setMailSeans(s);setMailStep(3);}}
-                          style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,
-                            padding:'14px 18px',cursor:'pointer',display:'flex',alignItems:'center',
-                            justifyContent:'space-between',gap:10}}>
-                          <span style={{fontSize:13,color:'#94a3b8',fontWeight:600}}>{s.dateKey}</span>
-                          <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{s.slot}</span>
-                          <span style={{color:'#374151',fontSize:18}}>›</span>
-                        </button>
-                      ))}
+                      {mailSeansOptions.map((s,i) => {
+                        const lKey = `${mailEvent}|${s.dateKey} ${s.slot}`;
+                        const labels = mailLabels[lKey] || [];
+                        return (
+                          <button key={i} onClick={()=>{setMailSeans(s);setMailStep(3);}}
+                            style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,
+                              padding:'14px 18px',cursor:'pointer',display:'flex',alignItems:'flex-start',
+                              flexDirection:'column',gap:6,textAlign:'left'}}>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',gap:10}}>
+                              <span style={{fontSize:13,color:'#94a3b8',fontWeight:600}}>{s.dateKey}</span>
+                              <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>{s.slot}</span>
+                              <span style={{color:'#374151',fontSize:18,marginLeft:'auto'}}>›</span>
+                            </div>
+                            {labels.length > 0 && (
+                              <div style={{display:'flex',flexWrap:'wrap',gap:5,paddingTop:2}}>
+                                {labels.map((lb, li) => {
+                                  let tag, color;
+                                  if (lb.islem === 'kontenjan') { tag = `📉 Kontenjan ${lb.kontenjan} düşürüldü`; color = '#0ea5e9'; }
+                                  else if (lb.islem === 'tukendi') { tag = '🚫 Tükendi yapıldı'; color = '#f59e0b'; }
+                                  else if (lb.islem === 'iptal') { tag = '❌ İptal & İade yapıldı'; color = '#ef4444'; }
+                                  else { tag = lb.islem; color = '#64748b'; }
+                                  return (
+                                    <span key={li} style={{fontSize:10,fontWeight:700,color,
+                                      background:color+'18',border:`1px solid ${color}44`,
+                                      borderRadius:6,padding:'2px 8px',whiteSpace:'nowrap'}}>
+                                      {tag}
+                                      <span style={{fontSize:9,color:'#475569',marginLeft:4}}>{lb.ts}</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1635,7 +1703,7 @@ export default function App() {
 
   // ─── SATIŞ EKRANI (tam sayfa) ────────────────────────────────────────────────
   if (mode === 'sales') {
-    const seancesSales = buildSeanceMap(salesData);
+    const seancesSales = buildSeanceMap(salesData, biletinialPeakRef.current);
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -1958,7 +2026,7 @@ export default function App() {
   }
 
   // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
-  const seances = buildSeanceMap(salesData);
+  const seances = buildSeanceMap(salesData, biletinialPeakRef.current);
 
   return (
     <div style={S.page}>
