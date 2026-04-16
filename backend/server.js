@@ -684,47 +684,60 @@ app.post('/api/clear-credentials', function(req, res) {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
+// Login işleminin durumunu tutan global state
+// 'idle' | 'loading' | 'done' | 'error'
+var loginState = { status:'idle', error:null };
+
 // Otomatik login — uygulama açılınca kaydedilmiş bilgilerle giriş yap
-app.post('/api/auto-login', async function(req, res) {
+// Hemen yanıt döner (loading:true), veri arka planda çekilir.
+// Frontend /api/login-status ile tamamlanmasını polling eder.
+app.post('/api/auto-login', function(req, res) {
   const creds = loadJson(SAVED_CREDS_FILE);
   if (!creds || !creds.bubiletUser || !creds.bubiletPass) {
     return res.json({ success:false, reason:'Kayıtlı bilgi yok' });
   }
-  try {
-    await doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'');
-    res.json({ success:true });
 
-    // Yanıt döndükten sonra arka planda iki cache'i paralel ısıt:
-    // 1) JSONBin cache — ilk /api/sales çağrısında zaten hazır olsun
-    // 2) options cache — ilk seans yazdırmada fetchAllOptions anında cache'den döner
-    getJsonbinRecord().then(function(rec) {
-      console.log('Auto-login: JSONBin cache ısıtıldı, baseline kayit sayisi:', Object.keys(rec.baseline||{}).length);
-    }).catch(function(e) {
-      console.warn('Auto-login: JSONBin cache ısıtma basarisiz:', e.message);
+  // Zaten veri bellekte varsa anında dön
+  if (bubiletData && loginState.status !== 'loading') {
+    return res.json({ success:true, ready:true });
+  }
+
+  // Arka planda doLogin başlat (await yok — hemen yanıt dön)
+  loginState = { status:'loading', error:null };
+  doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'')
+    .then(function() {
+      loginState = { status:'done', error:null };
+      console.log('Auto-login: tamamlandi');
+      // Cache ısıt
+      getJsonbinRecord().then(function(rec) {
+        console.log('Auto-login: JSONBin cache ısıtıldı, baseline kayit sayisi:', Object.keys(rec.baseline||{}).length);
+      }).catch(function(e) { console.warn('Auto-login: JSONBin cache ısıtma basarisiz:', e.message); });
+      if (ideasoftCookies) {
+        var cStr = toCookieStr(ideasoftCookies);
+        var warmHeaders = { 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr', 'navigate-on-error':'false', 'disabled-success-toastr':'true', 'disabled-error-toastr':'false' };
+        fetchAllOptions(warmHeaders, true).then(function(opts){ console.log('Auto-login: options cache ısıtıldı, adet:', opts.length); }).catch(function(e){ console.warn('Auto-login: options cache ısıtma basarisiz:', e.message); });
+      }
+    })
+    .catch(function(err) {
+      loginState = { status:'error', error:err.message };
+      console.error('Auto-login arka plan hatasi:', err.message);
     });
 
-    if (ideasoftCookies) {
-      var cStr = toCookieStr(ideasoftCookies);
-      var warmHeaders = {
-        'Cookie': cStr, 'X-CSRF-TOKEN': ideasoftCsrfToken || '',
-        'Accept': 'application/json', 'x-ideasoft-locale': 'tr',
-        'navigate-on-error': 'false', 'disabled-success-toastr': 'true',
-        'disabled-error-toastr': 'false',
-      };
-      fetchAllOptions(warmHeaders, true).then(function(opts) {
-        console.log('Auto-login: options cache ısıtıldı, adet:', opts.length);
-      }).catch(function(e) {
-        console.warn('Auto-login: options cache ısıtma başarısız:', e.message);
-      });
-    }
-  } catch(err) {
-    console.error('Auto-login hatasi:', err.message);
-    res.status(500).json({ error:err.message });
-  }
+  // Hemen yanıt dön — frontend polling başlatsın
+  res.json({ success:true, ready:false, loading:true });
 });
 
-// Manuel login
-app.post('/api/login', async function(req, res) {
+// Login durumu sorgulama — frontend polling için
+app.get('/api/login-status', function(req, res) {
+  res.json({
+    status: loginState.status,       // 'idle' | 'loading' | 'done' | 'error'
+    ready:  loginState.status === 'done' || (bubiletData !== null),
+    error:  loginState.error
+  });
+});
+
+// Manuel login — hemen yanıt döner, veri arka planda çekilir
+app.post('/api/login', function(req, res) {
   try {
     const saved = loadJson(SAVED_CREDS_FILE) || {};
     const bubiletUser    = req.body.bubiletUser    || saved.bubiletUser    || '';
@@ -733,15 +746,29 @@ app.post('/api/login', async function(req, res) {
     const ideasoftUser   = req.body.ideasoftUser   || saved.ideasoftUser   || '';
     const ideasoftPass   = req.body.ideasoftPass   || saved.ideasoftPass   || '';
 
+    // Şifre boşsa kayıtlı şifreyi kullan
+    if (!bubiletPass && !bubiletUser) {
+      return res.status(400).json({ error:'Kullanıcı adı ve şifre gerekli' });
+    }
+
     if (req.body.rememberMe) {
       saveJson(SAVED_CREDS_FILE, { bubiletUser, bubiletPass, biletinialToken:biletToken, ideasoftUser, ideasoftPass, mailUser: saved.mailUser||'', mailPass: saved.mailPass||'' });
     }
 
-    await doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass);
-    res.json({ success:true });
+    // Arka planda doLogin başlat — hemen yanıt dön
+    loginState = { status:'loading', error:null };
+    doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass)
+      .then(function() {
+        loginState = { status:'done', error:null };
+        console.log('Login: tamamlandi');
+        getJsonbinRecord().catch(function(e){ console.warn('Login: JSONBin cache ısıtma basarisiz:', e.message); });
+      })
+      .catch(function(err) {
+        loginState = { status:'error', error:err.message };
+        console.error('Login arka plan hatasi:', err.message);
+      });
 
-    // Arka planda JSONBin cache ısıt — ilk /api/sales hemen cache'den dönsün
-    getJsonbinRecord().catch(function(e){ console.warn('Login: JSONBin cache ısıtma basarisiz:', e.message); });
+    res.json({ success:true, ready:false, loading:true });
   } catch(err) {
     console.error('Login hatasi:', err.message);
     res.status(500).json({ error:err.message });
