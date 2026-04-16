@@ -21,6 +21,10 @@ let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
 const OPTIONS_CACHE_TTL  = 5 * 60 * 1000; // 5 dakika
 
+// JSONBin in-memory cache — her /api/sales çağrısında JSONBin'e gitmeyi önler
+let jsonbinCache     = null; // { baseline:{}, monthlySales:{} }
+let jsonbinCacheDirty = false; // memory ↔ remote fark var mı
+
 // Seans yazdırma progress tracking — jobId → { total, done, errors, current, finished, results }
 const bulkProgressMap = {};
 
@@ -58,49 +62,62 @@ const MONTHLY_SALES_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulaca
 // Not: monthly sales ayrı bir JSONBin bin'inde saklanır.
 // Eğer MONTHLY_SALES_BIN_ID boşsa baseline bin'i içinde "monthlySales" key'i kullanılır.
 
-async function loadBaseline() {
+// JSONBin kayıtını memory cache'den döndür; yoksa bir kez çek
+async function getJsonbinRecord() {
+  if (jsonbinCache) return jsonbinCache;
   try {
     var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
       headers: { 'X-Master-Key': JSONBIN_API_KEY }
     });
-    return res.data.record.baseline || {};
+    jsonbinCache = res.data.record || {};
+    if (!jsonbinCache.baseline)     jsonbinCache.baseline     = {};
+    if (!jsonbinCache.monthlySales) jsonbinCache.monthlySales = {};
+    console.log('JSONBin: cache yuklendi (baseline kayit sayisi:', Object.keys(jsonbinCache.baseline).length, ')');
   } catch(e) {
     console.error('JSONBin okuma hatasi:', e.message);
-    return {};
+    jsonbinCache = { baseline:{}, monthlySales:{} };
   }
+  return jsonbinCache;
+}
+
+// Cache\'i remote\'a yaz (sadece degisiklik varsa cagir)
+async function flushJsonbinCache() {
+  if (!jsonbinCache) return;
+  try {
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales },
+      { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+    jsonbinCacheDirty = false;
+    console.log('JSONBin: cache remote\'a yazildi');
+  } catch(e) {
+    console.error('JSONBin yazma hatasi:', e.message);
+  }
+}
+
+async function loadBaseline() {
+  var rec = await getJsonbinRecord();
+  return rec.baseline || {};
 }
 
 async function saveBaseline(baseline) {
-  try {
-    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline }, {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
-    });
-  } catch(e) {
-    console.error('JSONBin yazma hatasi:', e.message);
-  }
+  var rec = await getJsonbinRecord();
+  rec.baseline = baseline;
+  jsonbinCacheDirty = true;
+  await flushJsonbinCache();
 }
 
-// ─── Aylık satış arşivi (kalıcı — seanslar silinse bile korunur) ───────────────
+// ─── Aylik satis arsivi (kalici — seanslar silinse bile korunur) ───────────────
 async function loadMonthlySales() {
-  try {
-    var res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY }
-    });
-    return res.data.record.monthlySales || {};
-  } catch(e) {
-    console.error('JSONBin monthlySales okuma hatasi:', e.message);
-    return {};
-  }
+  var rec = await getJsonbinRecord();
+  return rec.monthlySales || {};
 }
 
 async function saveMonthlySalesAndBaseline(baseline, monthlySales) {
-  try {
-    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, { baseline, monthlySales }, {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' }
-    });
-  } catch(e) {
-    console.error('JSONBin yazma hatasi:', e.message);
-  }
+  var rec = await getJsonbinRecord();
+  rec.baseline     = baseline;
+  rec.monthlySales = monthlySales;
+  jsonbinCacheDirty = true;
+  await flushJsonbinCache();
 }
 
 // İdeasoft seanslarından aylık satış verisini çıkarıp mevcut arşivle birleştir
@@ -677,8 +694,15 @@ app.post('/api/auto-login', async function(req, res) {
     await doLogin(creds.bubiletUser, creds.bubiletPass, creds.biletinialToken||'', creds.ideasoftUser||'', creds.ideasoftPass||'');
     res.json({ success:true });
 
-    // Yanıt döndükten sonra arka planda options cache'i ısıt
-    // Böylece ilk seans yazdırmada fetchAllOptions anında cache'den döner
+    // Yanıt döndükten sonra arka planda iki cache'i paralel ısıt:
+    // 1) JSONBin cache — ilk /api/sales çağrısında zaten hazır olsun
+    // 2) options cache — ilk seans yazdırmada fetchAllOptions anında cache'den döner
+    getJsonbinRecord().then(function(rec) {
+      console.log('Auto-login: JSONBin cache ısıtıldı, baseline kayit sayisi:', Object.keys(rec.baseline||{}).length);
+    }).catch(function(e) {
+      console.warn('Auto-login: JSONBin cache ısıtma basarisiz:', e.message);
+    });
+
     if (ideasoftCookies) {
       var cStr = toCookieStr(ideasoftCookies);
       var warmHeaders = {
@@ -715,6 +739,9 @@ app.post('/api/login', async function(req, res) {
 
     await doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass);
     res.json({ success:true });
+
+    // Arka planda JSONBin cache ısıt — ilk /api/sales hemen cache'den dönsün
+    getJsonbinRecord().catch(function(e){ console.warn('Login: JSONBin cache ısıtma basarisiz:', e.message); });
   } catch(err) {
     console.error('Login hatasi:', err.message);
     res.status(500).json({ error:err.message });
@@ -1761,15 +1788,13 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
   var cStr            = toCookieStr(ideasoftCookies);
 
   try {
-    // 1) İdeasoft GET + JSONBin GET — ikisini paralel yap (gecikmenin yarısı burada kazanılır)
-    var [productRes, binRes2] = await Promise.all([
+    // 1) İdeasoft GET + JSONBin cache — ikisini paralel yap (gecikmenin yarısı burada kazanılır)
+    var [productRes, cachedRec2] = await Promise.all([
       axios.get(
         'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/'+seanceId,
         { headers:{ 'Cookie':cStr, 'X-CSRF-TOKEN':ideasoftCsrfToken||'', 'Accept':'application/json', 'x-ideasoft-locale':'tr' }}
       ),
-      axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-        headers: { 'X-Master-Key': JSONBIN_API_KEY }
-      }).catch(function() { return { data: { record: {} } }; })
+      getJsonbinRecord()
     ]);
 
     var sc3 = (productRes.headers['set-cookie']||[]).join(' ');
@@ -1787,9 +1812,8 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     // Yeni baseline: kullanıcının girdiği kalan + ideasoft'un şu ana kadar sattığı
     // Örnek: Başlangıç 10, ideasoft 3 sattı (kalan 7), bubilet 3 sattı.
     //   Kullanıcı kalan = 4 giriyor → baseline = 4 + 3 = 7, soldCount = 3 ✓
-    var record2     = (binRes2.data && binRes2.data.record) || {};
-    var baseline2   = record2.baseline     || {};
-    var monthlySales2 = record2.monthlySales || {};
+    var baseline2     = cachedRec2.baseline     || {};
+    var monthlySales2 = cachedRec2.monthlySales || {};
     baseline2[seanceId] = newStock + currentSoldCount;
 
     // Bellekteki ideasoftData'yı hemen güncelle (yenile butonuna basmadan ekranda doğru görünsün)
@@ -1812,9 +1836,12 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
       try {
         // Önce baseline'ı kaydet — sonra çekince soldCount doğru hesaplanır
         var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, ideasoftData, baseline2);
-        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-          { baseline: baseline2, monthlySales: updatedMonthly2 },
-          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
+        // Cache'i güncelle ve remote'a yaz
+        if (jsonbinCache) {
+          jsonbinCache.baseline     = baseline2;
+          jsonbinCache.monthlySales = updatedMonthly2;
+        }
+        await flushJsonbinCache();
 
         // Sonra seansları yenile — artık güncel baseline ile soldCount hesaplanacak
         var freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
@@ -1889,16 +1916,9 @@ app.post('/api/sales/refresh', async function(req, res) {
   var ideasoftSales = null;
   var monthlySalesFlat = {};
   if (ideasoftData) {
-    var record = {};
-    try {
-      var binRes2 = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-        headers: { 'X-Master-Key': JSONBIN_API_KEY }
-      });
-      record = binRes2.data.record || {};
-    } catch(e) { console.error('JSONBin okuma hatasi (refresh):', e.message); }
-
-    var baseline2r     = record.baseline     || {};
-    var monthlySales2r = record.monthlySales || {};
+    var rec2r = await getJsonbinRecord();
+    var baseline2r     = rec2r.baseline;
+    var monthlySales2r = rec2r.monthlySales;
     var changed2r = false;
 
     ideasoftSales = ideasoftData.map(function(s) {
@@ -1918,11 +1938,10 @@ app.post('/api/sales/refresh', async function(req, res) {
     var monthlyChanged2r = JSON.stringify(updatedMonthly2r) !== JSON.stringify(monthlySales2r);
 
     if (changed2r || monthlyChanged2r) {
-      try {
-        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-          { baseline: baseline2r, monthlySales: updatedMonthly2r },
-          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
-      } catch(e) { console.error('JSONBin yazma hatasi (refresh):', e.message); }
+      rec2r.baseline     = baseline2r;
+      rec2r.monthlySales = updatedMonthly2r;
+      jsonbinCacheDirty = true;
+      flushJsonbinCache().catch(function(e){ console.error('JSONBin flush hatasi (refresh):', e.message); });
     }
 
     monthlySalesFlat = flattenMonthlySales(updatedMonthly2r);
@@ -1944,16 +1963,9 @@ app.get('/api/sales', async function(req, res) {
   var ideasoftSales = null;
   var monthlySalesFlat = {};
   if (ideasoftData) {
-    var record = {};
-    try {
-      var binRes = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-        headers: { 'X-Master-Key': JSONBIN_API_KEY }
-      });
-      record = binRes.data.record || {};
-    } catch(e) { console.error('JSONBin okuma hatasi:', e.message); }
-
-    var baseline      = record.baseline      || {};
-    var monthlySales  = record.monthlySales  || {};
+    var rec = await getJsonbinRecord();
+    var baseline     = rec.baseline;
+    var monthlySales = rec.monthlySales;
     var changed = false;
 
     ideasoftSales = ideasoftData.map(function(s) {
@@ -1971,11 +1983,10 @@ app.get('/api/sales', async function(req, res) {
     var monthlyChanged = JSON.stringify(updatedMonthlySales) !== JSON.stringify(monthlySales);
 
     if (changed || monthlyChanged) {
-      try {
-        await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-          { baseline, monthlySales: updatedMonthlySales },
-          { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
-      } catch(e) { console.error('JSONBin yazma hatasi:', e.message); }
+      rec.baseline     = baseline;
+      rec.monthlySales = updatedMonthlySales;
+      jsonbinCacheDirty = true;
+      flushJsonbinCache().catch(function(e){ console.error('JSONBin flush hatasi:', e.message); });
     }
 
     monthlySalesFlat = flattenMonthlySales(updatedMonthlySales);

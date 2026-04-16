@@ -431,7 +431,8 @@ export default function App() {
           setLoggedIn(true);
           setRoleScreen(true);
           // Arka planda satış verilerini hemen çekmeye başla
-          fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{});
+          setSalesLoading(true);
+          fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
         } else {
           // Kayıtlı bilgileri forma doldur
           fetch('/api/saved-credentials')
@@ -481,6 +482,9 @@ export default function App() {
       if (json.error) throw new Error(json.error);
       setLoggedIn(true);
       setRoleScreen(true);
+      // Rol seçim ekranındayken arka planda veri çek — rol seçilince hazır olsun
+      setSalesLoading(true);
+      fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
