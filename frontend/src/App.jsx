@@ -430,9 +430,27 @@ export default function App() {
         if (json.success) {
           setLoggedIn(true);
           setRoleScreen(true);
-          // Arka planda satış verilerini hemen çekmeye başla
-          setSalesLoading(true);
-          fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
+          if (json.ready) {
+            // Veri bellekte zaten hazır — direkt çek
+            setSalesLoading(true);
+            fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
+            setAutoLoginLoading(false);
+          } else {
+            // Veri arka planda yükleniyor — polling başlat
+            setSalesLoading(true);
+            setAutoLoginLoading(false);
+            const poll = setInterval(() => {
+              fetch('/api/login-status').then(r=>r.json()).then(s => {
+                if (s.ready) {
+                  clearInterval(poll);
+                  fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
+                } else if (s.status === 'error') {
+                  clearInterval(poll);
+                  setSalesLoading(false);
+                }
+              }).catch(()=>{});
+            }, 800);
+          }
         } else {
           // Kayıtlı bilgileri forma doldur
           fetch('/api/saved-credentials')
@@ -448,10 +466,10 @@ export default function App() {
                 }));
               }
             }).catch(()=>{});
+          setAutoLoginLoading(false);
         }
       })
-      .catch(() => {})
-      .finally(() => setAutoLoginLoading(false));
+      .catch(() => { setAutoLoginLoading(false); });
   }, []);
 
   // Mail etiketlerini sunucudan yükle
@@ -482,9 +500,19 @@ export default function App() {
       if (json.error) throw new Error(json.error);
       setLoggedIn(true);
       setRoleScreen(true);
-      // Rol seçim ekranındayken arka planda veri çek — rol seçilince hazır olsun
       setSalesLoading(true);
-      fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
+      // Polling ile veri hazır olunca çek
+      const poll = setInterval(() => {
+        fetch('/api/login-status').then(r=>r.json()).then(s => {
+          if (s.ready) {
+            clearInterval(poll);
+            fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
+          } else if (s.status === 'error') {
+            clearInterval(poll);
+            setSalesLoading(false);
+          }
+        }).catch(()=>{});
+      }, 800);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
