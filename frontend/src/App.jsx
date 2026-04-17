@@ -642,17 +642,39 @@ export default function App() {
 
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({});
+  const [allCatBulkDeleting, setAllCatBulkDeleting] = useState(false);
+  const [allCatBulkConfirm, setAllCatBulkConfirm] = useState(false);
 
   // ─── SEANS YAZDIRMA ────────────────────────────────────────────────────────
   const [seansYazMode, setSeansYazMode]         = useState(false);   // tam sayfa ekran
-  const [seansYazStep, setSeansYazStep]         = useState(1);       // 1=etkinlik seç, 2=tarih, 3=önizleme/oluştur
-  const [seansYazCat, setSeansYazCat]           = useState(null);
+  const [seansYazStep, setSeansYazStep]         = useState(1);       // 1=tarih, 2=etkinlik seç, 3=önizleme/oluştur
+  const [seansYazCats, setSeansYazCats]         = useState([]);      // seçili kategoriler (çoklu)
   const [seansYazStart, setSeansYazStart]       = useState('');
   const [seansYazEnd, setSeansYazEnd]           = useState('');
   const [seansYazList, setSeansYazList]         = useState([]);      // oluşturulacak seanslar
   const [seansYazProgress, setSeansYazProgress] = useState(null);    // { done, total, errors }
   const [seansYazDone, setSeansYazDone]         = useState(false);
 
+  // Tek bir seans sil — 429 gelirse kısa bekle ve tekrar dene
+  const deleteOneSeance = async (seanceId) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`/api/ideasoft/delete-option/${seanceId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (!json.error) return true;
+        if (json.error && json.error.includes('429')) {
+          await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+          continue;
+        }
+        return false;
+      } catch(e) {
+        if (attempt < 2) await new Promise(r => setTimeout(r, 800));
+      }
+    }
+    return false;
+  };
+
+  // Belirli bir kategorinin geçmiş seanslarını tümüyle sil
   const handleBulkDeletePast = async (cat) => {
     if (!bulkDeleteConfirm[cat]) {
       setBulkDeleteConfirm(p => ({...p, [cat]: true}));
@@ -662,14 +684,8 @@ export default function App() {
     setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; });
     setBulkDeleting(true);
     const pastSeances = (salesData?.ideasoft || []).filter(s => s.category === cat && s.seanceId && isSeancePast(s));
-    let deletedIds = [];
-    for (const s of pastSeances) {
-      try {
-        const res = await fetch(`/api/ideasoft/delete-option/${s.seanceId}`, { method: 'DELETE' });
-        const json = await res.json();
-        if (!json.error) deletedIds.push(s.seanceId);
-      } catch(e) { /* devam et */ }
-    }
+    const results = await Promise.all(pastSeances.map(s => deleteOneSeance(s.seanceId)));
+    const deletedIds = pastSeances.filter((_, i) => results[i]).map(s => s.seanceId);
     if (deletedIds.length > 0) {
       setSalesData(prev => {
         if (!prev || !prev.ideasoft) return prev;
@@ -677,6 +693,27 @@ export default function App() {
       });
     }
     setBulkDeleting(false);
+  };
+
+  // Tüm kategorilerdeki geçmiş seansları sil
+  const handleAllCatBulkDeletePast = async () => {
+    if (!allCatBulkConfirm) {
+      setAllCatBulkConfirm(true);
+      setTimeout(() => setAllCatBulkConfirm(false), 5000);
+      return;
+    }
+    setAllCatBulkConfirm(false);
+    setAllCatBulkDeleting(true);
+    const allPast = (salesData?.ideasoft || []).filter(s => s.seanceId && isSeancePast(s));
+    const results = await Promise.all(allPast.map(s => deleteOneSeance(s.seanceId)));
+    const deletedIds = allPast.filter((_, i) => results[i]).map(s => s.seanceId);
+    if (deletedIds.length > 0) {
+      setSalesData(prev => {
+        if (!prev || !prev.ideasoft) return prev;
+        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
+      });
+    }
+    setAllCatBulkDeleting(false);
   };
 
 
@@ -760,7 +797,7 @@ export default function App() {
   const handleSeansYazOpen = () => {
     setSeansYazMode(true);
     setSeansYazStep(1);
-    setSeansYazCat(null);
+    setSeansYazCats([]);
     setSeansYazStart('');
     setSeansYazEnd('');
     setSeansYazList([]);
@@ -768,15 +805,25 @@ export default function App() {
     setSeansYazDone(false);
   };
 
-  const handleSeansYazCatSelect = (cat) => {
-    setSeansYazCat(cat);
+  const handleSeansYazDateConfirm = () => {
+    if (!seansYazStart || !seansYazEnd) return;
     setSeansYazStep(2);
   };
 
-  const handleSeansYazDateConfirm = () => {
-    if (!seansYazStart || !seansYazEnd) return;
-    const list = generateSeansListForCat(seansYazCat, seansYazStart, seansYazEnd);
-    setSeansYazList(list);
+  const handleSeansYazCatToggle = (cat) => {
+    setSeansYazCats(prev => prev.includes(cat) ? prev.filter(c=>c!==cat) : [...prev, cat]);
+  };
+
+  const handleSeansYazPreview = () => {
+    // Seçili tüm kategoriler için seansları birleştir
+    const SEANS_CATS_ALL = Object.keys(EVENT_SCHEDULE);
+    const activeCats = seansYazCats.length === 0 ? SEANS_CATS_ALL : seansYazCats;
+    const allItems = activeCats.flatMap(cat => 
+      generateSeansListForCat(cat, seansYazStart, seansYazEnd).map(item => ({...item, cat}))
+    );
+    // Tarihe göre sırala
+    allItems.sort((a,b) => a.date - b.date);
+    setSeansYazList(allItems);
     setSeansYazStep(3);
   };
 
@@ -986,7 +1033,7 @@ export default function App() {
     setSeansYazErrors([]);
     setSeansYazCurrentName('');
 
-    const seances = seansYazList.map(item => buildIdeasoftPayload(seansYazCat, item.dateKey, item.slot));
+    const seances = seansYazList.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
 
     // Polling: her 1 saniyede progress sorgula
     const pollInterval = setInterval(async () => {
@@ -1351,7 +1398,7 @@ export default function App() {
             <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📅 SEANS YAZDIRMA</span>
           </div>
           {seansYazStep > 1 && !seansYazDone && (
-            <button style={S.smallBtn} onClick={() => { setSeansYazStep(s => s-1); setSeansYazProgress(null); setSeansYazDone(false); }}>
+            <button style={S.smallBtn} onClick={() => { setSeansYazStep(s => s-1); setSeansYazProgress(null); setSeansYazDone(false); setSeansYazList([]); }}>
               ← Önceki Adım
             </button>
           )}
@@ -1359,7 +1406,7 @@ export default function App() {
         <div style={{maxWidth:720,margin:'0 auto',padding:'24px 18px'}}>
           {/* Adım göstergesi */}
           <div style={{display:'flex',gap:8,marginBottom:28,alignItems:'center'}}>
-            {['Etkinlik Seç','Tarih Aralığı','Önizleme & Oluştur'].map((label,i)=>(
+            {['Tarih Aralığı','Etkinlik Seç','Önizleme & Oluştur'].map((label,i)=>(
               <div key={i} style={{display:'flex',alignItems:'center',gap:8,flex:1}}>
                 <div style={{width:26,height:26,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
                   fontSize:12,fontWeight:800,flexShrink:0,
@@ -1373,78 +1420,89 @@ export default function App() {
             ))}
           </div>
 
-          {/* ADIM 1 */}
+          {/* ADIM 1 — Tarih aralığı seç */}
           {seansYazStep === 1 && (
-            <div>
-              <div style={{fontSize:13,color:'#64748b',marginBottom:16,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>
-                Seans yazdırmak istediğiniz etkinliği seçin
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{fontSize:13,color:'#64748b',marginBottom:4,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>
+                Seans yazdırılacak tarih aralığını seçin
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                {SEANS_CATS.map(cat => (
-                  <button key={cat}
-                    onClick={() => handleSeansYazCatSelect(cat)}
-                    style={{
-                      background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,
-                      padding:'18px 14px',cursor:'pointer',display:'flex',flexDirection:'column',
-                      alignItems:'center',textAlign:'center',gap:8,transition:'all 0.15s'
-                    }}>
-                    <span style={{fontSize:28}}>{getCatIcon(cat)}</span>
-                    <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>{cat}</span>
-                    <span style={{fontSize:11,color:'#374151'}}>
-                      {EVENT_SCHEDULE[cat].weekday.length > 0 && EVENT_SCHEDULE[cat].weekend.length > 0
-                        ? 'Hafta içi + haftasonu'
-                        : EVENT_SCHEDULE[cat].weekend.length > 0
-                          ? 'Yalnızca haftasonu'
-                          : 'Hafta içi'}
-                    </span>
-                  </button>
-                ))}
+              <div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BAŞLANGIÇ TARİHİ</div>
+                <input type="date" value={seansYazStart} onChange={e=>setSeansYazStart(e.target.value)}
+                  style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
               </div>
+              <div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BİTİŞ TARİHİ</div>
+                <input type="date" value={seansYazEnd} onChange={e=>setSeansYazEnd(e.target.value)}
+                  style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
+              </div>
+              <button
+                onClick={handleSeansYazDateConfirm}
+                disabled={!seansYazStart || !seansYazEnd || seansYazStart > seansYazEnd}
+                style={{
+                  padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
+                  background: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd)
+                    ? '#1a2035' : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                  color: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd) ? '#374151' : '#fff',
+                  transition:'all 0.15s'
+                }}>
+                Devam — Etkinlik Seç →
+              </button>
             </div>
           )}
 
-          {/* ADIM 2 */}
+          {/* ADIM 2 — Etkinlik seç (çoklu) */}
           {seansYazStep === 2 && (
             <div>
-              <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'16px 18px',marginBottom:20}}>
-                <div style={{fontSize:14,fontWeight:700,color:'#4fc9ff',marginBottom:6}}>
-                  {getCatIcon(seansYazCat)} {seansYazCat}
-                </div>
-                {EVENT_SCHEDULE[seansYazCat]?.weekday?.length > 0 && (
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:3}}>
-                    📌 Hafta içi: {EVENT_SCHEDULE[seansYazCat].slots.join(' & ')}
-                  </div>
-                )}
-                {EVENT_SCHEDULE[seansYazCat]?.weekend?.length > 0 && (
-                  <div style={{fontSize:11,color:'#64748b'}}>
-                    📌 Haftasonu: {EVENT_SCHEDULE[seansYazCat].weekendSlots.join(' & ')}
-                  </div>
-                )}
+              <div style={{fontSize:13,color:'#64748b',marginBottom:4,fontWeight:600,letterSpacing:1,textTransform:'uppercase'}}>
+                Hangi etkinlikler için seans yazılsın?
               </div>
-              <div style={{display:'flex',flexDirection:'column',gap:14}}>
-                <div>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BAŞLANGIÇ TARİHİ</div>
-                  <input type="date" value={seansYazStart} onChange={e=>setSeansYazStart(e.target.value)}
-                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:6,fontWeight:600,letterSpacing:1}}>BİTİŞ TARİHİ</div>
-                  <input type="date" value={seansYazEnd} onChange={e=>setSeansYazEnd(e.target.value)}
-                    style={{...S.input, marginBottom:0, fontSize:15, padding:'12px 14px'}}/>
-                </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:14}}>
+                📅 {seansYazStart} → {seansYazEnd} &nbsp;·&nbsp;
+                {seansYazCats.length === 0 ? 'Hiçbiri seçilmedi (hepsi yazılır)' : `${seansYazCats.length} etkinlik seçildi`}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
+                {Object.keys(EVENT_SCHEDULE).map(cat => {
+                  const sel = seansYazCats.includes(cat);
+                  return (
+                    <button key={cat}
+                      onClick={() => handleSeansYazCatToggle(cat)}
+                      style={{
+                        background: sel ? '#0a1a2a' : '#0d1120',
+                        border: sel ? '2px solid #4fc9ff' : '1px solid #1a2035',
+                        borderRadius:12, padding:'14px 10px', cursor:'pointer',
+                        display:'flex', flexDirection:'column', alignItems:'center',
+                        textAlign:'center', gap:6, transition:'all 0.15s', position:'relative'
+                      }}>
+                      {sel && <span style={{position:'absolute',top:6,right:8,fontSize:12,color:'#4fc9ff',fontWeight:800}}>✓</span>}
+                      <span style={{fontSize:24}}>{getCatIcon(cat)}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:sel?'#4fc9ff':'#e2e8f0'}}>{cat}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{display:'flex',gap:8,marginBottom:10}}>
                 <button
-                  onClick={handleSeansYazDateConfirm}
-                  disabled={!seansYazStart || !seansYazEnd || seansYazStart > seansYazEnd}
-                  style={{
-                    padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
-                    background: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd)
-                      ? '#1a2035' : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
-                    color: (!seansYazStart||!seansYazEnd||seansYazStart>seansYazEnd) ? '#374151' : '#fff',
-                    transition:'all 0.15s'
-                  }}>
-                  Seansları Hesapla →
+                  onClick={()=>setSeansYazCats(Object.keys(EVENT_SCHEDULE))}
+                  style={{flex:1,padding:'9px',borderRadius:9,fontSize:12,fontWeight:700,cursor:'pointer',
+                    background:'#111827',color:'#94a3b8',border:'1px solid #1e293b'}}>
+                  Tümünü Seç
+                </button>
+                <button
+                  onClick={()=>setSeansYazCats([])}
+                  style={{flex:1,padding:'9px',borderRadius:9,fontSize:12,fontWeight:700,cursor:'pointer',
+                    background:'#111827',color:'#94a3b8',border:'1px solid #1e293b'}}>
+                  Seçimi Temizle
                 </button>
               </div>
+              <button
+                onClick={handleSeansYazPreview}
+                style={{
+                  width:'100%',padding:'14px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',cursor:'pointer',
+                  background:'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'#fff',transition:'all 0.15s'
+                }}>
+                Önizlemeye Geç →
+              </button>
             </div>
           )}
 
@@ -1455,7 +1513,8 @@ export default function App() {
                 <>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
                     <div style={{fontSize:13,color:'#e2e8f0',fontWeight:700}}>
-                      {getCatIcon(seansYazCat)} {seansYazCat} — <span style={{color:'#4fc9ff'}}>{seansYazList.length} seans</span>
+                      <span style={{color:'#4fc9ff'}}>{seansYazList.length} seans</span>
+                      {' '}— {seansYazCats.length===0?'Tüm etkinlikler':seansYazCats.join(', ')}
                     </div>
                     <span style={{fontSize:11,color:'#374151'}}>{seansYazStart} → {seansYazEnd}</span>
                   </div>
@@ -1466,9 +1525,10 @@ export default function App() {
                       <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,overflow:'hidden',marginBottom:16,maxHeight:380,overflowY:'auto'}}>
                         {seansYazList.map((item, i) => (
                           <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
-                            padding:'10px 14px',borderBottom:'1px solid #0a0e1a'}}>
-                            <span style={{fontSize:13,color:'#94a3b8'}}>{item.dateKey}</span>
-                            <span style={{fontSize:13,fontWeight:700,color:'#4fc9ff'}}>{item.slot}</span>
+                            padding:'10px 14px',borderBottom:'1px solid #0a0e1a',gap:8}}>
+                            <span style={{fontSize:12,color:'#64748b',flexShrink:0}}>{getCatIcon(item.cat)}</span>
+                            <span style={{fontSize:12,color:'#94a3b8',flex:1}}>{item.dateKey}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:'#4fc9ff',flexShrink:0}}>{item.slot}</span>
                           </div>
                         ))}
                       </div>
@@ -1488,7 +1548,7 @@ export default function App() {
                   <div style={{fontSize:36,marginBottom:12}}>⏳</div>
                   <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>Seanslar ekleniyor, lütfen bekleyin</div>
                   <div style={{fontSize:14,color:'#b47cff',fontWeight:700,marginBottom:16,letterSpacing:1}}>
-                    {getCatIcon(seansYazCat)} {seansYazCat}
+                    {seansYazCats.length===0 ? 'Tüm etkinlikler' : seansYazCats.join(' · ')}
                   </div>
 
                   {/* Şu an eklenen seans */}
@@ -1722,7 +1782,19 @@ export default function App() {
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
-            <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
+            {salesLoading ? (
+              <div style={{padding:'24px 0 8px'}}>
+                <div style={{
+                  width:48, height:48, margin:'0 auto 16px',
+                  border:'4px solid #1a2035', borderTop:'4px solid #b47cff',
+                  borderRadius:'50%', animation:'spin 0.8s linear infinite'
+                }}/>
+                <div style={{fontSize:13, color:'#64748b', marginBottom:4}}>Veriler yükleniyor…</div>
+                <div style={{fontSize:11, color:'#374151'}}>Lütfen bekleyin</div>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            ) : (
+              <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
             <div style={{display:'flex', flexDirection:'column', gap:12}}>
               <button
                 style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
@@ -1749,6 +1821,7 @@ export default function App() {
                 </div>
               </button>
             </div>
+            )}
           </div>
         </div>
       </div>
@@ -2152,6 +2225,34 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          {/* Tüm kategorilerdeki geçmiş seansları sil */}
+          {salesData && (() => {
+            const totalPast = (salesData?.ideasoft||[]).filter(s=>s.seanceId&&isSeancePast(s)).length;
+            if (totalPast === 0) return null;
+            return (
+              <div style={{padding:'0 0 10px'}}>
+                <button
+                  onClick={handleAllCatBulkDeletePast}
+                  disabled={allCatBulkDeleting}
+                  style={{
+                    width:'100%',padding:'11px 16px',borderRadius:10,fontSize:12,fontWeight:700,
+                    cursor:allCatBulkDeleting?'wait':'pointer',border:'none',
+                    background: allCatBulkConfirm ? '#3f0f0f' : '#141a2a',
+                    color: allCatBulkConfirm ? '#ff4444' : '#64748b',
+                    border: allCatBulkConfirm ? '1px solid #7f1d1d' : '1px solid #1e293b',
+                    opacity: allCatBulkDeleting ? 0.6 : 1,
+                    transition:'all 0.2s'
+                  }}>
+                  {allCatBulkDeleting
+                    ? '⟳ Tüm geçmiş seanslar siliniyor…'
+                    : allCatBulkConfirm
+                      ? `⚠️ Emin misin? Tüm kategorilerde ${totalPast} geçmiş seans silinecek`
+                      : `🗑 Tüm Kategorilerdeki Geçmiş Seansları Sil (${totalPast})`}
+                </button>
+              </div>
+            );
+          })()}
 
           {selectedCat && (
             <div style={S.stockPanel}>
