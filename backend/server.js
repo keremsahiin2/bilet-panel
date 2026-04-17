@@ -39,6 +39,22 @@ const CATEGORY_BASELINE = {
   'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10
 };
 
+// Eş zamanlı istek sınırlayıcı — max N istek aynı anda uçar
+async function pLimit(items, fn, concurrency) {
+  var results = new Array(items.length);
+  var idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      var i = idx++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  var workers = [];
+  for (var w = 0; w < Math.min(concurrency, items.length); w++) workers.push(worker());
+  await Promise.all(workers);
+  return results;
+}
+
 // Array kullanıyoruz — object key'leri numerik olunca JS küçükten büyüğe sıralar
 // ve Seramik (12671) hep sona kalıp rate limit yiyordu. Array sırayı korur.
 const IDEASOFT_PRODUCTS = [
@@ -268,34 +284,33 @@ async function fetchBubilet(username, password) {
 
   console.log('Workshop detay cekilecek:', workshopSeanslar.length, 'seans (paralel)');
 
-  // Tüm workshop detaylarını PARALEL çek — seri değil!
-  const workshopDetaylar = await Promise.all(
-    workshopSeanslar.map(async (s) => {
-      try {
-        const detayRes = await axios.get(
-          'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + s.seansId,
-          { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' },
-            timeout: 8000 }
-        );
-        const detay = detayRes.data;
-        if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
-          const rows = [];
-          for (const bilet of detay.data.detaySatisRaporlar) {
-            if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
-            const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
-            rows.push({ ...s, _workshopCat: cat, _workshopBiletAdi: bilet.biletAdi,
-              biletAdet: bilet.biletAdet, etkinlikAdi: cat });
-          }
-          console.log('Workshop OK:', s.seansId, rows.length, 'tur');
-          return rows.length > 0 ? rows : [s];
+  // Workshop detaylarını eş zamanlı en fazla 8 istekle çek
+  async function fetchWorkshopDetail(s) {
+    try {
+      const detayRes = await axios.get(
+        'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + s.seansId,
+        { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+          timeout: 8000 }
+      );
+      const detay = detayRes.data;
+      if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
+        const rows = [];
+        for (const bilet of detay.data.detaySatisRaporlar) {
+          if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
+          const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
+          rows.push({ ...s, _workshopCat: cat, _workshopBiletAdi: bilet.biletAdi,
+            biletAdet: bilet.biletAdet, etkinlikAdi: cat });
         }
-        return [s];
-      } catch (err) {
-        console.error('Workshop ticket-list hatasi seansId=' + s.seansId + ':', err.message);
-        return [s];
+        console.log('Workshop OK:', s.seansId, rows.length, 'tur');
+        return rows.length > 0 ? rows : [s];
       }
-    })
-  );
+      return [s];
+    } catch (err) {
+      console.error('Workshop ticket-list hatasi seansId=' + s.seansId + ':', err.message);
+      return [s];
+    }
+  }
+  const workshopDetaylar = await pLimit(workshopSeanslar, fetchWorkshopDetail, 8);
 
   return [...normalSeanslar, ...workshopDetaylar.flat()];
 }
@@ -394,38 +409,36 @@ async function fetchBiletinial(token) {
 
   console.log('Biletini Al: Workshop seans sayisi:', workshopSeances.length);
 
-  // Workshop seansları için GetTicketTypeSalesReport çek (paralel)
-  const workshopExpanded = await Promise.all(
-    workshopSeances.map(async (s) => {
-      if (!s.SeanceId) return [s];
-      try {
-        const detayRes = await axios.get(
-          'https://reportapi2.biletinial.com/api/Report/GetTicketTypeSalesReport?SeanceId=' + s.SeanceId + '&lang=tr',
-          { headers: biletinialHeaders, timeout: 8000 }
-        );
-        const detay = detayRes.data;
-        if (!detay || !detay.Success || !Array.isArray(detay.Data)) return [s];
+  // Workshop seansları için GetTicketTypeSalesReport çek (eş zamanlı max 8)
+  const workshopExpanded = await pLimit(workshopSeances, async (s) => {
+    if (!s.SeanceId) return [s];
+    try {
+      const detayRes = await axios.get(
+        'https://reportapi2.biletinial.com/api/Report/GetTicketTypeSalesReport?SeanceId=' + s.SeanceId + '&lang=tr',
+        { headers: biletinialHeaders, timeout: 8000 }
+      );
+      const detay = detayRes.data;
+      if (!detay || !detay.Success || !Array.isArray(detay.Data)) return [s];
 
-        const rows = [];
-        for (const item of detay.Data) {
-          if (!item.TotalSoldTicketCount || item.TotalSoldTicketCount === 0) continue;
-          const cat = biletinialTicketTypeToCategory(item.TicketTypeName);
-          if (!cat) continue;
-          rows.push({
-            ...s,
-            _workshopCat: cat,
-            _biletinialTicketTypeName: item.TicketTypeName,
-            SalesTicketTotalCount: item.TotalSoldTicketCount
-          });
-        }
-        console.log('Biletini Al Workshop SeanceId=' + s.SeanceId + ':', rows.length, 'tur');
-        return rows.length > 0 ? rows : [s];
-      } catch (err) {
-        console.error('Biletini Al GetTicketTypeSalesReport hatasi SeanceId=' + s.SeanceId + ':', err.message);
-        return [s];
+      const rows = [];
+      for (const item of detay.Data) {
+        if (!item.TotalSoldTicketCount || item.TotalSoldTicketCount === 0) continue;
+        const cat = biletinialTicketTypeToCategory(item.TicketTypeName);
+        if (!cat) continue;
+        rows.push({
+          ...s,
+          _workshopCat: cat,
+          _biletinialTicketTypeName: item.TicketTypeName,
+          SalesTicketTotalCount: item.TotalSoldTicketCount
+        });
       }
-    })
-  );
+      console.log('Biletini Al Workshop SeanceId=' + s.SeanceId + ':', rows.length, 'tur');
+      return rows.length > 0 ? rows : [s];
+    } catch (err) {
+      console.error('Biletini Al GetTicketTypeSalesReport hatasi SeanceId=' + s.SeanceId + ':', err.message);
+      return [s];
+    }
+  }, 8);
 
   return [...normalSeances, ...workshopExpanded.flat()];
 }
@@ -528,16 +541,16 @@ async function fetchIdeasoftSeances(cookies, csrf) {
   // (Aynı anda 11 istek → İdeasoft'un pencere sayacı tek seferde dolabilir)
   // Bu yüzden 2'li gruplar halinde gönderiyoruz: hız + rate limit dengesi
   var allEntries = [];
-  var BATCH = 3; // aynı anda kaç istek — 429 cache ile korunuyor, 3 güvenli
+  var BATCH = 6; // 429 gelirse product cache devreye girer, 6 güvenli
   for (var i = 0; i < IDEASOFT_PRODUCTS.length; i += BATCH) {
     var batch = IDEASOFT_PRODUCTS.slice(i, i + BATCH);
     var results = await Promise.all(
       batch.map(([pid, cat]) => fetchOneIdeasoftProduct(pid, cat, { ...headers, 'X-CSRF-TOKEN': ideasoftCsrfToken || csrf || '' }))
     );
     results.forEach(r => allEntries.push(...r));
-    // Gruplar arası bekleme
+    // Gruplar arası kısa nefes — rate limit için yeterli
     if (i + BATCH < IDEASOFT_PRODUCTS.length) {
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 150));
     }
   }
   return allEntries;
@@ -550,7 +563,6 @@ async function loginIdeasoftPuppeteer(username, password) {
 
 // ─── Ortak login işlevi ────────────────────────────────────────────────────────
 async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideasoftPass) {
-  // Bubilet + Biletinial + İdeasoft paralel başlat
   const t0 = Date.now();
 
   // İdeasoft fetch promise'i hazırla
@@ -564,7 +576,7 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
         .then(seances => {
           var hasReal = seances.some(s => s.stockAmount !== null && !s.error);
           if (!hasReal && seances.every(s => s.error)) throw new Error('Cookie gecersiz');
-          console.log('Ideasoft: cookie ile cekildi,', seances.length, 'seans');
+          console.log('Ideasoft: cookie ile cekildi,', seances.length, 'seans', Date.now()-t0, 'ms');
           return seances;
         })
         .catch(async e => {
@@ -578,18 +590,35 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
     }
   }
 
-  // Üçünü paralel çalıştır
-  const [bubilet, biletinial, ideasoft] = await Promise.all([
-    fetchBubilet(bubiletUser, bubiletPass)
-      .then(d => { console.log('Bubilet tamamlandi:', d.length, 'kayit'); return d; }),
-    fetchBiletinial(biletToken)
-      .then(d => { console.log('Biletini Al tamamlandi:', d.length, 'kayit'); return d; }),
-    ideasoftPromise
-  ]);
+  // Her kaynak biter bitmez global state'e yaz — polling anında görsün
+  const bubiletP = fetchBubilet(bubiletUser, bubiletPass)
+    .then(d => {
+      bubiletData = d;
+      lastFetch = new Date().toISOString();
+      // Bubilet + Biletinial ikisi de geldiyse ready işaretle
+      if (biletinialData !== null) loginState = { status:'done', error:null };
+      console.log('Bubilet tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
+      return d;
+    });
 
-  bubiletData    = bubilet;
-  biletinialData = biletinial;
-  if (ideasoft) ideasoftData = ideasoft;
+  const biletinialP = fetchBiletinial(biletToken)
+    .then(d => {
+      biletinialData = d;
+      lastFetch = new Date().toISOString();
+      if (bubiletData !== null) loginState = { status:'done', error:null };
+      console.log('Biletini Al tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
+      return d;
+    });
+
+  const ideasoftP = ideasoftPromise
+    ? ideasoftPromise.then(d => {
+        if (d) { ideasoftData = d; }
+        console.log('Ideasoft tamamlandi,', Date.now()-t0, 'ms');
+        return d;
+      })
+    : Promise.resolve(null);
+
+  await Promise.all([bubiletP, biletinialP, ideasoftP]);
 
   console.log('Toplam login suresi:', Date.now() - t0, 'ms');
   lastFetch = new Date().toISOString();
@@ -728,10 +757,13 @@ app.post('/api/auto-login', function(req, res) {
 });
 
 // Login durumu sorgulama — frontend polling için
+// Bubilet + Biletinial ikisi de gelince ready:true — İdeasoft arka planda gelmeye devam eder
 app.get('/api/login-status', function(req, res) {
+  var coreReady = bubiletData !== null && biletinialData !== null;
   res.json({
-    status: loginState.status,       // 'idle' | 'loading' | 'done' | 'error'
-    ready:  loginState.status === 'done' || (bubiletData !== null),
+    status: loginState.status,
+    ready:  coreReady,
+    ideasoftReady: ideasoftData !== null,
     error:  loginState.error
   });
 });
