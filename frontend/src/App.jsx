@@ -184,6 +184,15 @@ function buildSeanceMap(data) {
     if (!map[key].categories[cat]) map[key].categories[cat] = { bubilet:0, biletinial:0, ideasoft:0 };
   };
 
+  // Biletini Al'da etkinlik saati gelince API 0 dondürebilir — onceki degeri koru
+  const addBiletinial = (key, cat, count) => {
+    ensureCat(key, cat);
+    // Asla azaltma — mevcut deger daha buyukse koru (tamamlanan seans korumasi)
+    if (count > map[key].categories[cat].biletinial) {
+      map[key].categories[cat].biletinial = count;
+    }
+  };
+
   // İdeasoft — temel iskelet, tüm seanslar buradan oluşur
   // Quiz Night için kategori adı fullName'in sonundan alınır:
   // "Tunalı: Ara Sokak Pub - 5 Nisan Pazar 19:30 - Genel Kültür" → "Quiz Night - Genel Kültür"
@@ -321,7 +330,7 @@ function buildSeanceMap(data) {
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.SeanceDate));
     ensureCat(key, cat);
-    map[key].categories[cat].biletinial += (s.SalesTicketTotalCount || 0);
+    addBiletinial(key, cat, (s.SalesTicketTotalCount || 0));
   });
 
   // Bubilet
@@ -362,7 +371,12 @@ function buildSeanceMap(data) {
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.tarih));
     ensureCat(key, cat);
-    map[key].categories[cat].bubilet += (s.biletAdet || 0);
+    // Bubilet: etkinlik tamamlanca API 0 dondurebilir — onceki degeri koru
+    const _bubiletCount = s.biletAdet || 0;
+    ensureCat(key, cat);
+    if (_bubiletCount > map[key].categories[cat].bubilet) {
+      map[key].categories[cat].bubilet = _bubiletCount;
+    }
   });
 
   // Filtreleme kuralı:
@@ -401,6 +415,16 @@ function buildSeanceMap(data) {
 
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
 export default function App() {
+  // Global body/html reset — kenar beyaz cizgileri kaldir
+  if (typeof document !== 'undefined') {
+    document.documentElement.style.margin = '0';
+    document.documentElement.style.padding = '0';
+    document.documentElement.style.overflowX = 'hidden';
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
+    document.body.style.overflowX = 'hidden';
+    document.body.style.background = '#07090f';
+  }
   const [loggedIn, setLoggedIn]             = useState(false);
   const [autoLoginLoading, setAutoLoginLoading] = useState(false); // artık kullanılmıyor
   const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
@@ -2649,7 +2673,7 @@ function getCatIcon(cat) {
 }
 
 const S = {
-  page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60},
+  page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60,margin:0,overflowX:'hidden'},
   loginWrap:  {display:'flex',justifyContent:'center',alignItems:'flex-start',minHeight:'100vh',padding:20,paddingTop:'calc(env(safe-area-inset-top, 0px) + 60px)'},
   loginCard:  {width:'100%',maxWidth:420,background:'#0d1120',border:'1px solid #1a2035',borderRadius:20,padding:'36px 32px'},
   brand:      {display:'flex',alignItems:'center',gap:10,marginBottom:4},
