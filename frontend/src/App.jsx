@@ -549,9 +549,7 @@ export default function App() {
   const [malzemeCat, setMalzemeCat]     = useState(null);
   const [malzemeLoaded, setMalzemeLoaded] = useState(false);
   const [malzemeSaving, setMalzemeSaving] = useState(false);
-  const [whatsappPhone, setWhatsappPhone] = useState('');
-  const [whatsappPhoneEdit, setWhatsappPhoneEdit] = useState(false);
-  const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
+  const WHATSAPP_NUMBER = '905050523801';
 
   // Sayfa açılınca otomatik login dene — rol ekranı hemen göster, veri arka planda gelir
   useState(() => {
@@ -617,11 +615,7 @@ export default function App() {
       })
       .catch(() => setMalzemeLoaded(true));
 
-    // WhatsApp telefon numarasını yükle
-    fetch('/api/whatsapp-phone')
-      .then(r => r.json())
-      .then(d => { if (d.phone) setWhatsappPhone(d.phone); })
-      .catch(() => {});
+    // WhatsApp numarası sabit tanımlı — fetch gerekmez
   }, []);
 
   // Mail etiketlerini sunucudan yükle
@@ -2789,104 +2783,60 @@ export default function App() {
             })}
           </div>
           {/* ─── WhatsApp Gönder ─────────────────────────────────────── */}
-          <div style={{marginTop:8,background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'18px 18px 14px'}}>
-
-            {/* Telefon numarası ayarı */}
-            <div style={{marginBottom:14}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                <span style={{fontSize:11,color:'#475569',fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>WhatsApp Numara</span>
-                <button
-                  onClick={() => { setWhatsappPhoneEdit(!whatsappPhoneEdit); setWhatsappPhoneInput(whatsappPhone); }}
-                  style={{fontSize:11,color:'#4fc9ff',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>
-                  {whatsappPhoneEdit ? 'İptal' : (whatsappPhone ? 'Değiştir' : '+ Ekle')}
-                </button>
-              </div>
-              {whatsappPhoneEdit ? (
-                <div style={{display:'flex',gap:8}}>
-                  <input
-                    value={whatsappPhoneInput}
-                    onChange={e => setWhatsappPhoneInput(e.target.value.replace(/[^0-9+]/g,''))}
-                    placeholder="905xxxxxxxxx (ülke koduyla)"
-                    style={{flex:1,padding:'8px 12px',background:'#07090f',color:'#e2e8f0',
-                      border:'1px solid #1a2035',borderRadius:8,fontSize:13,outline:'none'}}
-                  />
-                  <button
-                    onClick={() => {
-                      const cleaned = whatsappPhoneInput.replace(/\D/g,'');
-                      if (!cleaned) return;
-                      setWhatsappPhone(cleaned);
-                      setWhatsappPhoneEdit(false);
-                      fetch('/api/whatsapp-phone', {
-                        method:'POST', headers:{'Content-Type':'application/json'},
-                        body: JSON.stringify({ phone: cleaned })
-                      }).catch(()=>{});
-                    }}
-                    style={{padding:'8px 16px',background:'linear-gradient(135deg,#22c55e,#16a34a)',
-                      color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>
-                    Kaydet
-                  </button>
-                </div>
-              ) : (
-                <div style={{fontSize:13,color:whatsappPhone?'#22c55e':'#475569',fontWeight:600}}>
-                  {whatsappPhone ? '+' + whatsappPhone : 'Henüz numara eklenmedi'}
-                </div>
-              )}
-            </div>
-
-            {/* Gönder butonu */}
+          <div style={{marginTop:8,background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'14px 18px'}}>
             <button
-              disabled={!whatsappPhone}
               onClick={() => {
                 const now = new Date().toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
                 let msg = '\uD83E\uDDF0 *MALZEME STOK RAPORU*\n' + now + '\n\n';
+                const catIcons = {'3D Figurler':'\uD83E\uDEA6','Resim Malzemeleri':'\uD83C\uDFA8','Punch Malzemeleri':'\uD83E\uDDF6','Mum Malzemeleri':'\uD83E\uDDC1','Diger Malzemeler':'\uD83D\uDCE6'};
                 Object.entries(MALZEME_CATS).forEach(([cat, items]) => {
-                  const icons = {'3D Figürler':'\uD83E\uDEA6','Resim Malzemeleri':'\uD83C\uDFA8','Punch Malzemeleri':'\uD83E\uDDF6','Mum Malzemeleri':'\uD83E\uDDC1','Diğer Malzemeler':'\uD83D\uDCE6'};
-                  const icon = icons[cat] || '\uD83D\uDCE6';
-                  msg += icon + ' *' + cat.toUpperCase() + '*\n';
+                  const catLines = [];
                   items.forEach(function(item) {
                     const val = malzemeStock[cat] && malzemeStock[cat][item.key];
                     if (item.type === 'counter') {
                       const qty = val || 0;
-                      const unit = item.unit || 'adet';
-                      const em = qty === 0 ? '\uD83D\uDD34' : qty <= 2 ? '\uD83D\uDFE0' : '\uD83D\uDFE2';
-                      msg += em + ' ' + item.label + ': ' + qty + ' ' + unit + '\n';
+                      if (qty === 0) {
+                        catLines.push('\uD83D\uDD34 ' + item.label + ': 0 ' + (item.unit || 'adet'));
+                      } else if (qty <= 2) {
+                        catLines.push('\uD83D\uDFE0 ' + item.label + ': ' + qty + ' ' + (item.unit || 'adet'));
+                      }
+                      // yeteri kadar (3+) ekleme
                     } else if (item.type === 'text') {
                       const txt = (val || '').trim();
-                      msg += '\uD83D\uDCDD ' + item.label + ': ' + (txt || '-') + '\n';
+                      if (txt) catLines.push('\uD83D\uDCDD ' + item.label + ': ' + txt);
                     } else if (item.type === 'toggle2') {
                       const st = val || 'yeterli';
-                      msg += (st === 'yeterli' ? '\u2705' : '\u274C') + ' ' + item.label + ': ' + (st === 'yeterli' ? 'Yeteri kadar var' : 'Yetmez') + '\n';
+                      if (st === 'yetmez') catLines.push('\u274C ' + item.label + ': Yetmez');
                     } else if (item.type === 'toggle3') {
                       const st = val || 'yeterli';
-                      msg += (st === 'yeterli' ? '\u2705' : '\u26A0\uFE0F') + ' ' + item.label + ': ' + (st === 'yeterli' ? 'Yeteri kadar var' : 'Azaldi') + '\n';
+                      if (st === 'azald\u0131') catLines.push('\u26A0\uFE0F ' + item.label + ': Azald\u0131');
                     }
                   });
-                  msg += '\n';
+                  if (catLines.length > 0) {
+                    const icon = catIcons[cat.replace(/[\u00e7\u011f\u0131\u00f6\u015f\u00fc\u00c7\u011e\u0130\u00d6\u015e\u00dc]/g,'')] || '\uD83D\uDCE6';
+                    msg += icon + ' *' + cat.toUpperCase() + '*\n';
+                    catLines.forEach(function(l){ msg += l + '\n'; });
+                    msg += '\n';
+                  }
                 });
-                msg += '- Sosyal Sanathane Bilet Paneli';
-                const url = 'https://wa.me/' + whatsappPhone + '?text=' + encodeURIComponent(msg);
+                const hasIssues = msg.trim().split('\n').length > 2;
+                if (!hasIssues) msg += '\u2705 Tum malzemeler tam!\n\n';
+                msg += '- Sosyal Sanathane';
+                const url = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
                 window.open(url, '_blank');
               }}
               style={{
                 width:'100%', padding:'14px', borderRadius:12, border:'none',
-                background: whatsappPhone
-                  ? 'linear-gradient(135deg,#25d366,#128c7e)'
-                  : '#111827',
-                color: whatsappPhone ? '#fff' : '#374151',
-                fontSize:15, fontWeight:800, cursor: whatsappPhone ? 'pointer' : 'default',
+                background:'linear-gradient(135deg,#25d366,#128c7e)',
+                color:'#fff', fontSize:15, fontWeight:800, cursor:'pointer',
                 display:'flex', alignItems:'center', justifyContent:'center', gap:10,
                 letterSpacing:0.5, transition:'all 0.2s'
               }}>
-              <span style={{fontSize:22}}>💬</span>
+              <span style={{fontSize:22}}>\uD83D\uDCAC</span>
               WhatsApp'tan Gönder
             </button>
-            {!whatsappPhone && (
-              <div style={{fontSize:11,color:'#475569',textAlign:'center',marginTop:8}}>
-                Göndermek için önce telefon numarası ekleyin
-              </div>
-            )}
             {malzemeSaving && (
-              <div style={{fontSize:10,color:'#374151',textAlign:'center',marginTop:6}}>⟳ Kaydediliyor...</div>
+              <div style={{fontSize:10,color:'#374151',textAlign:'center',marginTop:6}}>\u29F3 Kaydediliyor...</div>
             )}
           </div>
 
@@ -2921,14 +2871,13 @@ export default function App() {
 
       {/* Ana Butonlar */}
       {role === 'staff' ? (
-        /* Çalışan: tek geniş yatay buton */
-        <div style={{padding:'18px',maxWidth:720,margin:'0 auto'}}>
+        /* Çalışan: satışlar + malzeme takibi */
+        <div style={{padding:'18px',maxWidth:720,margin:'0 auto',display:'flex',flexDirection:'column',gap:12}}>
           <button
             style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:14,
               padding:'22px 24px',borderRadius:16,border:'none',cursor:'pointer',
               background: 'linear-gradient(135deg,#b47cff,#7c3aff)',
-              boxShadow: 'none',
-              transition:'all 0.2s'}}
+              boxShadow: 'none', transition:'all 0.2s'}}
             onClick={()=>{ setMode('sales'); if(!salesData && !salesLoading) fetchSales(); }}
           >
             <span style={{fontSize:32}}>📊</span>
@@ -2938,6 +2887,20 @@ export default function App() {
               </div>
               <div style={{fontSize:12,color:'#e2e8f0',opacity:0.75}}>3 platformdaki seans satışlarını listele</div>
             </div>
+          </button>
+          <button
+            onClick={() => { setMode('malzeme'); setMalzemeCat(null); }}
+            style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
+              borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+              background:'#0d1120',transition:'all 0.2s'}}
+            onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.background='#0f1525';}}
+            onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+            <span style={{fontSize:26}}>🧰</span>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Malzeme Takibi</span>
+              <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Atölye malzeme stoklarını takip et</span>
+            </div>
+            <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
           </button>
         </div>
       ) : (
