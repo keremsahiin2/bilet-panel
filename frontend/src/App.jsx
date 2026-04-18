@@ -2742,6 +2742,15 @@ export default function App() {
                 'Rick & Morty': 2, 'Sullivan': 2,
               };
 
+              // Kategoriye göre WhatsApp numarası
+              const CAT_WA_NUMBER = {
+                '3D Figürler': '905050523801',
+                'Mum Malzemeleri': '905050523801',
+                'Resim Malzemeleri': '905453964756',
+                'Punch Malzemeleri': '905453964756',
+                'Diğer Malzemeler': '905453964756',
+              };
+
               const sendCatWhatsApp = () => {
                 const now = new Date().toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
                 const catIconMap = {'3D Figürler':'🪆','Resim Malzemeleri':'🎨','Punch Malzemeleri':'🧶','Mum Malzemeleri':'🧁','Diğer Malzemeler':'📦'};
@@ -2750,24 +2759,22 @@ export default function App() {
                 const catLines = [];
 
                 if (cat === '3D Figürler') {
-                  // Figürler: hedef - stok = eksik adet. Sadece eksik olanları göster.
                   items.forEach(function(item) {
                     const val = malzemeStock[cat] && malzemeStock[cat][item.key];
                     const stok = val || 0;
                     const hedef = FIGUR_HEDEF[item.key] || 0;
                     const eksik = hedef - stok;
                     if (eksik > 0) {
-                      catLines.push('🔴 ' + item.label + ': ' + eksik + ' adet lazım (stok: ' + stok + ')');
+                      catLines.push(item.label + ' ' + eksik);
                     }
                   });
                   if (catLines.length === 0) {
-                    msg += '✅ Tüm figürler tam!\n';
+                    msg += '✅ Tüm figürler tam!';
                   } else {
-                    msg += '*EKSİK FIGÜRLER:*\n';
+                    msg += '*Eksik figürler:*\n';
                     catLines.forEach(function(l){ msg += l + '\n'; });
                   }
                 } else {
-                  // Diğer kategoriler: boş text ve 'yeterli' toggleları atla, 0 dahil tüm sayaçları gönder
                   items.forEach(function(item) {
                     const val = malzemeStock[cat] && malzemeStock[cat][item.key];
                     if (item.type === 'counter') {
@@ -2785,14 +2792,14 @@ export default function App() {
                     }
                   });
                   if (catLines.length === 0) {
-                    msg += '✅ Tüm malzemeler tam!\n';
+                    msg += '✅ Tüm malzemeler tam!';
                   } else {
                     catLines.forEach(function(l){ msg += l + '\n'; });
                   }
                 }
 
-                msg += '\n- Sosyal Sanathane';
-                const url = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
+                const waNumber = CAT_WA_NUMBER[cat] || '905050523801';
+                const url = 'https://wa.me/' + waNumber + '?text=' + encodeURIComponent(msg);
                 window.open(url, '_blank');
               };
 
