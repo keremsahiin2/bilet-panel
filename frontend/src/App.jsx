@@ -397,7 +397,7 @@ function buildSeanceMap(data) {
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
 export default function App() {
   const [loggedIn, setLoggedIn]             = useState(false);
-  const [autoLoginLoading, setAutoLoginLoading] = useState(true); // başlangıçta deniyor
+  const [autoLoginLoading, setAutoLoginLoading] = useState(false); // artık kullanılmıyor
   const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
   const [role, setRole]                     = useState(null);   // 'admin' | 'staff'
   const [rolePin, setRolePin]               = useState('');
@@ -422,7 +422,26 @@ export default function App() {
   const [deleting, setDeleting]                   = useState({});
   const [deleteConfirm, setDeleteConfirm]         = useState({});
 
-  // Sayfa açılınca otomatik login dene
+  // ─── MALZEME TAKİBİ ────────────────────────────────────────────────────────
+  const MALZEME_CATS = {
+    '3D Figürler':       ['3D Figür (adet)', 'Akrilik Boya Seti', 'Fırça Seti', 'Koruyucu Vernik', 'Zımpara', 'Eldiven (çift)'],
+    'Resim Malzemeleri': ['Tuval (adet)', 'Akrilik Boya Seti', 'Fırça Seti', 'Palet', 'Su Kabı', 'Önlük'],
+    'Punch Malzemeleri': ['İp (kg)', 'Punch İğnesi (adet)', 'Nakış Gergi (adet)', 'Desen Kağıdı', 'Makas'],
+    'Mum Malzemeleri':   ['Mum Kili (kg)', 'Kalıp (adet)', 'Fitil (m)', 'Koku (şişe)', 'Boyama Rengi (adet)'],
+    'Diğer Malzemeler':  ['Önlük', 'Eldiven (çift)', 'Kâğıt Havlu (rulo)', 'Temizlik Bezi', 'Sprey Boya', 'Makas'],
+  };
+  const initMalzeme = () => {
+    const s = {};
+    Object.entries(MALZEME_CATS).forEach(([cat, items]) => {
+      s[cat] = {};
+      items.forEach(item => { s[cat][item] = 0; });
+    });
+    return s;
+  };
+  const [malzemeStock, setMalzemeStock] = useState(initMalzeme);
+  const [malzemeCat, setMalzemeCat]     = useState(null);
+
+  // Sayfa açılınca otomatik login dene — rol ekranı hemen göster, veri arka planda gelir
   useState(() => {
     fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
@@ -430,15 +449,10 @@ export default function App() {
         if (json.success) {
           setLoggedIn(true);
           setRoleScreen(true);
+          setSalesLoading(true); // arka planda veri çekiliyor
           if (json.ready) {
-            // Veri bellekte zaten hazır — direkt çek
-            setSalesLoading(true);
             fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
-            setAutoLoginLoading(false);
           } else {
-            // Veri arka planda yükleniyor — polling başlat
-            setSalesLoading(true);
-            setAutoLoginLoading(false);
             const poll = setInterval(() => {
               fetch('/api/login-status').then(r=>r.json()).then(s => {
                 if (s.ready) {
@@ -466,10 +480,9 @@ export default function App() {
                 }));
               }
             }).catch(()=>{});
-          setAutoLoginLoading(false);
         }
       })
-      .catch(() => { setAutoLoginLoading(false); });
+      .catch(() => {});
   }, []);
 
   // Mail etiketlerini sunucudan yükle
@@ -519,7 +532,6 @@ export default function App() {
 
   const fetchSales = async () => {
     setSalesLoading(true); setSalesError(null);
-    setSalesData(null); // Eski cache'i temizle — yeni veri gelene kadar spinner göster
     try {
       // /api/sales/refresh → Bubilet/Biletinial/İdeasoft'tan taze veri çeker
       // (eski /api/sales sadece bellekteki eski veriyi döndürüyordu)
@@ -685,8 +697,6 @@ export default function App() {
     setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; });
     setBulkDeleting(true);
     const pastSeances = (salesData?.ideasoft || []).filter(s => s.category === cat && s.seanceId && isSeancePast(s));
-
-    // Sıralı sil — eş zamanlı istekler rate limit'e çarpar
     for (const s of pastSeances) {
       const ok = await deleteOneSeance(s.seanceId);
       if (ok) {
@@ -696,7 +706,6 @@ export default function App() {
           return { ...prev, ideasoft: prev.ideasoft.filter(x => x.seanceId !== deletedId) };
         });
       }
-      // Seanslar arası bekleme — İdeasoft rate limit için
       await new Promise(r => setTimeout(r, 400));
     }
     setBulkDeleting(false);
@@ -712,8 +721,6 @@ export default function App() {
     setAllCatBulkConfirm(false);
     setAllCatBulkDeleting(true);
     const allPast = (salesData?.ideasoft || []).filter(s => s.seanceId && isSeancePast(s));
-
-    // Sıralı sil — eş zamanlı istekler rate limit'e çarpar
     for (const s of allPast) {
       const ok = await deleteOneSeance(s.seanceId);
       if (ok) {
@@ -1059,7 +1066,6 @@ export default function App() {
       const jobId = 'job_' + Date.now() + '_' + cat.replace(/\s/g, '_');
       const seances = items.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
 
-      // Bu kategorinin progress'ini polling ile takip et
       const pollInterval = setInterval(async () => {
         try {
           const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
@@ -1654,46 +1660,6 @@ export default function App() {
     );
   }
 
-  if (autoLoginLoading) {
-    const RADIUS = 40;
-    const CIRC = 2 * Math.PI * RADIUS;
-    return (
-      <div style={S.page}>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:'37vh'}}>
-          {/* SVG yuvarlak timer */}
-          <div style={{position:'relative',width:100,height:100,marginBottom:18}}>
-            <svg width="100" height="100" style={{transform:'rotate(-90deg)'}}>
-              {/* Arka halka */}
-              <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="#1a2035" strokeWidth="5"/>
-              {/* İlerleme halkası - CSS animasyonlu */}
-              <circle
-                cx="50" cy="50" r={RADIUS}
-                fill="none"
-                stroke="#b47cff"
-                strokeWidth="5"
-                strokeLinecap="round"
-                strokeDasharray={CIRC}
-                strokeDashoffset="0"
-                style={{
-                  animation:'loginTimer 6.5s linear forwards',
-                }}
-              />
-            </svg>
-            {/* Ortadaki ikon */}
-            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:28}}>🎟</div>
-          </div>
-          <div style={{fontSize:14,color:'#475569',letterSpacing:1}}>Giriş yapılıyor…</div>
-          <style>{`
-            @keyframes loginTimer {
-              from { stroke-dashoffset: 0; }
-              to   { stroke-dashoffset: ${CIRC}; }
-            }
-          `}</style>
-        </div>
-      </div>
-    );
-  }
-
   // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
   if (loggedIn && roleScreen && !role) {
     const PINS = { admin: '2580', staff: '1525' };
@@ -1814,19 +1780,23 @@ export default function App() {
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
             {salesLoading ? (
-              <div style={{padding:'24px 0 8px'}}>
+              <div style={{padding:'16px 0 8px', textAlign:'center'}}>
+                {/* Mor yuvarlak spinner — veri arka planda yükleniyor */}
                 <div style={{
-                  width:48, height:48, margin:'0 auto 16px',
-                  border:'4px solid #1a2035', borderTop:'4px solid #b47cff',
+                  width:36, height:36, margin:'0 auto 10px',
+                  border:'3px solid #1a2035', borderTop:'3px solid #b47cff',
                   borderRadius:'50%', animation:'spin 0.8s linear infinite'
                 }}/>
-                <div style={{fontSize:13, color:'#64748b', marginBottom:4}}>Veriler yükleniyor…</div>
-                <div style={{fontSize:11, color:'#374151'}}>Lütfen bekleyin</div>
+                <div style={{fontSize:12, color:'#475569', marginBottom:2}}>Veriler arka planda yükleniyor…</div>
                 <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
               </div>
-            ) : (
-              <>
-                <div style={{fontSize:12, color:'#475569', marginBottom:32}}>Devam etmek için rolünüzü seçin</div>
+            ) : null}
+            {!salesLoading && (
+              <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Devam etmek için rolünüzü seçin</div>
+            )}
+            {salesLoading && (
+              <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Giriş yapın, veriler yüklenirken devam edebilirsiniz</div>
+            )}
                 <div style={{display:'flex', flexDirection:'column', gap:12}}>
                   <button
                     style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
@@ -1853,8 +1823,8 @@ export default function App() {
                     </div>
                   </button>
                 </div>
-              </>
-            )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1938,7 +1908,17 @@ export default function App() {
             );
           })()}
           {salesError && <div style={S.errBox}>{salesError}</div>}
-          {salesLoading && !salesData && <div style={S.loadMsg}>⟳ Veriler çekiliyor…</div>}
+          {salesLoading && !salesData && (
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'60px 0 40px'}}>
+              <div style={{
+                width:56,height:56,marginBottom:18,
+                border:'4px solid #1a2035',borderTop:'4px solid #b47cff',
+                borderRadius:'50%',animation:'spin 0.8s linear infinite'
+              }}/>
+              <div style={{fontSize:14,color:'#64748b',fontWeight:600}}>Veriler çekiliyor…</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
 
           {seancesSales.map(s => {
             const key   = `${s.dateKey}|${s.timeSlot}`;
@@ -2436,6 +2416,127 @@ export default function App() {
     );
   }
 
+  // ─── MALZEME TAKİBİ EKRANI ─────────────────────────────────────────────────
+  if (mode === 'malzeme') {
+    const adjustStock = (cat, item, delta) => {
+      setMalzemeStock(prev => ({
+        ...prev,
+        [cat]: { ...prev[cat], [item]: Math.max(0, (prev[cat][item] || 0) + delta) }
+      }));
+    };
+    const catKeys = Object.keys(MALZEME_CATS);
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setMode(null); setMalzemeCat(null); }}>← Geri</button>
+            <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🧰 MALZEME TAKİBİ</span>
+          </div>
+        </div>
+        <div style={{maxWidth:720,margin:'0 auto',padding:'18px'}}>
+          {/* Kategori butonları */}
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
+            {catKeys.map(cat => {
+              const items = MALZEME_CATS[cat];
+              const total = items.reduce((sum, item) => sum + (malzemeStock[cat]?.[item] || 0), 0);
+              const active = malzemeCat === cat;
+              return (
+                <div key={cat}>
+                  <button
+                    onClick={() => setMalzemeCat(active ? null : cat)}
+                    style={{
+                      width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+                      padding:'16px 18px', borderRadius:active ? '12px 12px 0 0' : 12,
+                      border: active ? '2px solid #b47cff44' : '1px solid #1a2035',
+                      background: active ? '#0f1130' : '#0d1120',
+                      cursor:'pointer', transition:'all 0.15s'
+                    }}>
+                    <div style={{display:'flex',alignItems:'center',gap:12}}>
+                      <span style={{fontSize:22}}>{
+                        cat === '3D Figürler' ? '🪆' :
+                        cat === 'Resim Malzemeleri' ? '🎨' :
+                        cat === 'Punch Malzemeleri' ? '🧶' :
+                        cat === 'Mum Malzemeleri' ? '🧁' : '📦'
+                      }</span>
+                      <span style={{fontSize:14,fontWeight:700,color: active ? '#b47cff' : '#e2e8f0'}}>{cat}</span>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      {total > 0 && (
+                        <span style={{fontSize:12,fontWeight:700,color:'#ff9f4a',background:'#1a1206',
+                          border:'1px solid #ff9f4a44',borderRadius:8,padding:'2px 10px'}}>
+                          {total} birim
+                        </span>
+                      )}
+                      <span style={{fontSize:18,color:'#374151',transform: active ? 'rotate(90deg)' : 'none', transition:'transform 0.2s'}}>›</span>
+                    </div>
+                  </button>
+                  {active && (
+                    <div style={{background:'#0a0e1a',border:'2px solid #b47cff44',borderTop:'none',
+                      borderRadius:'0 0 12px 12px',overflow:'hidden'}}>
+                      {items.map((item, idx) => {
+                        const qty = malzemeStock[cat]?.[item] || 0;
+                        return (
+                          <div key={item} style={{
+                            display:'flex', alignItems:'center', justifyContent:'space-between',
+                            padding:'13px 18px',
+                            borderBottom: idx < items.length - 1 ? '1px solid #0f1525' : 'none',
+                            background: idx % 2 === 0 ? '#0a0e1a' : '#0d1120'
+                          }}>
+                            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600,flex:1}}>{item}</span>
+                            <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                              <button
+                                onClick={() => adjustStock(cat, item, -1)}
+                                disabled={qty === 0}
+                                style={{
+                                  width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
+                                  background: qty === 0 ? '#0a0e1a' : '#1a0a0a',
+                                  color: qty === 0 ? '#1e293b' : '#ef4444',
+                                  fontSize:20,fontWeight:700,cursor: qty === 0 ? 'default' : 'pointer',
+                                  display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.15s'
+                                }}>−</button>
+                              <span style={{
+                                fontSize:18,fontWeight:800,minWidth:36,textAlign:'center',
+                                color: qty === 0 ? '#334155' : qty < 3 ? '#ef4444' : qty < 6 ? '#f59e0b' : '#22c55e'
+                              }}>{qty}</span>
+                              <button
+                                onClick={() => adjustStock(cat, item, 1)}
+                                style={{
+                                  width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
+                                  background:'#0a1a0a',color:'#22c55e',fontSize:20,fontWeight:700,
+                                  cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.15s'
+                                }}>+</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {/* Sıfırla butonu */}
+                      <div style={{padding:'10px 14px', borderTop:'1px solid #0f1525'}}>
+                        <button
+                          onClick={() => {
+                            setMalzemeStock(prev => ({
+                              ...prev,
+                              [cat]: Object.fromEntries(items.map(i => [i, 0]))
+                            }));
+                          }}
+                          style={{padding:'7px 16px',borderRadius:8,fontSize:11,fontWeight:700,
+                            background:'#1a0808',color:'#64748b',border:'1px solid #1e293b',cursor:'pointer'}}>
+                          Sıfırla
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{fontSize:11,color:'#1e293b',textAlign:'center',paddingTop:8}}>
+            ⚠ Stok verileri yalnızca bu oturumda saklanır
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
   const seances = buildSeanceMap(salesData);
 
@@ -2467,7 +2568,7 @@ export default function App() {
               background: 'linear-gradient(135deg,#b47cff,#7c3aff)',
               boxShadow: 'none',
               transition:'all 0.2s'}}
-            onClick={()=>{ setMode('sales'); fetchSales(); }}
+            onClick={()=>{ setMode('sales'); if(!salesData && !salesLoading) fetchSales(); }}
           >
             <span style={{fontSize:32}}>📊</span>
             <div style={{textAlign:'left'}}>
@@ -2484,7 +2585,7 @@ export default function App() {
           <div style={S.mainActions}>
             <ActionCard icon="📊" title="Satışları Getir" desc="3 platformdaki seans satışlarını listele"
               color="#b47cff" active={false} loading={salesLoading}
-              onClick={()=>{ setMode('sales'); fetchSales(); }} />
+              onClick={()=>{ setMode('sales'); if(!salesData && !salesLoading) fetchSales(); }} />
             <ActionCard icon="📦" title="Stok Güncelle" desc="İdeasoft ürün stoklarını düzenle"
               color="#4fc9ff" active={false}
               onClick={()=>setMode('stock')} />
@@ -2507,6 +2608,26 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Seans Yazdır</span>
                 <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>İdeasoft'a yeni seans dönemleri ekle</span>
+              </div>
+              <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Malzeme Takibi — yatay geniş bar */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={() => { setMode('malzeme'); setMalzemeCat(null); }}
+              style={{
+                width:'100%', display:'flex', alignItems:'center', gap:14,
+                padding:'15px 22px', borderRadius:14, border:'1px solid #1a2035',
+                cursor:'pointer', textAlign:'left',
+                background:'#0d1120', boxShadow:'none', transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#22c55e';e.currentTarget.style.boxShadow='0 0 18px #22c55e22';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>🧰</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14, fontWeight:700, color:'#94a3b8', marginBottom:4}}>Malzeme Takibi</span>
+                <span style={{fontSize:11, color:'#374151', lineHeight:1.5}}>Atölye malzeme stoklarını takip et</span>
               </div>
               <span style={{marginLeft:'auto', fontSize:18, color:'#374151'}}>›</span>
             </button>
