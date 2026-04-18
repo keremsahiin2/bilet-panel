@@ -393,10 +393,17 @@ async function fetchBiletinial(token) {
 
   // ── 3) İki listeyi birleştir — SeanceId bazında aktif öncelikli ──────────
   // Aynı SeanceId aktif listede varsa tamamlanmış listeden alma (henüz bitmemiş)
+  // NOT: Aktif seanslar SalesTicketTotalCount, tamamlananlar TotalSoldTicketCount döndürür.
+  // App.jsx SalesTicketTotalCount'u bekliyor — tamamlananlar normalize edilmeli.
   const activeIds = new Set(activeSeances.map(s => s.SeanceId));
   const mergedSeances = [
     ...activeSeances,
-    ...completedSeances.filter(s => !activeIds.has(s.SeanceId))
+    ...completedSeances
+      .filter(s => !activeIds.has(s.SeanceId))
+      .map(s => ({
+        ...s,
+        SalesTicketTotalCount: s.SalesTicketTotalCount || s.TotalSoldTicketCount || 0
+      }))
   ];
 
   // ── 4) Workshop kırılımı — her iki listede de aynı mantık ────────────────
