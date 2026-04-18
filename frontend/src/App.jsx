@@ -519,6 +519,7 @@ export default function App() {
 
   const fetchSales = async () => {
     setSalesLoading(true); setSalesError(null);
+    setSalesData(null); // Eski cache'i temizle — yeni veri gelene kadar spinner göster
     try {
       // /api/sales/refresh → Bubilet/Biletinial/İdeasoft'tan taze veri çeker
       // (eski /api/sales sadece bellekteki eski veriyi döndürüyordu)
@@ -684,13 +685,19 @@ export default function App() {
     setBulkDeleteConfirm(p => { const n={...p}; delete n[cat]; return n; });
     setBulkDeleting(true);
     const pastSeances = (salesData?.ideasoft || []).filter(s => s.category === cat && s.seanceId && isSeancePast(s));
-    const results = await Promise.all(pastSeances.map(s => deleteOneSeance(s.seanceId)));
-    const deletedIds = pastSeances.filter((_, i) => results[i]).map(s => s.seanceId);
-    if (deletedIds.length > 0) {
-      setSalesData(prev => {
-        if (!prev || !prev.ideasoft) return prev;
-        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
-      });
+
+    // Sıralı sil — eş zamanlı istekler rate limit'e çarpar
+    for (const s of pastSeances) {
+      const ok = await deleteOneSeance(s.seanceId);
+      if (ok) {
+        const deletedId = s.seanceId;
+        setSalesData(prev => {
+          if (!prev || !prev.ideasoft) return prev;
+          return { ...prev, ideasoft: prev.ideasoft.filter(x => x.seanceId !== deletedId) };
+        });
+      }
+      // Seanslar arası bekleme — İdeasoft rate limit için
+      await new Promise(r => setTimeout(r, 400));
     }
     setBulkDeleting(false);
   };
@@ -705,13 +712,18 @@ export default function App() {
     setAllCatBulkConfirm(false);
     setAllCatBulkDeleting(true);
     const allPast = (salesData?.ideasoft || []).filter(s => s.seanceId && isSeancePast(s));
-    const results = await Promise.all(allPast.map(s => deleteOneSeance(s.seanceId)));
-    const deletedIds = allPast.filter((_, i) => results[i]).map(s => s.seanceId);
-    if (deletedIds.length > 0) {
-      setSalesData(prev => {
-        if (!prev || !prev.ideasoft) return prev;
-        return { ...prev, ideasoft: prev.ideasoft.filter(s => !deletedIds.includes(s.seanceId)) };
-      });
+
+    // Sıralı sil — eş zamanlı istekler rate limit'e çarpar
+    for (const s of allPast) {
+      const ok = await deleteOneSeance(s.seanceId);
+      if (ok) {
+        const deletedId = s.seanceId;
+        setSalesData(prev => {
+          if (!prev || !prev.ideasoft) return prev;
+          return { ...prev, ideasoft: prev.ideasoft.filter(x => x.seanceId !== deletedId) };
+        });
+      }
+      await new Promise(r => setTimeout(r, 400));
     }
     setAllCatBulkDeleting(false);
   };
@@ -1028,48 +1040,67 @@ export default function App() {
   };
 
   const handleSeansYazCreate = async () => {
-    const jobId = 'job_' + Date.now();
     setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
     setSeansYazErrors([]);
     setSeansYazCurrentName('');
 
-    const seances = seansYazList.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
+    // Seansları kategoriye göre grupla — her kategori kendi parent ürününe ayrı bulk çağrısıyla yazılır
+    const catGroups = {};
+    seansYazList.forEach(item => {
+      if (!catGroups[item.cat]) catGroups[item.cat] = [];
+      catGroups[item.cat].push(item);
+    });
 
-    // Polling: her 1 saniyede progress sorgula
-    const pollInterval = setInterval(async () => {
+    let totalDone = 0;
+    let totalErrors = 0;
+    const allErrorList = [];
+
+    for (const [cat, items] of Object.entries(catGroups)) {
+      const jobId = 'job_' + Date.now() + '_' + cat.replace(/\s/g, '_');
+      const seances = items.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
+
+      // Bu kategorinin progress'ini polling ile takip et
+      const pollInterval = setInterval(async () => {
+        try {
+          const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
+          if (pr.found) {
+            setSeansYazProgress({ done: totalDone + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors });
+            setSeansYazCurrentName(pr.current || '');
+          }
+        } catch {}
+      }, 1000);
+
       try {
-        const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
-        if (pr.found) {
-          setSeansYazProgress({ done: pr.done, total: pr.total, errors: pr.errors });
-          setSeansYazCurrentName(pr.current || '');
+        const res = await fetch('/api/ideasoft/create-seances-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seances, jobId })
+        });
+        const json = await res.json();
+        clearInterval(pollInterval);
+        if (json.error) {
+          totalErrors += seances.length;
+          allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
+        } else {
+          const catErrors = (json.results || []).filter(r => !r.success);
+          const catDone = json.total || seances.length;
+          totalDone += catDone;
+          totalErrors += json.errors || 0;
+          catErrors.forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
         }
-      } catch {}
-    }, 1000);
-
-    try {
-      const res = await fetch('/api/ideasoft/create-seances-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seances, jobId })
-      });
-      const json = await res.json();
-      clearInterval(pollInterval);
-      if (json.error) {
-        setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
-        setSeansYazErrors([{ seans: 'Tümü', hata: json.error }]);
-      } else {
-        const errorList = (json.results || [])
-          .filter(r => !r.success)
-          .map(r => ({ seans: r.name, hata: r.error }));
-        setSeansYazProgress({ done: json.total, total: json.total, errors: json.errors || 0 });
-        setSeansYazErrors(errorList);
+        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
         setSeansYazCurrentName('');
+      } catch(e) {
+        clearInterval(pollInterval);
+        totalErrors += seances.length;
+        allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
+        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
       }
-    } catch(e) {
-      clearInterval(pollInterval);
-      setSeansYazProgress({ done: 0, total: seansYazList.length, errors: seansYazList.length });
-      setSeansYazErrors([{ seans: 'Tümü', hata: e.message }]);
     }
+
+    setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
+    setSeansYazErrors(allErrorList);
+    setSeansYazCurrentName('');
     setSeansYazDone(true);
   };
 
