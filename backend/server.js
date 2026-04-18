@@ -2208,23 +2208,25 @@ app.post('/api/send-mail', async function(req, res) {
   res.json({ results });
 });
 
-// ─── Malzeme Stok Kalıcı Kayıt ────────────────────────────────────────────────
-const MALZEME_FILE = path.join(__dirname, 'malzeme_stock.json');
 
-app.get('/api/malzeme', function(req, res) {
+// ─── Malzeme Stok Kalıcı Kayıt (JSONBin) ─────────────────────────────────────
+app.get("/api/malzeme", async function(req, res) {
   try {
-    const data = loadJson(MALZEME_FILE);
-    res.json({ stock: data || {} });
+    var rec = await getJsonbinRecord();
+    res.json({ stock: rec.malzemeStock || {} });
   } catch(e) {
     res.json({ stock: {} });
   }
 });
 
-app.post('/api/malzeme', function(req, res) {
+app.post("/api/malzeme", async function(req, res) {
   try {
     const stock = req.body.stock;
-    if (!stock) return res.status(400).json({ error: 'stock gerekli' });
-    saveJson(MALZEME_FILE, stock);
+    if (!stock) return res.status(400).json({ error: "stock gerekli" });
+    var rec = await getJsonbinRecord();
+    rec.malzemeStock = stock;
+    jsonbinCacheDirty = true;
+    await flushJsonbinCache();
     res.json({ success: true });
   } catch(e) {
     res.status(500).json({ error: e.message });
