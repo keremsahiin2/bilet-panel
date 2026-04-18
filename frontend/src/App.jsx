@@ -1795,35 +1795,33 @@ export default function App() {
               <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Devam etmek için rolünüzü seçin</div>
             )}
             {salesLoading && (
-              <div style={{fontSize:12, color:'#475569', marginBottom:24}}>Giriş yapın, veriler yüklenirken devam edebilirsiniz</div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:16}}>Giriş yapın, veriler yüklenirken devam edebilirsiniz</div>
             )}
-                <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                  <button
-                    style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
-                      padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
-                      alignItems:'center', gap:14}}
-                    onClick={() => setRolePinTarget('admin')}
-                  >
-                    <span style={{fontSize:32}}>🔐</span>
-                    <div>
-                      <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Yönetici</div>
-                      <div style={{fontSize:12, opacity:0.7}}>Satışlar + Stok yönetimi</div>
-                    </div>
-                  </button>
-                  <button
-                    style={{background:'linear-gradient(135deg,#0ea5e9,#0284c7)', border:'none', borderRadius:14,
-                      padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
-                      alignItems:'center', gap:14}}
-                    onClick={() => setRolePinTarget('staff')}
-                  >
-                    <span style={{fontSize:32}}>👤</span>
-                    <div>
-                      <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Çalışan</div>
-                      <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
-                    </div>
-                  </button>
+            <div style={{display:'flex', flexDirection:'column', gap:12}}>
+              <button
+                style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('admin')}
+              >
+                <span style={{fontSize:32}}>🔐</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Yönetici</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Satışlar + Stok yönetimi</div>
                 </div>
-              </div>
+              </button>
+              <button
+                style={{background:'linear-gradient(135deg,#0ea5e9,#0284c7)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('staff')}
+              >
+                <span style={{fontSize:32}}>👤</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Çalışan</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
+                </div>
+              </button>
             </div>
           </div>
         </div>
