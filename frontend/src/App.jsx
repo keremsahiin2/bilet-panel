@@ -417,13 +417,23 @@ function buildSeanceMap(data) {
 export default function App() {
   // Global body/html reset — kenar beyaz cizgileri kaldir
   if (typeof document !== 'undefined') {
-    document.documentElement.style.margin = '0';
-    document.documentElement.style.padding = '0';
-    document.documentElement.style.overflowX = 'hidden';
-    document.body.style.margin = '0';
-    document.body.style.padding = '0';
-    document.body.style.overflowX = 'hidden';
+    const resetEl = (el) => {
+      if (!el) return;
+      el.style.margin = '0';
+      el.style.padding = '0';
+      el.style.border = 'none';
+      el.style.outline = 'none';
+      el.style.overflowX = 'hidden';
+      el.style.width = '100%';
+      el.style.maxWidth = '100%';
+      el.style.boxSizing = 'border-box';
+    };
+    resetEl(document.documentElement);
+    resetEl(document.body);
     document.body.style.background = '#07090f';
+    // #root div'i de sifirla (Vite/CRA'da genellikle margin/padding kalir)
+    const root = document.getElementById('root');
+    if (root) resetEl(root);
   }
   const [loggedIn, setLoggedIn]             = useState(false);
   const [autoLoginLoading, setAutoLoginLoading] = useState(false); // artık kullanılmıyor
@@ -1726,8 +1736,8 @@ export default function App() {
       const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
       return (
         <div style={S.page}>
-          <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'22vh'}}>
-            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
               <div style={{fontSize:36, marginBottom:12}}>
                 {rolePinTarget === 'admin' ? '🔐' : '👤'}
               </div>
@@ -1799,8 +1809,8 @@ export default function App() {
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',marginTop:'22vh'}}>
-          <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+          <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%', border:'none'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
             {salesLoading && (
@@ -2673,7 +2683,7 @@ function getCatIcon(cat) {
 }
 
 const S = {
-  page:       {minHeight:'100vh',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60,margin:0,overflowX:'hidden'},
+  page:       {minHeight:'100vh',width:'100%',background:'#07090f',color:'#e2e8f0',fontFamily:'"DM Sans",system-ui,sans-serif',paddingBottom:60,margin:0,padding:0,boxSizing:'border-box',overflowX:'hidden'},
   loginWrap:  {display:'flex',justifyContent:'center',alignItems:'flex-start',minHeight:'100vh',padding:20,paddingTop:'calc(env(safe-area-inset-top, 0px) + 60px)'},
   loginCard:  {width:'100%',maxWidth:420,background:'#0d1120',border:'1px solid #1a2035',borderRadius:20,padding:'36px 32px'},
   brand:      {display:'flex',alignItems:'center',gap:10,marginBottom:4},
