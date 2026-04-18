@@ -735,10 +735,10 @@ app.post('/api/auto-login', function(req, res) {
     return res.json({ success:false, reason:'Kayıtlı bilgi yok' });
   }
 
-  // Zaten veri bellekte varsa anında dön
-  if (bubiletData && loginState.status !== 'loading') {
-    return res.json({ success:true, ready:true });
-  }
+  // Her uygulama açılışında daima taze veri çek — cache'i temizle
+  bubiletData    = null;
+  biletinialData = null;
+  ideasoftData   = null;
 
   // Arka planda doLogin başlat (await yok — hemen yanıt dön)
   loginState = { status:'loading', error:null };
