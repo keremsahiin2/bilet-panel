@@ -2208,6 +2208,46 @@ app.post('/api/send-mail', async function(req, res) {
   res.json({ results });
 });
 
+// ─── Malzeme Stok Kalıcı Kayıt ────────────────────────────────────────────────
+const MALZEME_FILE = path.join(__dirname, 'malzeme_stock.json');
+
+app.get('/api/malzeme', function(req, res) {
+  try {
+    const data = loadJson(MALZEME_FILE);
+    res.json({ stock: data || {} });
+  } catch(e) {
+    res.json({ stock: {} });
+  }
+});
+
+app.post('/api/malzeme', function(req, res) {
+  try {
+    const stock = req.body.stock;
+    if (!stock) return res.status(400).json({ error: 'stock gerekli' });
+    saveJson(MALZEME_FILE, stock);
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// WhatsApp telefon numarası — kayıtlı credentials'dan al veya güncelle
+app.get('/api/whatsapp-phone', function(req, res) {
+  try {
+    const creds = loadJson(SAVED_CREDS_FILE) || {};
+    res.json({ phone: creds.whatsappPhone || '' });
+  } catch(e) { res.json({ phone: '' }); }
+});
+
+app.post('/api/whatsapp-phone', function(req, res) {
+  try {
+    const existing = loadJson(SAVED_CREDS_FILE) || {};
+    existing.whatsappPhone = (req.body.phone || '').replace(/\D/g, '');
+    saveJson(SAVED_CREDS_FILE, existing);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Frontend dist klasörünü servis et (PWA için)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('/{*path}', function(req, res) {
