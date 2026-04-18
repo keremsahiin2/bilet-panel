@@ -507,6 +507,8 @@ export default function App() {
       { key:'Vecna',               label:'Vecna',                type:'counter' },
       { key:'Şirine',              label:'Şirine',               type:'counter' },
       { key:'Hello Kitty',         label:'Hello Kitty',          type:'counter' },
+      { key:'Rick & Morty',        label:'Rick & Morty',         type:'counter' },
+      { key:'Sullivan',            label:'Sullivan',             type:'counter' },
       { key:'Buzz',                label:'Buzz',                 type:'counter' },
     ],
     'Resim Malzemeleri': [
@@ -2726,37 +2728,69 @@ export default function App() {
               const { total, warnings } = getCatSummary(cat, items);
               const active = malzemeCat === cat;
 
+              // 3D Figürler için hedef stok sayıları
+              const FIGUR_HEDEF = {
+                'Spiderman': 3, 'Spiderman Çocuk': 3, 'Winnie the Pooh': 4, 'Stitch': 4,
+                'Yoda': 4, 'Pikaçu': 4, 'Bart': 2, 'Mickey Mouse': 4, 'Ironman': 2,
+                'Groot': 3, 'Superman': 3, 'Batman Yeni': 0, 'Batman': 2, 'Mike': 2,
+                'Donald': 2, 'Minnie': 5, 'Bugs Bunny': 2, 'Shrek': 3, 'Shrek Gözlük': 3,
+                'Fiona': 3, 'Süngerbob': 4, 'Tom': 3, 'Jerry': 3, 'Ninja Kaplumbağa': 4,
+                'Labubu': 3, 'Labubu Kalpli': 3, 'Garfield': 3, 'Minion': 4, 'Goku': 2,
+                'Chucky': 2, 'Garen': 1, 'Eşşek': 3, 'Dobby': 3, 'Dumbledore': 1,
+                'Hagrid': 1, 'Harry Potter Bust': 2, 'Harry Potter Kuşlu': 2, 'Hulk': 2,
+                'Vecna': 1, 'Şirine': 2, 'Hello Kitty': 2, 'Buzz': 0,
+                'Rick & Morty': 2, 'Sullivan': 2,
+              };
+
               const sendCatWhatsApp = () => {
                 const now = new Date().toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
                 const catIconMap = {'3D Figürler':'🪆','Resim Malzemeleri':'🎨','Punch Malzemeleri':'🧶','Mum Malzemeleri':'🧁','Diğer Malzemeler':'📦'};
                 const icon = catIconMap[cat] || '📦';
                 let msg = icon + ' *' + cat.toUpperCase() + ' STOK RAPORU*\n' + now + '\n\n';
                 const catLines = [];
-                items.forEach(function(item) {
-                  const val = malzemeStock[cat] && malzemeStock[cat][item.key];
-                  if (item.type === 'counter') {
-                    const qty = val || 0;
-                    if (qty === 0) {
-                      catLines.push('🔴 ' + item.label + ': 0 ' + (item.unit || 'adet'));
-                    } else if (qty <= 2) {
-                      catLines.push('🟠 ' + item.label + ': ' + qty + ' ' + (item.unit || 'adet'));
+
+                if (cat === '3D Figürler') {
+                  // Figürler: hedef - stok = eksik adet. Sadece eksik olanları göster.
+                  items.forEach(function(item) {
+                    const val = malzemeStock[cat] && malzemeStock[cat][item.key];
+                    const stok = val || 0;
+                    const hedef = FIGUR_HEDEF[item.key] || 0;
+                    const eksik = hedef - stok;
+                    if (eksik > 0) {
+                      catLines.push('🔴 ' + item.label + ': ' + eksik + ' adet lazım (stok: ' + stok + ')');
                     }
-                  } else if (item.type === 'text') {
-                    const txt = (val || '').trim();
-                    if (txt) catLines.push('📝 ' + item.label + ': ' + txt);
-                  } else if (item.type === 'toggle2') {
-                    const st = val || 'yeterli';
-                    if (st === 'yetmez') catLines.push('❌ ' + item.label + ': Yetmez');
-                  } else if (item.type === 'toggle3') {
-                    const st = val || 'yeterli';
-                    if (st === 'azaldı') catLines.push('⚠️ ' + item.label + ': Azaldı');
+                  });
+                  if (catLines.length === 0) {
+                    msg += '✅ Tüm figürler tam!\n';
+                  } else {
+                    msg += '*EKSİK FIGÜRLER:*\n';
+                    catLines.forEach(function(l){ msg += l + '\n'; });
                   }
-                });
-                if (catLines.length === 0) {
-                  msg += '✅ Tüm malzemeler tam!\n';
                 } else {
-                  catLines.forEach(function(l){ msg += l + '\n'; });
+                  // Diğer kategoriler: boş text ve 'yeterli' toggleları atla, 0 dahil tüm sayaçları gönder
+                  items.forEach(function(item) {
+                    const val = malzemeStock[cat] && malzemeStock[cat][item.key];
+                    if (item.type === 'counter') {
+                      const qty = val || 0;
+                      catLines.push('📦 ' + item.label + ': ' + qty + ' ' + (item.unit || 'adet'));
+                    } else if (item.type === 'text') {
+                      const txt = (val || '').trim();
+                      if (txt) catLines.push('📝 ' + item.label + ': ' + txt);
+                    } else if (item.type === 'toggle2') {
+                      const st = val || 'yeterli';
+                      if (st === 'yetmez') catLines.push('❌ ' + item.label + ': Yetmez');
+                    } else if (item.type === 'toggle3') {
+                      const st = val || 'yeterli';
+                      if (st === 'azaldı') catLines.push('⚠️ ' + item.label + ': Azaldı');
+                    }
+                  });
+                  if (catLines.length === 0) {
+                    msg += '✅ Tüm malzemeler tam!\n';
+                  } else {
+                    catLines.forEach(function(l){ msg += l + '\n'; });
+                  }
                 }
+
                 msg += '\n- Sosyal Sanathane';
                 const url = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
                 window.open(url, '_blank');
