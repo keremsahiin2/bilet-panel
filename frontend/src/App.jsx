@@ -462,18 +462,86 @@ export default function App() {
   const [deleteConfirm, setDeleteConfirm]         = useState({});
 
   // ─── MALZEME TAKİBİ ────────────────────────────────────────────────────────
+  // ── Malzeme kategorileri — her item: { key, label, type }
+  // type: 'counter' | 'text' | 'toggle2' ('yeterli'/'yetmez') | 'toggle3' ('yeterli'/'azaldı')
   const MALZEME_CATS = {
-    '3D Figürler':       ['3D Figür (adet)', 'Akrilik Boya Seti', 'Fırça Seti', 'Koruyucu Vernik', 'Zımpara', 'Eldiven (çift)'],
-    'Resim Malzemeleri': ['Tuval (adet)', 'Akrilik Boya Seti', 'Fırça Seti', 'Palet', 'Su Kabı', 'Önlük'],
-    'Punch Malzemeleri': ['İp (kg)', 'Punch İğnesi (adet)', 'Nakış Gergi (adet)', 'Desen Kağıdı', 'Makas'],
-    'Mum Malzemeleri':   ['Mum Kili (kg)', 'Kalıp (adet)', 'Fitil (m)', 'Koku (şişe)', 'Boyama Rengi (adet)'],
-    'Diğer Malzemeler':  ['Önlük', 'Eldiven (çift)', 'Kâğıt Havlu (rulo)', 'Temizlik Bezi', 'Sprey Boya', 'Makas'],
+    '3D Figürler': [
+      { key:'Spiderman',           label:'Spiderman',            type:'counter' },
+      { key:'Spiderman Çocuk',     label:'Spiderman Çocuk',      type:'counter' },
+      { key:'Winnie the Pooh',     label:'Winnie the Pooh',      type:'counter' },
+      { key:'Stitch',              label:'Stitch',               type:'counter' },
+      { key:'Yoda',                label:'Yoda',                 type:'counter' },
+      { key:'Pikaçu',              label:'Pikaçu',               type:'counter' },
+      { key:'Bart',                label:'Bart',                 type:'counter' },
+      { key:'Mickey Mouse',        label:'Mickey Mouse',         type:'counter' },
+      { key:'Ironman',             label:'Ironman',              type:'counter' },
+      { key:'Groot',               label:'Groot',                type:'counter' },
+      { key:'Superman',            label:'Superman',             type:'counter' },
+      { key:'Batman Yeni',         label:'Batman Yeni',          type:'counter' },
+      { key:'Batman',              label:'Batman',               type:'counter' },
+      { key:'Mike',                label:'Mike',                 type:'counter' },
+      { key:'Donald',              label:'Donald',               type:'counter' },
+      { key:'Minnie',              label:'Minnie',               type:'counter' },
+      { key:'Bugs Bunny',          label:'Bugs Bunny',           type:'counter' },
+      { key:'Shrek',               label:'Shrek',                type:'counter' },
+      { key:'Shrek Gözlük',        label:'Shrek Gözlük',         type:'counter' },
+      { key:'Fiona',               label:'Fiona',                type:'counter' },
+      { key:'Süngerbob',           label:'Süngerbob',            type:'counter' },
+      { key:'Tom',                 label:'Tom',                  type:'counter' },
+      { key:'Jerry',               label:'Jerry',                type:'counter' },
+      { key:'Ninja Kaplumbağa',    label:'Ninja Kaplumbağa',     type:'counter' },
+      { key:'Labubu',              label:'Labubu',               type:'counter' },
+      { key:'Labubu Kalpli',       label:'Labubu Kalpli',        type:'counter' },
+      { key:'Garfield',            label:'Garfield',             type:'counter' },
+      { key:'Minion',              label:'Minion',               type:'counter' },
+      { key:'Goku',                label:'Goku',                 type:'counter' },
+      { key:'Chucky',              label:'Chucky',               type:'counter' },
+      { key:'Garen',               label:'Garen',                type:'counter' },
+      { key:'Eşşek',               label:'Eşşek',                type:'counter' },
+      { key:'Dobby',               label:'Dobby',                type:'counter' },
+      { key:'Dumbledore',          label:'Dumbledore',           type:'counter' },
+      { key:'Hagrid',              label:'Hagrid',               type:'counter' },
+      { key:'Harry Potter Bust',   label:'Harry Potter Bust',    type:'counter' },
+      { key:'Harry Potter Kuşlu',  label:'Harry Potter Kuşlu',   type:'counter' },
+      { key:'Hulk',                label:'Hulk',                 type:'counter' },
+      { key:'Vecna',               label:'Vecna',                type:'counter' },
+      { key:'Şirine',              label:'Şirine',               type:'counter' },
+      { key:'Hello Kitty',         label:'Hello Kitty',          type:'counter' },
+      { key:'Buzz',                label:'Buzz',                 type:'counter' },
+    ],
+    'Resim Malzemeleri': [
+      { key:'Tuval',         label:'Tuval',         type:'counter' },
+      { key:'Tuval Çantası', label:'Tuval Çantası', type:'counter' },
+      { key:'Akrilik Boya',  label:'Akrilik Boya',  type:'text', placeholder:'Hangi renkler eksik?' },
+    ],
+    'Punch Malzemeleri': [
+      { key:'Renkli İpler',       label:'Renkli İpler',       type:'text', placeholder:'Hangi renkler eksik?' },
+      { key:'İp Geçirme Teli',    label:'İp Geçirme Teli',    type:'counter' },
+    ],
+    'Mum Malzemeleri': [
+      { key:'Parafin',             label:'Parafin',             type:'toggle2' },
+      { key:'Soya Wax',            label:'Soya Wax',            type:'toggle2' },
+      { key:'Mum Kokuları',        label:'Mum Kokuları',        type:'text', placeholder:'Eksik kokular...' },
+      { key:'Mum Renk Pigmentleri',label:'Mum Renk Pigmentleri',type:'text', placeholder:'Eksik renkler...' },
+    ],
+    'Diğer Malzemeler': [
+      { key:'Seramik Kili',  label:'Seramik Kili',  type:'counter', unit:'paket' },
+      { key:'Heykel Kili',   label:'Heykel Kili',   type:'counter', unit:'paket' },
+      { key:'Kraft Çanta',   label:'Kraft Çanta',   type:'counter', unit:'koli'  },
+      { key:'Bez Çanta',     label:'Bez Çanta',     type:'toggle3' },
+      { key:'Maske',         label:'Maske',         type:'counter' },
+    ],
   };
   const initMalzeme = () => {
     const s = {};
     Object.entries(MALZEME_CATS).forEach(([cat, items]) => {
       s[cat] = {};
-      items.forEach(item => { s[cat][item] = 0; });
+      items.forEach(item => {
+        if (item.type === 'counter') s[cat][item.key] = 0;
+        else if (item.type === 'text') s[cat][item.key] = '';
+        else if (item.type === 'toggle2') s[cat][item.key] = 'yeterli'; // 'yeterli' | 'yetmez'
+        else if (item.type === 'toggle3') s[cat][item.key] = 'yeterli'; // 'yeterli' | 'azaldı'
+      });
     });
     return s;
   };
@@ -2441,12 +2509,159 @@ export default function App() {
 
   // ─── MALZEME TAKİBİ EKRANI ─────────────────────────────────────────────────
   if (mode === 'malzeme') {
-    const adjustStock = (cat, item, delta) => {
+
+    const CAT_ICON_M = {
+      '3D Figürler':'🪆','Resim Malzemeleri':'🎨',
+      'Punch Malzemeleri':'🧶','Mum Malzemeleri':'🧁','Diğer Malzemeler':'📦'
+    };
+
+    // Sayaç tipi için sayıyı artır/azalt
+    const adjustStock = (cat, key, delta) => {
       setMalzemeStock(prev => ({
         ...prev,
-        [cat]: { ...prev[cat], [item]: Math.max(0, (prev[cat][item] || 0) + delta) }
+        [cat]: { ...prev[cat], [key]: Math.max(0, (prev[cat][key] || 0) + delta) }
       }));
     };
+
+    // Metin tipi için değer güncelle
+    const setText = (cat, key, val) => {
+      setMalzemeStock(prev => ({ ...prev, [cat]: { ...prev[cat], [key]: val } }));
+    };
+
+    // Toggle tipi için durum değiştir
+    const toggleItem = (cat, key, options) => {
+      setMalzemeStock(prev => {
+        const cur = prev[cat]?.[key] || options[0];
+        const nextIdx = (options.indexOf(cur) + 1) % options.length;
+        return { ...prev, [cat]: { ...prev[cat], [key]: options[nextIdx] } };
+      });
+    };
+
+    // Bir kategorinin özet badge'ini hesapla
+    const getCatSummary = (cat, items) => {
+      const counters = items.filter(i => i.type === 'counter');
+      const total = counters.reduce((sum, i) => sum + (malzemeStock[cat]?.[i.key] || 0), 0);
+      const warnings = items.filter(i => {
+        if (i.type === 'toggle2') return malzemeStock[cat]?.[i.key] === 'yetmez';
+        if (i.type === 'toggle3') return malzemeStock[cat]?.[i.key] === 'azaldı';
+        if (i.type === 'text')    return (malzemeStock[cat]?.[i.key] || '').trim().length > 0;
+        return false;
+      }).length;
+      return { total, warnings };
+    };
+
+    // Tek satır renderer — tipe göre farklı kontrol
+    const renderItem = (cat, item, idx, items) => {
+      const val = malzemeStock[cat]?.[item.key];
+      const isLast = idx === items.length - 1;
+
+      if (item.type === 'counter') {
+        const qty = val || 0;
+        const unit = item.unit || 'adet';
+        return (
+          <div key={item.key} style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'13px 18px',
+            borderBottom: isLast ? 'none' : '1px solid #0f1525',
+            background: idx%2===0 ? '#0a0e1a' : '#0d1120'
+          }}>
+            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600,flex:1}}>{item.label}</span>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+              <button onClick={() => adjustStock(cat,item.key,-1)} disabled={qty===0}
+                style={{width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
+                  background:qty===0?'#0a0e1a':'#1a0a0a',color:qty===0?'#1e293b':'#ef4444',
+                  fontSize:20,fontWeight:700,cursor:qty===0?'default':'pointer',
+                  display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:42}}>
+                <span style={{fontSize:18,fontWeight:800,textAlign:'center',lineHeight:1,
+                  color:qty===0?'#334155':qty<=2?'#ef4444':qty<=5?'#f59e0b':'#22c55e'}}>{qty}</span>
+                <span style={{fontSize:9,color:'#475569',marginTop:1}}>{unit}</span>
+              </div>
+              <button onClick={() => adjustStock(cat,item.key,1)}
+                style={{width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
+                  background:'#0a1a0a',color:'#22c55e',fontSize:20,fontWeight:700,
+                  cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+            </div>
+          </div>
+        );
+      }
+
+      if (item.type === 'text') {
+        return (
+          <div key={item.key} style={{
+            display:'flex', flexDirection:'column', gap:6,
+            padding:'12px 18px',
+            borderBottom: isLast ? 'none' : '1px solid #0f1525',
+            background: idx%2===0 ? '#0a0e1a' : '#0d1120'
+          }}>
+            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600}}>{item.label}</span>
+            <textarea
+              value={val || ''}
+              onChange={e => setText(cat, item.key, e.target.value)}
+              placeholder={item.placeholder || ''}
+              rows={2}
+              style={{width:'100%',padding:'8px 12px',background:'#07090f',color:'#e2e8f0',
+                border:'1px solid #1a2035',borderRadius:8,fontSize:13,resize:'vertical',
+                outline:'none',boxSizing:'border-box',fontFamily:'inherit'}}
+            />
+          </div>
+        );
+      }
+
+      if (item.type === 'toggle2') {
+        // 'yeterli' ↔ 'yetmez'
+        const isOk = (val || 'yeterli') === 'yeterli';
+        return (
+          <div key={item.key} style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'13px 18px',
+            borderBottom: isLast ? 'none' : '1px solid #0f1525',
+            background: idx%2===0 ? '#0a0e1a' : '#0d1120'
+          }}>
+            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600,flex:1}}>{item.label}</span>
+            <button onClick={() => toggleItem(cat, item.key, ['yeterli','yetmez'])}
+              style={{
+                padding:'8px 18px', borderRadius:10, border:'none', cursor:'pointer',
+                fontWeight:700, fontSize:13, transition:'all 0.15s',
+                background: isOk ? '#0a1a0a' : '#1a0a0a',
+                color: isOk ? '#22c55e' : '#ef4444',
+                boxShadow: isOk ? '0 0 0 1px #22c55e44' : '0 0 0 1px #ef444444'
+              }}>
+              {isOk ? '✓ Yeteri kadar var' : '✗ Yetmez'}
+            </button>
+          </div>
+        );
+      }
+
+      if (item.type === 'toggle3') {
+        // 'yeterli' ↔ 'azaldı'
+        const cur = val || 'yeterli';
+        const isOk = cur === 'yeterli';
+        return (
+          <div key={item.key} style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'13px 18px',
+            borderBottom: isLast ? 'none' : '1px solid #0f1525',
+            background: idx%2===0 ? '#0a0e1a' : '#0d1120'
+          }}>
+            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600,flex:1}}>{item.label}</span>
+            <button onClick={() => toggleItem(cat, item.key, ['yeterli','azaldı'])}
+              style={{
+                padding:'8px 18px', borderRadius:10, border:'none', cursor:'pointer',
+                fontWeight:700, fontSize:13, transition:'all 0.15s',
+                background: isOk ? '#0a1a0a' : '#1a100a',
+                color: isOk ? '#22c55e' : '#f59e0b',
+                boxShadow: isOk ? '0 0 0 1px #22c55e44' : '0 0 0 1px #f59e0b44'
+              }}>
+              {isOk ? '✓ Yeteri kadar var' : '⚠ Azaldı'}
+            </button>
+          </div>
+        );
+      }
+
+      return null;
+    };
+
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -2458,7 +2673,7 @@ export default function App() {
         <div style={{maxWidth:720,margin:'0 auto',padding:'18px'}}>
           <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
             {Object.entries(MALZEME_CATS).map(([cat, items]) => {
-              const total = items.reduce((sum, item) => sum + (malzemeStock[cat]?.[item] || 0), 0);
+              const { total, warnings } = getCatSummary(cat, items);
               const active = malzemeCat === cat;
               return (
                 <div key={cat}>
@@ -2466,21 +2681,22 @@ export default function App() {
                     onClick={() => setMalzemeCat(active ? null : cat)}
                     style={{
                       width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
-                      padding:'16px 18px', borderRadius:active ? '12px 12px 0 0' : 12,
+                      padding:'16px 18px', borderRadius: active ? '12px 12px 0 0' : 12,
                       border: active ? '2px solid #b47cff44' : '1px solid #1a2035',
                       background: active ? '#0f1130' : '#0d1120', cursor:'pointer', transition:'all 0.15s'
                     }}>
                     <div style={{display:'flex',alignItems:'center',gap:12}}>
-                      <span style={{fontSize:22}}>
-                        {cat === '3D Figürler' ? '🪆' : cat === 'Resim Malzemeleri' ? '🎨' :
-                         cat === 'Punch Malzemeleri' ? '🧶' : cat === 'Mum Malzemeleri' ? '🧁' : '📦'}
-                      </span>
+                      <span style={{fontSize:22}}>{CAT_ICON_M[cat] || '📦'}</span>
                       <span style={{fontSize:14,fontWeight:700,color:active?'#b47cff':'#e2e8f0'}}>{cat}</span>
                     </div>
-                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
                       {total > 0 && (
                         <span style={{fontSize:12,fontWeight:700,color:'#ff9f4a',background:'#1a1206',
-                          border:'1px solid #ff9f4a44',borderRadius:8,padding:'2px 10px'}}>{total} birim</span>
+                          border:'1px solid #ff9f4a44',borderRadius:8,padding:'2px 10px'}}>{total}</span>
+                      )}
+                      {warnings > 0 && (
+                        <span style={{fontSize:12,fontWeight:700,color:'#ef4444',background:'#1a0808',
+                          border:'1px solid #ef444444',borderRadius:8,padding:'2px 10px'}}>⚠ {warnings}</span>
                       )}
                       <span style={{fontSize:18,color:'#374151',display:'inline-block',
                         transform:active?'rotate(90deg)':'none',transition:'transform 0.2s'}}>›</span>
@@ -2489,34 +2705,18 @@ export default function App() {
                   {active && (
                     <div style={{background:'#0a0e1a',border:'2px solid #b47cff44',borderTop:'none',
                       borderRadius:'0 0 12px 12px',overflow:'hidden'}}>
-                      {items.map((item, idx) => {
-                        const qty = malzemeStock[cat]?.[item] || 0;
-                        return (
-                          <div key={item} style={{
-                            display:'flex',alignItems:'center',justifyContent:'space-between',
-                            padding:'13px 18px',
-                            borderBottom:idx < items.length-1 ? '1px solid #0f1525' : 'none',
-                            background:idx%2===0?'#0a0e1a':'#0d1120'
-                          }}>
-                            <span style={{fontSize:13,color:'#94a3b8',fontWeight:600,flex:1}}>{item}</span>
-                            <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
-                              <button onClick={() => adjustStock(cat,item,-1)} disabled={qty===0}
-                                style={{width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
-                                  background:qty===0?'#0a0e1a':'#1a0a0a',color:qty===0?'#1e293b':'#ef4444',
-                                  fontSize:20,fontWeight:700,cursor:qty===0?'default':'pointer',
-                                  display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
-                              <span style={{fontSize:18,fontWeight:800,minWidth:36,textAlign:'center',
-                                color:qty===0?'#334155':qty<3?'#ef4444':qty<6?'#f59e0b':'#22c55e'}}>{qty}</span>
-                              <button onClick={() => adjustStock(cat,item,1)}
-                                style={{width:36,height:36,borderRadius:8,border:'1px solid #1e293b',
-                                  background:'#0a1a0a',color:'#22c55e',fontSize:20,fontWeight:700,
-                                  cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <div style={{padding:'10px 14px',borderTop:'1px solid #0f1525'}}>
-                        <button onClick={() => setMalzemeStock(prev => ({...prev,[cat]:Object.fromEntries(items.map(i=>[i,0]))}))}
+                      {items.map((item, idx) => renderItem(cat, item, idx, items))}
+                      <div style={{padding:'10px 14px',borderTop:'1px solid #0f1525',display:'flex',gap:8}}>
+                        <button
+                          onClick={() => {
+                            const reset = {};
+                            items.forEach(i => {
+                              if (i.type === 'counter') reset[i.key] = 0;
+                              else if (i.type === 'text') reset[i.key] = '';
+                              else if (i.type === 'toggle2' || i.type === 'toggle3') reset[i.key] = 'yeterli';
+                            });
+                            setMalzemeStock(prev => ({...prev, [cat]: reset}));
+                          }}
                           style={{padding:'7px 16px',borderRadius:8,fontSize:11,fontWeight:700,
                             background:'#1a0808',color:'#64748b',border:'1px solid #1e293b',cursor:'pointer'}}>
                           Sıfırla
