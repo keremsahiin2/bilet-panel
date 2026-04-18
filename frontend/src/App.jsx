@@ -2725,6 +2725,43 @@ export default function App() {
             {Object.entries(MALZEME_CATS).map(([cat, items]) => {
               const { total, warnings } = getCatSummary(cat, items);
               const active = malzemeCat === cat;
+
+              const sendCatWhatsApp = () => {
+                const now = new Date().toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+                const catIconMap = {'3D Figürler':'🪆','Resim Malzemeleri':'🎨','Punch Malzemeleri':'🧶','Mum Malzemeleri':'🧁','Diğer Malzemeler':'📦'};
+                const icon = catIconMap[cat] || '📦';
+                let msg = icon + ' *' + cat.toUpperCase() + ' STOK RAPORU*\n' + now + '\n\n';
+                const catLines = [];
+                items.forEach(function(item) {
+                  const val = malzemeStock[cat] && malzemeStock[cat][item.key];
+                  if (item.type === 'counter') {
+                    const qty = val || 0;
+                    if (qty === 0) {
+                      catLines.push('🔴 ' + item.label + ': 0 ' + (item.unit || 'adet'));
+                    } else if (qty <= 2) {
+                      catLines.push('🟠 ' + item.label + ': ' + qty + ' ' + (item.unit || 'adet'));
+                    }
+                  } else if (item.type === 'text') {
+                    const txt = (val || '').trim();
+                    if (txt) catLines.push('📝 ' + item.label + ': ' + txt);
+                  } else if (item.type === 'toggle2') {
+                    const st = val || 'yeterli';
+                    if (st === 'yetmez') catLines.push('❌ ' + item.label + ': Yetmez');
+                  } else if (item.type === 'toggle3') {
+                    const st = val || 'yeterli';
+                    if (st === 'azaldı') catLines.push('⚠️ ' + item.label + ': Azaldı');
+                  }
+                });
+                if (catLines.length === 0) {
+                  msg += '✅ Tüm malzemeler tam!\n';
+                } else {
+                  catLines.forEach(function(l){ msg += l + '\n'; });
+                }
+                msg += '\n- Sosyal Sanathane';
+                const url = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
+                window.open(url, '_blank');
+              };
+
               return (
                 <div key={cat}>
                   <button
@@ -2756,7 +2793,21 @@ export default function App() {
                     <div style={{background:'#0a0e1a',border:'2px solid #b47cff44',borderTop:'none',
                       borderRadius:'0 0 12px 12px',overflow:'hidden'}}>
                       {items.map((item, idx) => renderItem(cat, item, idx, items))}
-                      <div style={{padding:'10px 14px',borderTop:'1px solid #0f1525',display:'flex',gap:8}}>
+                      <div style={{padding:'10px 14px',borderTop:'1px solid #0f1525',display:'flex',flexDirection:'column',gap:8}}>
+                        <button
+                          onClick={sendCatWhatsApp}
+                          style={{
+                            width:'100%', padding:'11px 14px', borderRadius:10, border:'none',
+                            background:'linear-gradient(135deg,#25d366,#128c7e)',
+                            color:'#fff', fontSize:14, fontWeight:800, cursor:'pointer',
+                            display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                            transition:'all 0.2s'
+                          }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                          </svg>
+                          WhatsApp'tan Gönder
+                        </button>
                         <button
                           onClick={() => {
                             const reset = {};
@@ -2782,64 +2833,6 @@ export default function App() {
               );
             })}
           </div>
-          {/* ─── WhatsApp Gönder ─────────────────────────────────────── */}
-          <div style={{marginTop:8,background:'#0d1120',border:'1px solid #1a2035',borderRadius:14,padding:'14px 18px'}}>
-            <button
-              onClick={() => {
-                const now = new Date().toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-                let msg = '\uD83E\uDDF0 *MALZEME STOK RAPORU*\n' + now + '\n\n';
-                const catIcons = {'3D Figurler':'\uD83E\uDEA6','Resim Malzemeleri':'\uD83C\uDFA8','Punch Malzemeleri':'\uD83E\uDDF6','Mum Malzemeleri':'\uD83E\uDDC1','Diger Malzemeler':'\uD83D\uDCE6'};
-                Object.entries(MALZEME_CATS).forEach(([cat, items]) => {
-                  const catLines = [];
-                  items.forEach(function(item) {
-                    const val = malzemeStock[cat] && malzemeStock[cat][item.key];
-                    if (item.type === 'counter') {
-                      const qty = val || 0;
-                      if (qty === 0) {
-                        catLines.push('\uD83D\uDD34 ' + item.label + ': 0 ' + (item.unit || 'adet'));
-                      } else if (qty <= 2) {
-                        catLines.push('\uD83D\uDFE0 ' + item.label + ': ' + qty + ' ' + (item.unit || 'adet'));
-                      }
-                      // yeteri kadar (3+) ekleme
-                    } else if (item.type === 'text') {
-                      const txt = (val || '').trim();
-                      if (txt) catLines.push('\uD83D\uDCDD ' + item.label + ': ' + txt);
-                    } else if (item.type === 'toggle2') {
-                      const st = val || 'yeterli';
-                      if (st === 'yetmez') catLines.push('\u274C ' + item.label + ': Yetmez');
-                    } else if (item.type === 'toggle3') {
-                      const st = val || 'yeterli';
-                      if (st === 'azald\u0131') catLines.push('\u26A0\uFE0F ' + item.label + ': Azald\u0131');
-                    }
-                  });
-                  if (catLines.length > 0) {
-                    const icon = catIcons[cat.replace(/[\u00e7\u011f\u0131\u00f6\u015f\u00fc\u00c7\u011e\u0130\u00d6\u015e\u00dc]/g,'')] || '\uD83D\uDCE6';
-                    msg += icon + ' *' + cat.toUpperCase() + '*\n';
-                    catLines.forEach(function(l){ msg += l + '\n'; });
-                    msg += '\n';
-                  }
-                });
-                const hasIssues = msg.trim().split('\n').length > 2;
-                if (!hasIssues) msg += '\u2705 Tum malzemeler tam!\n\n';
-                msg += '- Sosyal Sanathane';
-                const url = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
-                window.open(url, '_blank');
-              }}
-              style={{
-                width:'100%', padding:'14px', borderRadius:12, border:'none',
-                background:'linear-gradient(135deg,#25d366,#128c7e)',
-                color:'#fff', fontSize:15, fontWeight:800, cursor:'pointer',
-                display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                letterSpacing:0.5, transition:'all 0.2s'
-              }}>
-              <span style={{fontSize:22}}>\uD83D\uDCAC</span>
-              WhatsApp'tan Gönder
-            </button>
-            {malzemeSaving && (
-              <div style={{fontSize:10,color:'#374151',textAlign:'center',marginTop:6}}>\u29F3 Kaydediliyor...</div>
-            )}
-          </div>
-
           <div style={{fontSize:11,color:'#1e293b',textAlign:'center',paddingTop:8,paddingBottom:4}}>
             ✓ Stok verileri otomatik kaydedilir
           </div>
