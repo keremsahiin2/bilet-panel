@@ -101,7 +101,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {} },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
