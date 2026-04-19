@@ -573,6 +573,7 @@ export default function App() {
   const [quizResultsLoading, setQuizResultsLoading] = useState(false);
   const [quizLiveScores, setQuizLiveScores]     = useState({});
   const [quizLiveGroups, setQuizLiveGroups]     = useState([]);
+  const [quizExpandedGroup, setQuizExpandedGroup] = useState(null); // detay paneli
 
   const QUIZ_EVENTS = {
     genelkultur: { label: 'Genel Kültür', totalQ: 50, pointPerQ: 10, icon: '🧠' },
@@ -640,6 +641,11 @@ export default function App() {
           setQuizEventType(d.quizData.eventType);
           setQuizGroups(d.quizData.groups || []);
           setQuizScores(d.quizData.scores || {});
+          // Cevap anahtarı sunucuda varsa yükle
+          if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
+            setQuizAnswers(d.quizData.answers);
+            setQuizAnswerFile((d.quizData.answersFile || 'Sunucudan yüklendi') + ' (' + Object.keys(d.quizData.answers).length + ' cevap)');
+          }
         }
         setQuizLoaded(true);
       })
@@ -697,6 +703,15 @@ export default function App() {
       if (json.error) throw new Error(json.error);
       setQuizAnswers(json.answers);
       setQuizAnswerFile(file.name + ' (' + json.count + ' cevap)');
+      // Cevapları sunucudaki quizData'ya da kaydet — diğer kullanıcılar da görsün
+      const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
+      if (current.quizData) {
+        const updated = {...current.quizData, answers: json.answers, answersFile: file.name};
+        await fetch('/api/quiz', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({quizData: updated})
+        }).catch(()=>{});
+      }
     } catch(e) {
       setQuizAnswerError('Dosya okunamadı: ' + e.message);
     }
@@ -3115,45 +3130,102 @@ export default function App() {
               <div style={{textAlign:'center',color:'#374151',padding:'40px 0'}}>Henüz skor yok</div>
             )}
 
-            {allGroupScores.map((g, idx) => {
-              const isTop = idx < 3 && g.score > 0;
-              const medal = medals[idx];
-              const isMe = quizMyGroups.includes(g.no);
-              const barWidth = maxScore > 0 ? Math.round((g.score / maxScore) * 100) : 0;
-              return (
-                <div key={g.no} style={{
-                  background: idx===0 && g.score>0 ? '#12100a' : '#0d1120',
-                  border: '1px solid ' + (idx===0 && g.score>0 ? '#fbbf2444' : isMe ? '#4fc9ff33' : '#0f1525'),
-                  borderRadius:12, marginBottom:8, padding:'14px 16px',
-                  position:'relative', overflow:'hidden'
-                }}>
-                  <div style={{position:'absolute',left:0,top:0,bottom:0,
-                    width:barWidth+'%',background: idx===0&&g.score>0 ? '#fbbf2408' : '#ffffff04',
-                    transition:'width 0.5s ease'}}/>
-                  <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
-                    <div style={{fontSize:20,minWidth:28,textAlign:'center',flexShrink:0}}>
-                      {isTop ? medal : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{idx+1}</span>}
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:'flex',alignItems:'center',gap:6}}>
-                        <span style={{fontSize:14,fontWeight:800,color: idx===0&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
-                          {g.no} No
-                        </span>
-                        {g.name && <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>· {g.name}</span>}
-                        {isMe && <span style={{fontSize:10,color:'#4fc9ff',background:'#4fc9ff11',
-                          border:'1px solid #4fc9ff33',borderRadius:4,padding:'1px 6px',fontWeight:700}}>Benim</span>}
+            {(() => {
+              // Aynı puanlı gruplara aynı sıra ver (tie ranking)
+              let rank = 1;
+              return allGroupScores.map((g, idx) => {
+                if (idx > 0 && g.score < allGroupScores[idx-1].score) rank = idx + 1;
+                const currentRank = rank;
+                const isTop = currentRank <= 3 && g.score > 0;
+                const medal = medals[currentRank - 1];
+                const isMe = quizMyGroups.includes(g.no);
+                const barWidth = maxScore > 0 ? Math.round((g.score / maxScore) * 100) : 0;
+                const isExpanded = quizExpandedGroup === g.no;
+                const groupScoreMap = displayScores[g.no] || {};
+                const totalQ = ev ? ev.totalQ : 50;
+
+                return (
+                  <div key={g.no} style={{marginBottom:8}}>
+                    {/* Ana kart — tıklanabilir */}
+                    <div
+                      onClick={() => setQuizExpandedGroup(isExpanded ? null : g.no)}
+                      style={{
+                        background: currentRank===1 && g.score>0 ? '#12100a' : '#0d1120',
+                        border: '1px solid ' + (isExpanded ? '#fbbf2466' : currentRank===1 && g.score>0 ? '#fbbf2444' : isMe ? '#4fc9ff33' : '#0f1525'),
+                        borderRadius: isExpanded ? '12px 12px 0 0' : 12,
+                        padding:'14px 16px',
+                        position:'relative', overflow:'hidden', cursor:'pointer'
+                      }}>
+                      <div style={{position:'absolute',left:0,top:0,bottom:0,
+                        width:barWidth+'%',background: currentRank===1&&g.score>0 ? '#fbbf2408' : '#ffffff04',
+                        transition:'width 0.5s ease'}}/>
+                      <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
+                        <div style={{fontSize:20,minWidth:28,textAlign:'center',flexShrink:0}}>
+                          {isTop ? medal : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{currentRank}</span>}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                            <span style={{fontSize:14,fontWeight:800,color: currentRank===1&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
+                              {g.no} No{g.name ? ' · ' + g.name : ''}
+                            </span>
+                            {isMe && <span style={{fontSize:10,color:'#4fc9ff',background:'#4fc9ff11',
+                              border:'1px solid #4fc9ff33',borderRadius:4,padding:'1px 6px',fontWeight:700}}>Benim</span>}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:22,fontWeight:900,
+                              color: currentRank===1&&g.score>0 ? '#fbbf24' : g.score>0 ? '#e2e8f0' : '#374151',
+                              lineHeight:1}}>{g.score.toLocaleString('tr')}</div>
+                            <div style={{fontSize:10,color:'#475569'}}>puan</div>
+                          </div>
+                          <span style={{fontSize:16,color:'#475569',transition:'transform 0.2s',
+                            display:'inline-block',transform: isExpanded ? 'rotate(90deg)' : 'none'}}>›</span>
+                        </div>
                       </div>
                     </div>
-                    <div style={{textAlign:'right',flexShrink:0}}>
-                      <div style={{fontSize:22,fontWeight:900,
-                        color: idx===0&&g.score>0 ? '#fbbf24' : g.score>0 ? '#e2e8f0' : '#374151',
-                        lineHeight:1}}>{g.score.toLocaleString('tr')}</div>
-                      <div style={{fontSize:10,color:'#475569'}}>puan</div>
-                    </div>
+
+                    {/* Detay paneli — soru bazlı doğru/yanlış */}
+                    {isExpanded && (
+                      <div style={{
+                        background:'#090d17',border:'1px solid #fbbf2422',
+                        borderTop:'none',borderRadius:'0 0 12px 12px',
+                        padding:'12px 14px'
+                      }}>
+                        <div style={{fontSize:11,color:'#64748b',fontWeight:700,textTransform:'uppercase',
+                          letterSpacing:1,marginBottom:10}}>Soru Detayı</div>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                          {Array.from({length: totalQ}, (_, i) => i+1).map(qNo => {
+                            const correct = !!groupScoreMap[qNo];
+                            const hasAnswer = quizAnswers[qNo];
+                            return (
+                              <div key={qNo}
+                                title={hasAnswer ? ('S' + qNo + ': ' + quizAnswers[qNo]) : 'Soru ' + qNo}
+                                style={{
+                                  width:32, height:32, borderRadius:6,
+                                  display:'flex', alignItems:'center', justifyContent:'center',
+                                  fontSize:10, fontWeight:800,
+                                  background: correct ? '#0a1a0a' : groupScoreMap[qNo]===false ? '#1a0a0a' : '#111827',
+                                  border: '1px solid ' + (correct ? '#22c55e66' : groupScoreMap[qNo]===false ? '#ef444466' : '#1e293b'),
+                                  color: correct ? '#22c55e' : groupScoreMap[qNo]===false ? '#ef4444' : '#374151',
+                                  cursor: hasAnswer ? 'help' : 'default',
+                                  flexShrink: 0
+                                }}>
+                                {correct ? '✓' : groupScoreMap[qNo]===false ? '✗' : qNo}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{display:'flex',gap:16,marginTop:10,fontSize:11,color:'#64748b'}}>
+                          <span><span style={{color:'#22c55e'}}>✓</span> Doğru: {Object.values(groupScoreMap).filter(v=>v===true).length}</span>
+                          <span><span style={{color:'#ef4444'}}>✗</span> Yanlış/Boş: {totalQ - Object.values(groupScoreMap).filter(v=>v===true).length}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
 
             <button
               onClick={() => {
