@@ -440,7 +440,6 @@ export default function App() {
     if (root) resetEl(root);
   }
   const [loggedIn, setLoggedIn]             = useState(false);
-  const [quizAppMode, setQuizAppMode]         = useState(false); // doğrudan quiz girişi
   const [autoLoginLoading, setAutoLoginLoading] = useState(false); // artık kullanılmıyor
   const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
   const [role, setRole]                     = useState(null);   // 'admin' | 'staff'
@@ -2171,10 +2170,92 @@ export default function App() {
       );
     }
 
+    // Quiz Night PIN girişi
+    if (rolePinTarget === 'quiz') {
+      const numpadPress = (digit) => {
+        if (rolePin.length >= 4) return;
+        const next = rolePin + digit;
+        setRolePin(next);
+        setRolePinError(false);
+        if (next.length === 4) {
+          setTimeout(() => {
+            if (next === '0000') {
+              setRole('quiz');
+              setRoleScreen(false);
+              setRolePin('');
+              setRolePinTarget(null);
+              setRolePinError(false);
+              setMode('quiz');
+            } else {
+              setRolePinError(true);
+              setRolePin('');
+            }
+          }, 120);
+        }
+      };
+      const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
+      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+      return (
+        <div style={S.page}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
+              <div style={{fontSize:36, marginBottom:12}}>🏆</div>
+              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>Quiz Night Girişi</div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
+              {rolePinError && (
+                <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
+              )}
+              <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{
+                    width:16, height:16, borderRadius:'50%',
+                    background: rolePin.length > i ? '#fbbf24' : '#1a2035',
+                    border: '2px solid ' + (rolePin.length > i ? '#fbbf24' : '#374151'),
+                    transition:'background 0.15s'
+                  }}/>
+                ))}
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
+                {NUMPAD.flat().map((k, i) => (
+                  k === '' ? <div key={i}/> :
+                  k === '⌫' ? (
+                    <button key={i} onClick={numpadDel}
+                      style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:20, cursor:'pointer', fontWeight:600}}>⌫</button>
+                  ) : (
+                    <button key={i} onClick={() => numpadPress(k)}
+                      style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:22, cursor:'pointer', fontWeight:700}}>
+                      {k}
+                    </button>
+                  )
+                ))}
+              </div>
+              <button
+                style={{...S.loginBtn,
+                  background: rolePin.length >= 4 ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : '#1a2035',
+                  color: rolePin.length >= 4 ? '#000' : '#374151',
+                  cursor: rolePin.length >= 4 ? 'pointer' : 'default', marginBottom:8
+                }}
+                onClick={() => {
+                  if (rolePin === '0000') {
+                    setRole('quiz'); setRoleScreen(false); setRolePin(''); setRolePinTarget(null); setMode('quiz');
+                  } else { setRolePinError(true); setRolePin(''); }
+                }}
+                disabled={rolePin.length < 4}
+              >Giriş →</button>
+              <button style={{...S.smallBtn, width:'100%', textAlign:'center'}}
+                onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}>← Geri</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Rol seçim butonları
     return (
       <div style={S.page}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'15vh'}}>
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%', border:'none'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
@@ -2214,6 +2295,19 @@ export default function App() {
                   <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
                 </div>
               </button>
+              {/* Quiz Night butonu */}
+              <button
+                style={{background:'linear-gradient(135deg,#12100a,#1a1400)', border:'1px solid #fbbf2444',
+                  borderRadius:14, padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left',
+                  display:'flex', alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('quiz')}
+              >
+                <span style={{fontSize:32}}>🏆</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2, color:'#fbbf24'}}>Quiz Night</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Sunucu veya puantör olarak katıl</div>
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -2222,44 +2316,10 @@ export default function App() {
   }
 
   // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
-  // Doğrudan Quiz Night girişi
-  if (!loggedIn && quizAppMode) {
-    return renderQuizApp();
-  }
-
   if (!loggedIn) {
     return (
       <div style={{...S.page, overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'18vh',paddingBottom:40}}>
-          {/* Quiz Night hızlı giriş */}
-          <div style={{width:'100%',maxWidth:420,marginBottom:0}}>
-            <button
-              onClick={() => setQuizAppMode(true)}
-              style={{
-                width:'100%',display:'flex',alignItems:'center',gap:16,
-                padding:'20px 24px',borderRadius:16,border:'1px solid #fbbf2444',
-                cursor:'pointer',textAlign:'left',background:'linear-gradient(135deg,#12100a,#0d1120)',
-                marginBottom:16,transition:'all 0.2s',boxShadow:'0 0 24px #fbbf2415'
-              }}>
-              <div style={{width:52,height:52,borderRadius:14,
-                background:'linear-gradient(135deg,#fbbf24,#f59e0b)',
-                display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                <span style={{fontSize:28}}>🏆</span>
-              </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:17,fontWeight:800,color:'#fbbf24',marginBottom:3}}>Quiz Night Girişi</div>
-                <div style={{fontSize:12,color:'#64748b'}}>Sunucu veya puantör olarak katıl</div>
-              </div>
-              <span style={{fontSize:22,color:'#fbbf24'}}>›</span>
-            </button>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
-              <div style={{flex:1,height:1,background:'#1a2035'}}/>
-              <span style={{fontSize:11,color:'#374151',flexShrink:0}}>veya panel girişi</span>
-              <div style={{flex:1,height:1,background:'#1a2035'}}/>
-            </div>
-          </div>
-        </div>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingBottom:40,marginTop:-16}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'27vh',paddingBottom:40}}>
           <div style={{...S.loginCard, width:'100%'}}>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
@@ -2879,7 +2939,7 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setMode(null); setQuizAppMode(false); }}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setMode(null); setRole(null); setRoleScreen(true); }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
             </div>
           </div>
@@ -3772,9 +3832,7 @@ export default function App() {
     return null;
   }
 
-  if (mode === 'quiz') { return renderQuizApp(); }
-  // Also handle quiz app standalone mode (no login needed)
-  if (quizAppMode && !loggedIn) { return renderQuizApp(); }
+  if (mode === 'quiz' || role === 'quiz') { return renderQuizApp(); }
 
   // ─── MALZEME TAKİBİ EKRANI ─────────────────────────────────────────────────
   if (mode === 'malzeme') {
@@ -4136,7 +4194,7 @@ export default function App() {
               background: role==='admin'?'#1a0a2e':'#0a1a2e',
               border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
               borderRadius:6, padding:'3px 10px', fontWeight:700}}>
-              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
+              {role === 'admin' ? '🔐 Yönetici' : role === 'quiz' ? '🏆 Quiz Night' : '👤 Çalışan'}
             </span>
           )}
           <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
