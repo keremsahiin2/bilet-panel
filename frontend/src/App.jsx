@@ -2060,54 +2060,60 @@ export default function App() {
 
   // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
   if (loggedIn && roleScreen && !role) {
-    const PINS = { admin: '2580', staff: '1525' };
-    const handleRolePin = () => {
-      if (rolePin === PINS[rolePinTarget]) {
-        setRole(rolePinTarget);
-        setRoleScreen(false);
-        setRolePin('');
-        setRolePinTarget(null);
-        setRolePinError(false);
+    const PINS = { admin: '2580', staff: '1525', quiz: '0000' };
+    const PIN_COLORS = { admin: '#b47cff', staff: '#0ea5e9', quiz: '#fbbf24' };
+    const PIN_GRAD = {
+      admin: 'linear-gradient(135deg,#b47cff,#7c3aff)',
+      staff: 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+      quiz:  'linear-gradient(135deg,#fbbf24,#f59e0b)',
+    };
+
+    const handleRolePinConfirm = (pin, target) => {
+      if (pin === PINS[target]) {
+        if (target === 'quiz') {
+          setRole('quiz');
+          setRoleScreen(false);
+          setRolePin('');
+          setRolePinTarget(null);
+          setRolePinError(false);
+          setMode('quiz');
+        } else {
+          setRole(target);
+          setRoleScreen(false);
+          setRolePin('');
+          setRolePinTarget(null);
+          setRolePinError(false);
+        }
       } else {
         setRolePinError(true);
         setRolePin('');
       }
     };
 
-    // Pin isteniyor
+    // Pin giriş ekranı
     if (rolePinTarget) {
+      const color = PIN_COLORS[rolePinTarget] || '#94a3b8';
+      const grad  = PIN_GRAD[rolePinTarget]  || '#111827';
+      const icon  = rolePinTarget === 'admin' ? '🔐' : rolePinTarget === 'quiz' ? '🏆' : '👤';
+      const label = rolePinTarget === 'admin' ? 'Yönetici Girişi' : rolePinTarget === 'quiz' ? 'Quiz Night Girişi' : 'Çalışan Girişi';
+      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+
       const numpadPress = (digit) => {
         if (rolePin.length >= 4) return;
         const next = rolePin + digit;
         setRolePin(next);
         setRolePinError(false);
         if (next.length === 4) {
-          setTimeout(() => {
-            if (next === PINS[rolePinTarget]) {
-              setRole(rolePinTarget);
-              setRoleScreen(false);
-              setRolePin('');
-              setRolePinTarget(null);
-              setRolePinError(false);
-            } else {
-              setRolePinError(true);
-              setRolePin('');
-            }
-          }, 120);
+          setTimeout(() => handleRolePinConfirm(next, rolePinTarget), 120);
         }
       };
-      const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
-      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+
       return (
         <div style={S.page}>
           <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
             <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
-              <div style={{fontSize:36, marginBottom:12}}>
-                {rolePinTarget === 'admin' ? '🔐' : '👤'}
-              </div>
-              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>
-                {rolePinTarget === 'admin' ? 'Yönetici Girişi' : 'Çalışan Girişi'}
-              </div>
+              <div style={{fontSize:36, marginBottom:12}}>{icon}</div>
+              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>{label}</div>
               <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
               {rolePinError && (
                 <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
@@ -2116,12 +2122,8 @@ export default function App() {
                 {[0,1,2,3].map(i => (
                   <div key={i} style={{
                     width:16, height:16, borderRadius:'50%',
-                    background: rolePin.length > i
-                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
-                      : '#1a2035',
-                    border: '2px solid ' + (rolePin.length > i
-                      ? (rolePinTarget==='admin' ? '#b47cff' : '#0ea5e9')
-                      : '#374151'),
+                    background: rolePin.length > i ? color : '#1a2035',
+                    border: '2px solid ' + (rolePin.length > i ? color : '#374151'),
                     transition:'background 0.15s'
                   }}/>
                 ))}
@@ -2131,10 +2133,9 @@ export default function App() {
                   k === '' ? <div key={i}/> :
                   k === '⌫' ? (
                     <button key={i}
-                      onClick={numpadDel}
+                      onClick={() => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); }}
                       style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
-                        border:'1px solid #1a2035', borderRadius:12, fontSize:20,
-                        cursor:'pointer', fontWeight:600}}>⌫</button>
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:20, cursor:'pointer', fontWeight:600}}>⌫</button>
                   ) : (
                     <button key={i}
                       onClick={() => numpadPress(k)}
@@ -2148,104 +2149,17 @@ export default function App() {
               </div>
               <button
                 style={{...S.loginBtn,
-                  background: rolePin.length >= 4
-                    ? (rolePinTarget==='admin'
-                        ? 'linear-gradient(135deg,#b47cff,#7c3aff)'
-                        : 'linear-gradient(135deg,#0ea5e9,#0284c7)')
-                    : '#1a2035',
-                  color: rolePin.length >= 4 ? '#fff' : '#374151',
-                  cursor: rolePin.length >= 4 ? 'pointer' : 'default',
-                  marginBottom:8
+                  background: rolePin.length >= 4 ? grad : '#1a2035',
+                  color: rolePin.length >= 4 ? (rolePinTarget === 'quiz' ? '#000' : '#fff') : '#374151',
+                  cursor: rolePin.length >= 4 ? 'pointer' : 'default', marginBottom:8
                 }}
-                onClick={handleRolePin}
+                onClick={() => handleRolePinConfirm(rolePin, rolePinTarget)}
                 disabled={rolePin.length < 4}
               >Giriş →</button>
               <button
                 style={{...S.smallBtn, width:'100%', textAlign:'center'}}
                 onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}
               >← Geri</button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Quiz Night PIN girişi
-    if (rolePinTarget === 'quiz') {
-      const numpadPress = (digit) => {
-        if (rolePin.length >= 4) return;
-        const next = rolePin + digit;
-        setRolePin(next);
-        setRolePinError(false);
-        if (next.length === 4) {
-          setTimeout(() => {
-            if (next === '0000') {
-              setRole('quiz');
-              setRoleScreen(false);
-              setRolePin('');
-              setRolePinTarget(null);
-              setRolePinError(false);
-              setMode('quiz');
-            } else {
-              setRolePinError(true);
-              setRolePin('');
-            }
-          }, 120);
-        }
-      };
-      const numpadDel = () => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); };
-      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
-      return (
-        <div style={S.page}>
-          <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
-            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
-              <div style={{fontSize:36, marginBottom:12}}>🏆</div>
-              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>Quiz Night Girişi</div>
-              <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
-              {rolePinError && (
-                <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
-              )}
-              <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
-                {[0,1,2,3].map(i => (
-                  <div key={i} style={{
-                    width:16, height:16, borderRadius:'50%',
-                    background: rolePin.length > i ? '#fbbf24' : '#1a2035',
-                    border: '2px solid ' + (rolePin.length > i ? '#fbbf24' : '#374151'),
-                    transition:'background 0.15s'
-                  }}/>
-                ))}
-              </div>
-              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
-                {NUMPAD.flat().map((k, i) => (
-                  k === '' ? <div key={i}/> :
-                  k === '⌫' ? (
-                    <button key={i} onClick={numpadDel}
-                      style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
-                        border:'1px solid #1a2035', borderRadius:12, fontSize:20, cursor:'pointer', fontWeight:600}}>⌫</button>
-                  ) : (
-                    <button key={i} onClick={() => numpadPress(k)}
-                      style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
-                        border:'1px solid #1a2035', borderRadius:12, fontSize:22, cursor:'pointer', fontWeight:700}}>
-                      {k}
-                    </button>
-                  )
-                ))}
-              </div>
-              <button
-                style={{...S.loginBtn,
-                  background: rolePin.length >= 4 ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : '#1a2035',
-                  color: rolePin.length >= 4 ? '#000' : '#374151',
-                  cursor: rolePin.length >= 4 ? 'pointer' : 'default', marginBottom:8
-                }}
-                onClick={() => {
-                  if (rolePin === '0000') {
-                    setRole('quiz'); setRoleScreen(false); setRolePin(''); setRolePinTarget(null); setMode('quiz');
-                  } else { setRolePinError(true); setRolePin(''); }
-                }}
-                disabled={rolePin.length < 4}
-              >Giriş →</button>
-              <button style={{...S.smallBtn, width:'100%', textAlign:'center'}}
-                onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}>← Geri</button>
             </div>
           </div>
         </div>
@@ -2273,10 +2187,8 @@ export default function App() {
             <div style={{display:'flex', flexDirection:'column', gap:12, marginTop:8}}>
               <button
                 style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
-                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
-                  alignItems:'center', gap:14}}
-                onClick={() => setRolePinTarget('admin')}
-              >
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex', alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('admin')}>
                 <span style={{fontSize:32}}>🔐</span>
                 <div>
                   <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Yönetici</div>
@@ -2285,23 +2197,19 @@ export default function App() {
               </button>
               <button
                 style={{background:'linear-gradient(135deg,#0ea5e9,#0284c7)', border:'none', borderRadius:14,
-                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex',
-                  alignItems:'center', gap:14}}
-                onClick={() => setRolePinTarget('staff')}
-              >
+                  padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left', display:'flex', alignItems:'center', gap:14}}
+                onClick={() => setRolePinTarget('staff')}>
                 <span style={{fontSize:32}}>👤</span>
                 <div>
                   <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Çalışan</div>
                   <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
                 </div>
               </button>
-              {/* Quiz Night butonu */}
               <button
                 style={{background:'linear-gradient(135deg,#12100a,#1a1400)', border:'1px solid #fbbf2444',
                   borderRadius:14, padding:'20px', cursor:'pointer', color:'#fff', textAlign:'left',
                   display:'flex', alignItems:'center', gap:14}}
-                onClick={() => setRolePinTarget('quiz')}
-              >
+                onClick={() => setRolePinTarget('quiz')}>
                 <span style={{fontSize:32}}>🏆</span>
                 <div>
                   <div style={{fontSize:15, fontWeight:700, marginBottom:2, color:'#fbbf24'}}>Quiz Night</div>
