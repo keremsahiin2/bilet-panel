@@ -428,6 +428,10 @@ export default function App() {
       el.style.maxWidth = '100%';
       el.style.boxSizing = 'border-box';
     };
+    // Viewport meta — klavye açılınca zoom olmasın
+    let vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) { vp = document.createElement('meta'); vp.name = 'viewport'; document.head.appendChild(vp); }
+    vp.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
     resetEl(document.documentElement);
     resetEl(document.body);
     document.body.style.background = '#07090f';
@@ -563,6 +567,7 @@ export default function App() {
   const [quizMyGroups, setQuizMyGroups]   = useState([]);      // bu puantörün grupları [no,...]
   const [quizCurrentQ, setQuizCurrentQ]  = useState(1);
   const [quizScores, setQuizScores]       = useState({});      // {groupNo: {1:true,2:false,...}}
+  const quizScoresRef = useRef({});
   const [quizSaving, setQuizSaving]       = useState(false);
   const [quizDeleteConfirm, setQuizDeleteConfirm] = useState(false);
   const [quizAnswers, setQuizAnswers]           = useState({});  // {1:'Ankara', 2:'Van Gogh', ...}
@@ -641,6 +646,7 @@ export default function App() {
           setQuizEventType(d.quizData.eventType);
           setQuizGroups(d.quizData.groups || []);
           setQuizScores(d.quizData.scores || {});
+          quizScoresRef.current = d.quizData.scores || {};
           // Cevap anahtarı sunucuda varsa yükle
           if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
             setQuizAnswers(d.quizData.answers);
@@ -705,13 +711,12 @@ export default function App() {
       setQuizAnswerFile(file.name + ' (' + json.count + ' cevap)');
       // Cevapları sunucudaki quizData'ya da kaydet — diğer kullanıcılar da görsün
       const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
-      if (current.quizData) {
-        const updated = {...current.quizData, answers: json.answers, answersFile: file.name};
-        await fetch('/api/quiz', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({quizData: updated})
-        }).catch(()=>{});
-      }
+      const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
+      const updated = {...base, answers: json.answers, answersFile: file.name};
+      await fetch('/api/quiz', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({quizData: updated})
+      }).catch(()=>{});
     } catch(e) {
       setQuizAnswerError('Dosya okunamadı: ' + e.message);
     }
@@ -2952,15 +2957,17 @@ export default function App() {
           const gs = prev[groupNo] || {};
           const newGs = {...gs, [quizCurrentQ]: !gs[quizCurrentQ]};
           const newScores = {...prev, [groupNo]: newGs};
-          // Anında kaydet
-          const data = { eventType: quizEventType, groups: quizGroups, scores: newScores, myGroups: quizMyGroups };
-          setQuizData(data);
-          saveQuizData(data);
+          quizScoresRef.current = newScores;
           return newScores;
         });
       };
 
       const goNext = () => {
+        // Sonraki'ye basınca kaydet
+        const latestScores = quizScoresRef.current;
+        const data = { eventType: quizEventType, groups: quizGroups, scores: latestScores, myGroups: quizMyGroups };
+        setQuizData(data);
+        saveQuizData(data);
         if (quizCurrentQ < totalQ) setQuizCurrentQ(q => q + 1);
         else setQuizStep('results');
       };
@@ -3131,11 +3138,16 @@ export default function App() {
             )}
 
             {(() => {
-              // Aynı puanlı gruplara aynı sıra ver (tie ranking)
-              let rank = 1;
-              return allGroupScores.map((g, idx) => {
-                if (idx > 0 && g.score < allGroupScores[idx-1].score) rank = idx + 1;
-                const currentRank = rank;
+              // Aynı puanlı gruplara aynı sıra ver (dense ranking: 1,1,2,2,3 ...)
+              const rankedGroups = allGroupScores.map((g, idx) => {
+                let r = 1;
+                for (let i = 0; i < idx; i++) {
+                  if (allGroupScores[i].score > g.score) r++;
+                }
+                return { ...g, rank: r };
+              });
+              return rankedGroups.map((g) => {
+                const currentRank = g.rank;
                 const isTop = currentRank <= 3 && g.score > 0;
                 const medal = medals[currentRank - 1];
                 const isMe = quizMyGroups.includes(g.no);
