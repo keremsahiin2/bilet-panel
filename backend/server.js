@@ -2339,6 +2339,107 @@ app.post('/api/quiz/parse-answers', upload.single('file'), async function(req, r
   }
 });
 
+// Quiz Night — DOCX/TXT soru dosyası parse et (sunucu modu)
+// Format: "Soru1 bla bla\nCevap: bla bla" veya bölüm başlığı satırları
+app.post('/api/quiz/parse-questions', upload.single('file'), async function(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Dosya bulunamadı' });
+    var ext = req.file.originalname.split('.').pop().toLowerCase();
+    var text = '';
+
+    if (ext === 'txt') {
+      text = req.file.buffer.toString('utf-8');
+    } else if (ext === 'docx') {
+      var result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      text = result.value;
+    } else {
+      return res.status(400).json({ error: 'Sadece .txt veya .docx desteklenir' });
+    }
+
+    // Parse: "1- soru metni" + "Cevap: cevap" formatı
+    // Bölüm başlıkları: soru/cevap olmayan kısa satırlar
+    // Şık satırları (örn. "4- Arap Baharı"): soru numarası artan sırada değilse şık sayılır
+    var lines = text.split(/\r?\n/);
+    var questions = {};
+    var currentNo = null;
+    var currentQuestion = '';
+    var currentSection = '';
+    var lastQuestionNo = 0;
+
+    function isOptionLine(line) {
+      // Tek satırda birden fazla "N- kelime" kalıbı varsa şık satırı
+      var matches = line.match(/(?<!\d)\d+[-.)]\s*[^\d\s]/g);
+      return matches && matches.length > 1;
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+
+      // Cevap satırı?
+      var ansMatch = line.match(/^[Cc]evap\s*:(.+)$/);
+      if (ansMatch) {
+        if (currentNo !== null && currentQuestion.trim()) {
+          questions[currentNo] = {
+            question: currentQuestion.trim(),
+            answer: ansMatch[1].trim(),
+            section: currentSection
+          };
+          currentNo = null;
+          currentQuestion = '';
+        }
+        continue;
+      }
+
+      // Soru satırı? — şık değil VE numarası artan sırada olmalı
+      var qMatch = line.match(/^(\d+)[-.)]\s*(.+)$/);
+      if (qMatch && !isOptionLine(line)) {
+        var no = parseInt(qMatch[1]);
+        // Sadece son sorudan büyük numaraysa yeni soru, yoksa şık satırı gibi işle
+        if (no > lastQuestionNo) {
+          // Önceki soruyu cevapsız kaydet
+          if (currentNo !== null && currentQuestion.trim() && !questions[currentNo]) {
+            questions[currentNo] = {
+              question: currentQuestion.trim(),
+              answer: '',
+              section: currentSection
+            };
+          }
+          currentNo = no;
+          lastQuestionNo = no;
+          currentQuestion = qMatch[2];
+          continue;
+        }
+        // Artan sırada değilse şık satırı — mevcut soruya ekle
+      }
+
+      // Mevcut soruya append et
+      if (currentNo !== null) {
+        currentQuestion += '\n' + line;
+        continue;
+      }
+
+      // Bölüm başlığı — kısa ve rakamla başlamayan satır
+      if (line.length < 60 && !/^\d/.test(line)) {
+        currentSection = line;
+      }
+    }
+
+    // Son soruyu kaydet
+    if (currentNo !== null && currentQuestion.trim() && !questions[currentNo]) {
+      questions[currentNo] = {
+        question: currentQuestion.trim(),
+        answer: '',
+        section: currentSection
+      };
+    }
+
+    res.json({ questions: questions, count: Object.keys(questions).length });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Frontend dist klasörünü servis et (PWA için)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('/{*path}', function(req, res) {
