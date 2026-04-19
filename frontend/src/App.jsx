@@ -561,6 +561,7 @@ export default function App() {
   // quizData: { eventType, groups:[{no,name}], scores:{groupNo: {q1:true/false,...}}, scorer, myGroups:[no,...] }
   const [quizData, setQuizData]           = useState(null);
   const [quizLoaded, setQuizLoaded]       = useState(false);
+  const [quizRole, setQuizRole]           = useState(null);      // null | 'host' | 'scorer'
   const [quizStep, setQuizStep]           = useState('select'); // 'select'|'groups'|'scoring'|'results'
   const [quizEventType, setQuizEventType] = useState(null);    // 'genelkultur'|'diziyfilm'
   const [quizGroups, setQuizGroups]       = useState([]);      // [{no,name}]
@@ -574,6 +575,12 @@ export default function App() {
   const [quizAnswerFile, setQuizAnswerFile]     = useState(null); // yüklenen dosya adı
   const [quizAnswerLoading, setQuizAnswerLoading] = useState(false);
   const [quizAnswerError, setQuizAnswerError]   = useState('');
+  // Sunucu modu — soru dosyası
+  const [quizQuestions, setQuizQuestions]       = useState({}); // {1:{question:'...',answer:'...',section:'...'}, ...}
+  const [quizQFile, setQuizQFile]               = useState(null);
+  const [quizQLoading, setQuizQLoading]         = useState(false);
+  const [quizQError, setQuizQError]             = useState('');
+  const [quizHostQ, setQuizHostQ]               = useState(1);  // sunucu ekranındaki aktif soru no
   // Results screen live data (must be top-level — no hooks inside if blocks)
   const [quizResultsLoading, setQuizResultsLoading] = useState(false);
   const [quizLiveScores, setQuizLiveScores]     = useState({});
@@ -721,6 +728,26 @@ export default function App() {
       setQuizAnswerError('Dosya okunamadı: ' + e.message);
     }
     setQuizAnswerLoading(false);
+  };
+
+  // Soru dosyası parse et (sunucu modu) — server'a gönder, mammoth parse eder
+  const handleQuestionFileUpload = async (file) => {
+    if (!file) return;
+    setQuizQLoading(true);
+    setQuizQError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/quiz/parse-questions', { method:'POST', body: formData });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setQuizQuestions(json.questions);
+      setQuizQFile(file.name + ' (' + json.count + ' soru)');
+      setQuizHostQ(1);
+    } catch(e) {
+      setQuizQError('Dosya okunamadı: ' + e.message);
+    }
+    setQuizQLoading(false);
   };
 
   const deleteQuizData = async () => {
@@ -2729,14 +2756,244 @@ export default function App() {
     const ev = QUIZ_EVENTS[quizEventType];
     const totalQ = ev ? ev.totalQ : 0;
 
-    // Etkinlik seçim ekranı
-    if (quizStep === 'select') {
+    // ── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
+    if (!quizRole) {
       return (
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
+            </div>
+          </div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'40px 18px'}}>
+            <div style={{textAlign:'center',marginBottom:36}}>
+              <div style={{fontSize:52,marginBottom:10}}>🏆</div>
+              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
+              <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
+            </div>
+            {/* Sunucu kartı */}
+            <button
+              onClick={() => setQuizRole('host')}
+              style={{
+                width:'100%',display:'flex',alignItems:'center',gap:18,
+                padding:'24px 22px',borderRadius:18,border:'1px solid #1a2035',
+                cursor:'pointer',textAlign:'left',background:'#0d1120',
+                marginBottom:14,transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#0e0a1a';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+              <div style={{width:56,height:56,borderRadius:14,background:'linear-gradient(135deg,#b47cff22,#7c3aff22)',
+                border:'1px solid #b47cff44',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <span style={{fontSize:28}}>🎤</span>
+              </div>
+              <div>
+                <div style={{fontSize:17,fontWeight:800,color:'#b47cff',marginBottom:4}}>Sunucu</div>
+                <div style={{fontSize:12,color:'#64748b',lineHeight:1.5}}>
+                  Soru dosyası yükle ve soruları ekranda göster.<br/>
+                  Sonraki butonuyla sorular sırayla gelir.
+                </div>
+              </div>
+            </button>
+            {/* Puantör kartı */}
+            <button
+              onClick={() => setQuizRole('scorer')}
+              style={{
+                width:'100%',display:'flex',alignItems:'center',gap:18,
+                padding:'24px 22px',borderRadius:18,border:'1px solid #1a2035',
+                cursor:'pointer',textAlign:'left',background:'#0d1120',
+                marginBottom:14,transition:'all 0.2s'
+              }}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.background='#12100a';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+              <div style={{width:56,height:56,borderRadius:14,background:'linear-gradient(135deg,#fbbf2422,#f59e0b22)',
+                border:'1px solid #fbbf2444',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <span style={{fontSize:28}}>📊</span>
+              </div>
+              <div>
+                <div style={{fontSize:17,fontWeight:800,color:'#fbbf24',marginBottom:4}}>Puantör</div>
+                <div style={{fontSize:12,color:'#64748b',lineHeight:1.5}}>
+                  Grupların cevaplarını işaretle ve<br/>
+                  anlık puan tablosunu takip et.
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── SUNUCU MODU ───────────────────────────────────────────────────────────
+    if (quizRole === 'host') {
+      const totalQCount = Object.keys(quizQuestions).length;
+      const currentQ = quizQuestions[quizHostQ];
+      const hasQuestions = totalQCount > 0;
+
+      // Soru yok → dosya yükleme ekranı
+      if (!hasQuestions) {
+        return (
+          <div style={S.page}>
+            <div style={S.header}>
+              <div style={S.headerLeft}>
+                <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizRole(null)}>← Geri</button>
+                <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎤 SUNUCU</span>
+              </div>
+            </div>
+            <div style={{maxWidth:480,margin:'0 auto',padding:'32px 18px'}}>
+              <div style={{textAlign:'center',marginBottom:32}}>
+                <div style={{fontSize:44,marginBottom:10}}>📄</div>
+                <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:6}}>Soru Dosyası Yükle</div>
+                <div style={{fontSize:12,color:'#64748b',lineHeight:1.6}}>
+                  .docx veya .txt formatında soru dosyası yükleyin.<br/>
+                  Format: <span style={{color:'#4fc9ff',fontWeight:700}}>Soru1 bla bla</span> ardından <span style={{color:'#22c55e',fontWeight:700}}>Cevap: bla bla</span>
+                </div>
+              </div>
+              <label style={{
+                display:'flex',flexDirection:'column',alignItems:'center',gap:14,
+                padding:'32px 24px',borderRadius:16,border:'2px dashed #1a2035',
+                cursor:'pointer',background:'#0a0e1a',transition:'all 0.2s',marginBottom:16
+              }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';}}>
+                <span style={{fontSize:36}}>📂</span>
+                {quizQLoading
+                  ? <span style={{fontSize:14,color:'#b47cff',fontWeight:700}}>⟳ Okunuyor…</span>
+                  : <span style={{fontSize:14,color:'#475569'}}>Dosya seç (.docx veya .txt)</span>
+                }
+                <input type="file" accept=".txt,.docx" style={{display:'none'}}
+                  onChange={e => { if(e.target.files[0]) handleQuestionFileUpload(e.target.files[0]); }} />
+              </label>
+              {quizQError && (
+                <div style={{background:'#1f0f0f',border:'1px solid #7f1d1d',borderRadius:10,
+                  padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:12}}>
+                  ❌ {quizQError}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Sorular yüklendi → soru gösterim ekranı
+      // Bölüm bilgisi
+      const sectionName = currentQ?.section || '';
+      const progressPct = Math.round((quizHostQ / totalQCount) * 100);
+
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizRole(null)}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎤 SUNUCU</span>
+            </div>
+            <div style={S.headerRight}>
+              <button
+                onClick={() => { setQuizQFile(null); setQuizQuestions({}); setQuizHostQ(1); }}
+                style={{...S.smallBtn, color:'#f87171', borderColor:'#7f1d1d22'}}>
+                🗑 Dosyayı Değiştir
+              </button>
+            </div>
+          </div>
+
+          <div style={{maxWidth:560,margin:'0 auto',padding:'16px 18px'}}>
+            {/* Progress */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <span style={{fontSize:11,color:'#475569'}}>{quizQFile}</span>
+              <span style={{fontSize:11,color:'#475569'}}>{quizHostQ} / {totalQCount}</span>
+            </div>
+            <div style={{background:'#1a2035',borderRadius:6,height:5,marginBottom:20,overflow:'hidden'}}>
+              <div style={{height:'100%',background:'linear-gradient(90deg,#b47cff,#7c3aff)',
+                width:progressPct+'%',borderRadius:6,transition:'width 0.3s'}}/>
+            </div>
+
+            {/* Bölüm etiketi */}
+            {sectionName && (
+              <div style={{display:'inline-flex',alignItems:'center',gap:6,
+                background:'#1a0a2a',border:'1px solid #b47cff44',borderRadius:8,
+                padding:'4px 12px',marginBottom:14}}>
+                <span style={{fontSize:11,fontWeight:700,color:'#b47cff',textTransform:'uppercase',letterSpacing:1}}>
+                  📌 {sectionName}
+                </span>
+              </div>
+            )}
+
+            {/* Soru kartı */}
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:18,
+              padding:'24px 22px',marginBottom:16,position:'relative'}}>
+              {/* Soru numarası rozeti */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16}}>
+                <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:10,padding:'5px 14px'}}>
+                  <span style={{fontSize:13,fontWeight:800,color:'#b47cff'}}>Soru {quizHostQ}</span>
+                </div>
+              </div>
+
+              {/* Soru metni */}
+              <div style={{fontSize:16,fontWeight:700,color:'#e2e8f0',lineHeight:1.65,marginBottom:0}}>
+                {currentQ?.question || '—'}
+              </div>
+            </div>
+
+            {/* Cevap kartı — ayrı, tıklanabilir reveal */}
+            <HostAnswerCard answer={currentQ?.answer} />
+
+            {/* Navigasyon */}
+            <div style={{display:'flex',gap:10,marginTop:16}}>
+              <button
+                onClick={() => setQuizHostQ(q => Math.max(1, q-1))}
+                disabled={quizHostQ <= 1}
+                style={{flex:1,padding:'14px',borderRadius:12,border:'1px solid #1a2035',cursor:'pointer',
+                  background:'#0d1120',color:quizHostQ<=1?'#1a2035':'#94a3b8',fontWeight:700,fontSize:14}}>
+                ← Önceki
+              </button>
+              <button
+                onClick={() => setQuizHostQ(q => Math.min(totalQCount, q+1))}
+                disabled={quizHostQ >= totalQCount}
+                style={{flex:2,padding:'14px',borderRadius:12,border:'none',cursor:'pointer',fontWeight:800,fontSize:14,
+                  background: quizHostQ >= totalQCount
+                    ? '#111827'
+                    : 'linear-gradient(135deg,#b47cff,#7c3aff)',
+                  color: quizHostQ >= totalQCount ? '#374151' : '#fff'}}>
+                {quizHostQ >= totalQCount ? '✅ Son Soru' : 'Sonraki →'}
+              </button>
+            </div>
+
+            {/* Tüm sorulara hızlı erişim */}
+            <div style={{marginTop:20}}>
+              <div style={{fontSize:11,color:'#374151',fontWeight:700,letterSpacing:1,
+                textTransform:'uppercase',marginBottom:8}}>Tüm Sorular</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {Object.keys(quizQuestions).map(n => {
+                  const no = parseInt(n);
+                  const isActive = no === quizHostQ;
+                  return (
+                    <button key={no} onClick={() => setQuizHostQ(no)}
+                      style={{
+                        width:36,height:36,borderRadius:8,border:'1px solid',
+                        fontSize:12,fontWeight:800,cursor:'pointer',flexShrink:0,
+                        background: isActive ? '#b47cff' : '#0d1120',
+                        color: isActive ? '#fff' : '#475569',
+                        borderColor: isActive ? '#b47cff' : '#1a2035',
+                        transition:'all 0.15s'
+                      }}>
+                      {no}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Etkinlik seçim ekranı
+    if (quizStep === 'select') {
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setQuizRole(null); }}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 PUANTÖR</span>
             </div>
           </div>
           <div style={{maxWidth:480,margin:'0 auto',padding:'32px 18px'}}>
@@ -3778,6 +4035,44 @@ function ActionCard({icon,title,desc,color,active,onClick,loading}){
     </button>
   );
 }
+function HostAnswerCard({answer}) {
+  const [revealed, setRevealed] = useState(false);
+  // Reset when answer changes (new question)
+  useEffect(() => { setRevealed(false); }, [answer]);
+  return (
+    <div style={{borderRadius:14,overflow:'hidden',border:'1px solid',
+      borderColor: revealed ? '#22c55e66' : '#1a2035',
+      transition:'border-color 0.3s'}}>
+      <button
+        onClick={() => setRevealed(r => !r)}
+        style={{
+          width:'100%',padding:'16px 20px',
+          background: revealed ? '#0a1a0a' : '#0d1120',
+          border:'none',cursor:'pointer',
+          display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,
+          transition:'background 0.3s'
+        }}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:14,fontWeight:800,
+            color: revealed ? '#22c55e' : '#475569'}}>
+            {revealed ? '✓ Cevap' : '🔒 Cevabı Göster'}
+          </span>
+        </div>
+        <span style={{fontSize:18,color: revealed ? '#22c55e' : '#374151',
+          transition:'transform 0.3s',display:'inline-block',
+          transform: revealed ? 'rotate(90deg)' : 'none'}}>›</span>
+      </button>
+      {revealed && (
+        <div style={{padding:'16px 20px',background:'#071a07',borderTop:'1px solid #22c55e33'}}>
+          <span style={{fontSize:16,fontWeight:800,color:'#4ade80',lineHeight:1.5}}>
+            {answer || '—'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Chip({label,value,color}){
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:48}}>
