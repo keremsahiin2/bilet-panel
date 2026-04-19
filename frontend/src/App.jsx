@@ -569,6 +569,10 @@ export default function App() {
   const [quizAnswerFile, setQuizAnswerFile]     = useState(null); // yüklenen dosya adı
   const [quizAnswerLoading, setQuizAnswerLoading] = useState(false);
   const [quizAnswerError, setQuizAnswerError]   = useState('');
+  // Results screen live data (must be top-level — no hooks inside if blocks)
+  const [quizResultsLoading, setQuizResultsLoading] = useState(false);
+  const [quizLiveScores, setQuizLiveScores]     = useState({});
+  const [quizLiveGroups, setQuizLiveGroups]     = useState([]);
 
   const QUIZ_EVENTS = {
     genelkultur: { label: 'Genel Kültür', totalQ: 50, pointPerQ: 10, icon: '🧠' },
@@ -600,6 +604,30 @@ export default function App() {
     }
     return total;
   };
+
+  // Sonuçlar ekranına geçince sunucudan güncel veriyi çek
+  useEffect(() => {
+    if (quizStep !== 'results') return;
+    setQuizResultsLoading(true);
+    fetch('/api/quiz')
+      .then(r => r.json())
+      .then(d => {
+        if (d.quizData) {
+          setQuizLiveScores(d.quizData.scores || {});
+          setQuizLiveGroups(d.quizData.groups || []);
+          setQuizScores(d.quizData.scores || {});
+          setQuizGroups(d.quizData.groups || []);
+        } else {
+          setQuizLiveScores(quizScores);
+          setQuizLiveGroups(quizGroups);
+        }
+      })
+      .catch(() => {
+        setQuizLiveScores(quizScores);
+        setQuizLiveGroups(quizGroups);
+      })
+      .finally(() => setQuizResultsLoading(false));
+  }, [quizStep]);
 
   // Quiz verilerini sunucudan yükle
   useEffect(() => {
@@ -2935,7 +2963,6 @@ export default function App() {
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎯 PUANLAMA</span>
             </div>
             <div style={S.headerRight}>
-              {quizSaving && <span style={{fontSize:11,color:'#22c55e'}}>⟳ Kaydediliyor…</span>}
               <button onClick={() => setQuizStep('results')}
                 style={{...S.smallBtn,color:'#fbbf24',borderColor:'#fbbf2444'}}>📊 Sonuçlar</button>
             </div>
@@ -3001,6 +3028,13 @@ export default function App() {
               </div>
             </div>
 
+            {/* Kaydediliyor göstergesi */}
+            {quizSaving && (
+              <div style={{textAlign:'center',marginBottom:8}}>
+                <span style={{fontSize:11,color:'#22c55e',fontWeight:600}}>⟳ Kaydediliyor…</span>
+              </div>
+            )}
+
             {/* Navigasyon */}
             <div style={{display:'flex',gap:10}}>
               <button onClick={goPrev} disabled={quizCurrentQ === 1}
@@ -3024,30 +3058,14 @@ export default function App() {
 
     // Sonuçlar ekranı
     if (quizStep === 'results') {
-      // Sunucudan güncel verileri çek sonra göster
-      const [resultsLoading, setResultsLoading] = useState(true);
-      const [liveScores, setLiveScores]         = useState(quizScores);
-      const [liveGroups, setLiveGroups]         = useState(quizGroups);
+      // quizLiveScores/quizLiveGroups top-level state'ten gelir (hooks if içinde olmaz)
+      const displayScores = Object.keys(quizLiveScores).length > 0 ? quizLiveScores : quizScores;
+      const displayGroups = quizLiveGroups.length > 0 ? quizLiveGroups : quizGroups;
 
-      useEffect(() => {
-        fetch('/api/quiz')
-          .then(r => r.json())
-          .then(d => {
-            if (d.quizData) {
-              setLiveScores(d.quizData.scores || {});
-              setLiveGroups(d.quizData.groups || quizGroups);
-              setQuizScores(d.quizData.scores || {});
-              setQuizGroups(d.quizData.groups || quizGroups);
-            }
-          })
-          .catch(() => {})
-          .finally(() => setResultsLoading(false));
-      }, []);
-
-      // Tüm grupların toplam puanını hesapla — live veriden
-      const allGroupScores = liveGroups.map(g => ({
+      // Tüm grupların toplam puanını hesapla
+      const allGroupScores = displayGroups.map(g => ({
         ...g,
-        score: calcGroupScore(g.no, quizEventType, liveScores)
+        score: calcGroupScore(g.no, quizEventType, displayScores)
       })).sort((a, b) => b.score - a.score);
 
       const maxScore = allGroupScores.length > 0 ? allGroupScores[0].score : 0;
@@ -3061,7 +3079,7 @@ export default function App() {
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
             <div style={S.headerRight}>
-              {resultsLoading && <span style={{fontSize:11,color:'#4fc9ff'}}>⟳ Veriler yükleniyor…</span>}
+              {quizResultsLoading && <span style={{fontSize:11,color:'#4fc9ff'}}>⟳ Yükleniyor…</span>}
               <button onClick={() => setQuizDeleteConfirm(true)}
                 style={{...S.smallBtn,color:'#f87171',borderColor:'#7f1d1d22'}}>🗑 Sıfırla</button>
             </div>
@@ -3139,15 +3157,19 @@ export default function App() {
 
             <button
               onClick={() => {
+                setQuizResultsLoading(true);
                 fetch('/api/quiz')
                   .then(r=>r.json())
                   .then(d => {
                     if (d.quizData) {
-                      setLiveScores(d.quizData.scores || {});
-                      setLiveGroups(d.quizData.groups || quizGroups);
+                      setQuizLiveScores(d.quizData.scores || {});
+                      setQuizLiveGroups(d.quizData.groups || []);
                       setQuizScores(d.quizData.scores || {});
+                      setQuizGroups(d.quizData.groups || []);
                     }
-                  });
+                  })
+                  .catch(()=>{})
+                  .finally(() => setQuizResultsLoading(false));
               }}
               style={{width:'100%',marginTop:8,padding:'13px',borderRadius:12,border:'1px solid #4fc9ff44',cursor:'pointer',
                 background:'#0d1a2e',color:'#4fc9ff',fontWeight:700,fontSize:14,marginBottom:8}}>
