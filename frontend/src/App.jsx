@@ -653,34 +653,22 @@ export default function App() {
     return answers;
   };
 
-  // Word/txt dosyası yükle ve parse et
+  // Word/txt dosyası yükle — sunucuya yolla, mammoth orada parse eder
   const handleAnswerFileUpload = async (file) => {
     if (!file) return;
     setQuizAnswerLoading(true);
     setQuizAnswerError('');
-    const ext = file.name.split('.').pop().toLowerCase();
     try {
-      if (ext === 'txt') {
-        const text = await file.text();
-        const parsed = parseAnswerText(text);
-        setQuizAnswers(parsed);
-        setQuizAnswerFile(file.name);
-      } else if (ext === 'docx') {
-        // mammoth ile docx → text
-        const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js').catch(() => null);
-        if (!mammoth) {
-          setQuizAnswerError('docx desteği için tarayıcı uyumlu kütüphane yükleniyor, .txt formatını deneyin.');
-          setQuizAnswerLoading(false);
-          return;
-        }
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        const parsed = parseAnswerText(result.value);
-        setQuizAnswers(parsed);
-        setQuizAnswerFile(file.name);
-      } else {
-        setQuizAnswerError('Sadece .txt veya .docx dosyaları desteklenir');
-      }
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/quiz/parse-answers', {
+        method: 'POST',
+        body: formData
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setQuizAnswers(json.answers);
+      setQuizAnswerFile(file.name + ' (' + json.count + ' cevap)');
     } catch(e) {
       setQuizAnswerError('Dosya okunamadı: ' + e.message);
     }

@@ -1,9 +1,12 @@
 require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const axios   = require('axios');
-const fs   = require('fs');
-const path = require('path');
+const express  = require('express');
+const cors     = require('cors');
+const axios    = require('axios');
+const fs       = require('fs');
+const path     = require('path');
+const mammoth  = require('mammoth');
+const multer   = require('multer');
+const upload   = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const app = express();
 app.use(cors());
@@ -2297,6 +2300,40 @@ app.delete('/api/quiz', async function(req, res) {
     jsonbinCacheDirty = true;
     await flushJsonbinCache();
     res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Quiz Night — DOCX/TXT cevap dosyası parse et (sunucu tarafında mammoth kullanır)
+app.post('/api/quiz/parse-answers', upload.single('file'), async function(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Dosya bulunamadı' });
+    var ext = req.file.originalname.split('.').pop().toLowerCase();
+    var text = '';
+
+    if (ext === 'txt') {
+      text = req.file.buffer.toString('utf-8');
+    } else if (ext === 'docx') {
+      var result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      text = result.value;
+    } else {
+      return res.status(400).json({ error: 'Sadece .txt veya .docx desteklenir' });
+    }
+
+    // Parse: "1- Ankara", "2. B) Van Gogh", "3) Bilgisayar" formatlarını destekle
+    var answers = {};
+    var lines = text.split(/\r?\n/);
+    lines.forEach(function(line) {
+      line = line.trim();
+      if (!line) return;
+      var m = line.match(/^(\d+)[\-\.\)\s]+(.+)$/);
+      if (m) {
+        answers[parseInt(m[1])] = m[2].trim();
+      }
+    });
+
+    res.json({ answers: answers, count: Object.keys(answers).length });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
