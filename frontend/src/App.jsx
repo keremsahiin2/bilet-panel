@@ -553,6 +553,94 @@ export default function App() {
   const [malzemeSaving, setMalzemeSaving] = useState(false);
   const WHATSAPP_NUMBER = '905050523801';
 
+  // ─── QUIZ NIGHT ────────────────────────────────────────────────────────────
+  // quizData: { eventType, groups:[{no,name}], scores:{groupNo: {q1:true/false,...}}, scorer, myGroups:[no,...] }
+  const [quizData, setQuizData]           = useState(null);
+  const [quizLoaded, setQuizLoaded]       = useState(false);
+  const [quizStep, setQuizStep]           = useState('select'); // 'select'|'groups'|'scoring'|'results'
+  const [quizEventType, setQuizEventType] = useState(null);    // 'genelkultur'|'diziyfilm'
+  const [quizGroups, setQuizGroups]       = useState([]);      // [{no,name}]
+  const [quizMyGroups, setQuizMyGroups]   = useState([]);      // bu puantörün grupları [no,...]
+  const [quizCurrentQ, setQuizCurrentQ]  = useState(1);
+  const [quizScores, setQuizScores]       = useState({});      // {groupNo: {1:true,2:false,...}}
+  const [quizSaving, setQuizSaving]       = useState(false);
+  const [quizDeleteConfirm, setQuizDeleteConfirm] = useState(false);
+
+  const QUIZ_EVENTS = {
+    genelkultur: { label: 'Genel Kültür', totalQ: 50, pointPerQ: 10, icon: '🧠' },
+    diziyfilm:   { label: 'Dizi & Film',  totalQ: 40, pointPerQ: null, icon: '🎬',
+      // ilk 10→10pt, 11-20→20pt, 21-30→30pt, 31-40→40pt
+      getPoints: (qNo) => {
+        if (qNo <= 10) return 10;
+        if (qNo <= 20) return 20;
+        if (qNo <= 30) return 30;
+        return 40;
+      }
+    }
+  };
+
+  const getQuizPoint = (eventType, qNo) => {
+    const ev = QUIZ_EVENTS[eventType];
+    if (!ev) return 0;
+    if (ev.pointPerQ) return ev.pointPerQ;
+    return ev.getPoints(qNo);
+  };
+
+  const calcGroupScore = (groupNo, eventType, scores) => {
+    const ev = QUIZ_EVENTS[eventType];
+    if (!ev) return 0;
+    const gs = scores[groupNo] || {};
+    let total = 0;
+    for (let q = 1; q <= ev.totalQ; q++) {
+      if (gs[q]) total += getQuizPoint(eventType, q);
+    }
+    return total;
+  };
+
+  // Quiz verilerini sunucudan yükle
+  useEffect(() => {
+    fetch('/api/quiz')
+      .then(r => r.json())
+      .then(d => {
+        if (d.quizData) {
+          setQuizData(d.quizData);
+          // Mevcut oturuma devam et
+          setQuizEventType(d.quizData.eventType);
+          setQuizGroups(d.quizData.groups || []);
+          setQuizScores(d.quizData.scores || {});
+        }
+        setQuizLoaded(true);
+      })
+      .catch(() => setQuizLoaded(true));
+  }, []);
+
+  const saveQuizData = (newData) => {
+    setQuizSaving(true);
+    fetch('/api/quiz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizData: newData })
+    }).catch(() => {}).finally(() => setQuizSaving(false));
+  };
+
+  const deleteQuizData = async () => {
+    await fetch('/api/quiz', { method: 'DELETE' });
+    setQuizData(null);
+    setQuizStep('select');
+    setQuizEventType(null);
+    setQuizGroups([]);
+    setQuizMyGroups([]);
+    setQuizCurrentQ(1);
+    setQuizScores({});
+    setQuizDeleteConfirm(false);
+  };
+
+  // SORU CEVAPLARI — etkinliğe göre
+  const QUIZ_ANSWERS = {
+    genelkultur: {}, // boş — puantör sadece doğru/yanlış işaretler, cevap bilgisi gösterilmez
+    diziyfilm: {}
+  };
+
   // Sayfa açılınca otomatik login dene — rol ekranı hemen göster, veri arka planda gelir
   useState(() => {
     fetch('/api/auto-login', { method:'POST' })
@@ -2536,6 +2624,417 @@ export default function App() {
   }
 
 
+  // ─── QUIZ NIGHT EKRANI ─────────────────────────────────────────────────────
+  if (mode === 'quiz') {
+    const ev = QUIZ_EVENTS[quizEventType];
+    const totalQ = ev ? ev.totalQ : 0;
+
+    // Etkinlik seçim ekranı
+    if (quizStep === 'select') {
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
+            </div>
+          </div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'32px 18px'}}>
+            <div style={{textAlign:'center',marginBottom:32}}>
+              <div style={{fontSize:48,marginBottom:8}}>🏆</div>
+              <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:4}}>Quiz Night</div>
+              <div style={{fontSize:13,color:'#475569'}}>Etkinlik türünü seçin</div>
+            </div>
+            {Object.entries(QUIZ_EVENTS).map(([key, evt]) => (
+              <button key={key}
+                onClick={() => { setQuizEventType(key); setQuizGroups([{no:'1',name:''},{no:'2',name:''}]); setQuizStep('groups'); setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1); }}
+                style={{
+                  width:'100%',display:'flex',alignItems:'center',gap:16,
+                  padding:'22px 24px',borderRadius:16,border:'1px solid #1a2035',
+                  cursor:'pointer',textAlign:'left',background:'#0d1120',
+                  marginBottom:14,transition:'all 0.2s'
+                }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.background='#12100a';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+                <span style={{fontSize:40}}>{evt.icon}</span>
+                <div>
+                  <div style={{fontSize:17,fontWeight:800,color:'#fff',marginBottom:4}}>{evt.label}</div>
+                  <div style={{fontSize:12,color:'#64748b'}}>
+                    {key === 'genelkultur'
+                      ? `${evt.totalQ} soru · Her soru ${evt.pointPerQ} puan · Toplam ${evt.totalQ * evt.pointPerQ} puan`
+                      : `${evt.totalQ} soru · 1-10: 10pt  11-20: 20pt  21-30: 30pt  31-40: 40pt · Toplam 1000 puan`
+                    }
+                  </div>
+                </div>
+              </button>
+            ))}
+            {quizData && (
+              <div style={{marginTop:8,padding:'14px 18px',background:'#0a1a0a',border:'1px solid #22c55e33',borderRadius:12}}>
+                <div style={{fontSize:12,color:'#22c55e',fontWeight:700,marginBottom:8}}>✓ Kayıtlı etkinlik mevcut</div>
+                <div style={{fontSize:12,color:'#64748b',marginBottom:10}}>
+                  {QUIZ_EVENTS[quizData.eventType]?.label} · {quizData.groups?.length || 0} grup
+                </div>
+                <button
+                  onClick={() => { setQuizEventType(quizData.eventType); setQuizGroups(quizData.groups||[]); setQuizScores(quizData.scores||{}); setQuizMyGroups(quizData.myGroups||[]); setQuizCurrentQ(1); setQuizStep('groups'); }}
+                  style={{width:'100%',padding:'10px',borderRadius:10,border:'none',cursor:'pointer',
+                    background:'linear-gradient(135deg,#22c55e,#16a34a)',color:'#fff',fontWeight:700,fontSize:13,marginBottom:8}}>
+                  Devam Et →
+                </button>
+                <button
+                  onClick={() => setQuizDeleteConfirm(true)}
+                  style={{width:'100%',padding:'9px',borderRadius:10,border:'1px solid #7f1d1d',cursor:'pointer',
+                    background:'#1f0f0f',color:'#f87171',fontWeight:600,fontSize:12}}>
+                  {quizDeleteConfirm ? '⚠️ Emin misin? Tekrar bas' : '🗑 Etkinliği Sil'}
+                </button>
+                {quizDeleteConfirm && (
+                  <button onClick={deleteQuizData}
+                    style={{width:'100%',marginTop:6,padding:'9px',borderRadius:10,border:'none',cursor:'pointer',
+                      background:'#7f1d1d',color:'#fca5a5',fontWeight:700,fontSize:12}}>
+                    ✗ Evet, Sil
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Grup ayarlama ekranı
+    if (quizStep === 'groups') {
+      const addGroup = () => {
+        const nextNo = String((quizGroups.length > 0 ? Math.max(...quizGroups.map(g=>parseInt(g.no)||0)) : 0) + 1);
+        setQuizGroups(prev => [...prev, {no: nextNo, name: ''}]);
+      };
+      const removeGroup = (idx) => setQuizGroups(prev => prev.filter((_,i)=>i!==idx));
+      const updateGroup = (idx, field, val) => setQuizGroups(prev => prev.map((g,i)=>i===idx?{...g,[field]:val}:g));
+      const toggleMyGroup = (no) => setQuizMyGroups(prev => prev.includes(no) ? prev.filter(n=>n!==no) : [...prev, no]);
+
+      const handleStart = () => {
+        // Gruplara no ve isimleri kaydet, başlangıç scorlarını hazırla
+        const newScores = {...quizScores};
+        quizGroups.forEach(g => {
+          if (!newScores[g.no]) newScores[g.no] = {};
+        });
+        setQuizScores(newScores);
+        const data = { eventType: quizEventType, groups: quizGroups, scores: newScores, myGroups: quizMyGroups };
+        setQuizData(data);
+        saveQuizData(data);
+        setQuizCurrentQ(1);
+        setQuizStep('scoring');
+      };
+
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('select')}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>
+                {ev?.icon} {ev?.label}
+              </span>
+            </div>
+          </div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'20px 18px'}}>
+            <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Gruplar</div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:16}}>Grup numaraları ve isimlerini girin</div>
+
+            {quizGroups.map((g, idx) => (
+              <div key={idx} style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
+                <div style={{
+                  width:36,height:36,borderRadius:8,background:'#111827',border:'1px solid #1a2035',
+                  display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
+                }}>
+                  <input
+                    value={g.no}
+                    onChange={e => updateGroup(idx,'no',e.target.value)}
+                    style={{width:28,background:'transparent',color:'#fbbf24',border:'none',outline:'none',
+                      fontSize:14,fontWeight:800,textAlign:'center'}}
+                    placeholder="No"
+                  />
+                </div>
+                <input
+                  value={g.name}
+                  onChange={e => updateGroup(idx,'name',e.target.value)}
+                  placeholder={`Grup ${g.no} adı (opsiyonel)`}
+                  style={{...S.input, marginBottom:0, flex:1}}
+                />
+                <button
+                  onClick={() => removeGroup(idx)}
+                  style={{width:36,height:36,borderRadius:8,border:'1px solid #1a2035',background:'#1a0a0a',
+                    color:'#ef4444',fontSize:18,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+              </div>
+            ))}
+
+            <button onClick={addGroup}
+              style={{width:'100%',padding:'10px',borderRadius:10,border:'1px dashed #1a2035',cursor:'pointer',
+                background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:20}}>
+              + Grup Ekle
+            </button>
+
+            <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Benim Gruplarım</div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:12}}>Hangi gruplara bakıyorsunuz? Seçin (puanlama ekranında sadece bunlar görünür)</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:24}}>
+              {quizGroups.map((g, idx) => {
+                const selected = quizMyGroups.includes(g.no);
+                return (
+                  <button key={idx} onClick={() => toggleMyGroup(g.no)}
+                    style={{padding:'8px 16px',borderRadius:10,border:'1px solid',cursor:'pointer',fontWeight:700,fontSize:13,
+                      background: selected ? '#12100a' : '#0d1120',
+                      color: selected ? '#fbbf24' : '#475569',
+                      borderColor: selected ? '#fbbf24' : '#1a2035',
+                      transition:'all 0.15s'
+                    }}>
+                    {g.no}{g.name ? ` · ${g.name}` : ''}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={handleStart}
+              disabled={quizGroups.length === 0 || quizMyGroups.length === 0}
+              style={{width:'100%',padding:'15px',borderRadius:12,border:'none',cursor:'pointer',fontWeight:800,fontSize:15,
+                background: (quizGroups.length > 0 && quizMyGroups.length > 0)
+                  ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : '#111827',
+                color: (quizGroups.length > 0 && quizMyGroups.length > 0) ? '#000' : '#374151',
+                marginBottom:10
+              }}>
+              Puanlamayı Başlat →
+            </button>
+            <button
+              onClick={() => { setQuizStep('results'); }}
+              style={{width:'100%',padding:'11px',borderRadius:10,border:'1px solid #1a2035',cursor:'pointer',
+                background:'#0d1120',color:'#94a3b8',fontSize:13,fontWeight:600}}>
+              📊 Sonuçları Gör
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Puanlama ekranı
+    if (quizStep === 'scoring') {
+      const myGroupObjs = quizGroups.filter(g => quizMyGroups.includes(g.no));
+      const qPoint = getQuizPoint(quizEventType, quizCurrentQ);
+
+      const toggleAnswer = (groupNo) => {
+        setQuizScores(prev => {
+          const gs = prev[groupNo] || {};
+          const newGs = {...gs, [quizCurrentQ]: !gs[quizCurrentQ]};
+          const newScores = {...prev, [groupNo]: newGs};
+          // Anında kaydet
+          const data = { eventType: quizEventType, groups: quizGroups, scores: newScores, myGroups: quizMyGroups };
+          setQuizData(data);
+          saveQuizData(data);
+          return newScores;
+        });
+      };
+
+      const goNext = () => {
+        if (quizCurrentQ < totalQ) setQuizCurrentQ(q => q + 1);
+        else setQuizStep('results');
+      };
+      const goPrev = () => {
+        if (quizCurrentQ > 1) setQuizCurrentQ(q => q - 1);
+      };
+
+      const progressPct = Math.round((quizCurrentQ / totalQ) * 100);
+
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('groups')}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎯 PUANLAMA</span>
+            </div>
+            <div style={S.headerRight}>
+              {quizSaving && <span style={{fontSize:11,color:'#22c55e'}}>⟳ Kaydediliyor…</span>}
+              <button onClick={() => setQuizStep('results')}
+                style={{...S.smallBtn,color:'#fbbf24',borderColor:'#fbbf2444'}}>📊 Sonuçlar</button>
+            </div>
+          </div>
+
+          <div style={{maxWidth:480,margin:'0 auto',padding:'16px 18px'}}>
+            {/* Progress bar */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <span style={{fontSize:11,color:'#475569'}}>{ev?.label}</span>
+              <span style={{fontSize:11,color:'#475569'}}>{quizCurrentQ} / {totalQ}</span>
+            </div>
+            <div style={{background:'#1a2035',borderRadius:6,height:6,marginBottom:20,overflow:'hidden'}}>
+              <div style={{height:'100%',background:'linear-gradient(90deg,#fbbf24,#f59e0b)',
+                width:progressPct+'%',borderRadius:6,transition:'width 0.3s'}}/>
+            </div>
+
+            {/* Soru kartı */}
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'20px 20px 16px',marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <div style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,padding:'4px 12px'}}>
+                  <span style={{fontSize:12,fontWeight:800,color:'#fbbf24'}}>Soru {quizCurrentQ}</span>
+                </div>
+                <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 12px'}}>
+                  <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
+                </div>
+              </div>
+
+              {/* Grup kutucukları */}
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                {myGroupObjs.map(g => {
+                  const correct = !!(quizScores[g.no]?.[quizCurrentQ]);
+                  return (
+                    <button key={g.no} onClick={() => toggleAnswer(g.no)}
+                      style={{
+                        display:'flex',alignItems:'center',justifyContent:'space-between',
+                        padding:'14px 16px',borderRadius:12,border:'2px solid',cursor:'pointer',
+                        background: correct ? '#0a1a0a' : '#0a0e1a',
+                        borderColor: correct ? '#22c55e' : '#1a2035',
+                        transition:'all 0.15s'
+                      }}>
+                      <span style={{fontSize:14,fontWeight:700,color: correct ? '#22c55e' : '#64748b'}}>
+                        {g.no} No'lu Grup{g.name ? ` · ${g.name}` : ''}
+                      </span>
+                      <div style={{
+                        width:28,height:28,borderRadius:6,border:'2px solid',
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        background: correct ? '#22c55e' : 'transparent',
+                        borderColor: correct ? '#22c55e' : '#374151',
+                        transition:'all 0.15s',flexShrink:0
+                      }}>
+                        {correct && <span style={{fontSize:16,color:'#fff',fontWeight:900}}>✓</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Navigasyon */}
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={goPrev} disabled={quizCurrentQ === 1}
+                style={{flex:1,padding:'13px',borderRadius:12,border:'1px solid #1a2035',cursor:'pointer',
+                  background:'#0d1120',color: quizCurrentQ===1 ? '#1a2035' : '#94a3b8',fontWeight:700,fontSize:14}}>
+                ← Önceki
+              </button>
+              <button onClick={goNext}
+                style={{flex:2,padding:'13px',borderRadius:12,border:'none',cursor:'pointer',fontWeight:800,fontSize:14,
+                  background: quizCurrentQ === totalQ
+                    ? 'linear-gradient(135deg,#22c55e,#16a34a)'
+                    : 'linear-gradient(135deg,#fbbf24,#f59e0b)',
+                  color: '#000'}}>
+                {quizCurrentQ === totalQ ? '🏁 Bitir' : 'Sonraki →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Sonuçlar ekranı
+    if (quizStep === 'results') {
+      // Tüm grupların toplam puanını hesapla
+      const allGroupScores = quizGroups.map(g => ({
+        ...g,
+        score: calcGroupScore(g.no, quizEventType, quizScores)
+      })).sort((a, b) => b.score - a.score);
+
+      const maxScore = allGroupScores.length > 0 ? allGroupScores[0].score : 0;
+      const medals = ['🥇','🥈','🥉'];
+
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep(quizData ? 'groups' : 'select')}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
+            </div>
+            <div style={S.headerRight}>
+              <button onClick={() => setQuizDeleteConfirm(true)}
+                style={{...S.smallBtn,color:'#f87171',borderColor:'#7f1d1d22'}}>🗑 Sıfırla</button>
+            </div>
+          </div>
+
+          {quizDeleteConfirm && (
+            <div style={{maxWidth:480,margin:'0 auto',padding:'12px 18px 0'}}>
+              <div style={{background:'#1f0f0f',border:'1px solid #7f1d1d',borderRadius:12,padding:'14px 18px'}}>
+                <div style={{fontSize:13,color:'#fca5a5',fontWeight:700,marginBottom:10}}>
+                  ⚠️ Tüm quiz verileri silinecek. Emin misin?
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={() => setQuizDeleteConfirm(false)}
+                    style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid #1a2035',cursor:'pointer',
+                      background:'#0d1120',color:'#94a3b8',fontWeight:600,fontSize:13}}>İptal</button>
+                  <button onClick={deleteQuizData}
+                    style={{flex:1,padding:'9px',borderRadius:8,border:'none',cursor:'pointer',
+                      background:'#7f1d1d',color:'#fca5a5',fontWeight:700,fontSize:13}}>Evet, Sil</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{maxWidth:480,margin:'0 auto',padding:'16px 18px'}}>
+            <div style={{textAlign:'center',marginBottom:20}}>
+              <div style={{fontSize:11,color:'#475569',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
+                {ev?.label} · {quizGroups.length} Grup
+              </div>
+              <div style={{fontSize:13,color:'#64748b'}}>Puana göre sıralanmış tam liste</div>
+            </div>
+
+            {allGroupScores.length === 0 && (
+              <div style={{textAlign:'center',color:'#374151',padding:'40px 0'}}>Henüz skor yok</div>
+            )}
+
+            {allGroupScores.map((g, idx) => {
+              const isTop = idx < 3 && g.score > 0;
+              const medal = medals[idx];
+              const isMe = quizMyGroups.includes(g.no);
+              const barWidth = maxScore > 0 ? Math.round((g.score / maxScore) * 100) : 0;
+              return (
+                <div key={g.no} style={{
+                  background: idx===0 && g.score>0 ? '#12100a' : '#0d1120',
+                  border: '1px solid ' + (idx===0 && g.score>0 ? '#fbbf2444' : isMe ? '#4fc9ff33' : '#0f1525'),
+                  borderRadius:12, marginBottom:8, padding:'14px 16px',
+                  position:'relative', overflow:'hidden'
+                }}>
+                  <div style={{position:'absolute',left:0,top:0,bottom:0,
+                    width:barWidth+'%',background: idx===0&&g.score>0 ? '#fbbf2408' : '#ffffff04',
+                    transition:'width 0.5s ease'}}/>
+                  <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
+                    <div style={{fontSize:20,minWidth:28,textAlign:'center',flexShrink:0}}>
+                      {isTop ? medal : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{idx+1}</span>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <span style={{fontSize:14,fontWeight:800,color: idx===0&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
+                          {g.no} No
+                        </span>
+                        {g.name && <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>· {g.name}</span>}
+                        {isMe && <span style={{fontSize:10,color:'#4fc9ff',background:'#4fc9ff11',
+                          border:'1px solid #4fc9ff33',borderRadius:4,padding:'1px 6px',fontWeight:700}}>Benim</span>}
+                      </div>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <div style={{fontSize:22,fontWeight:900,
+                        color: idx===0&&g.score>0 ? '#fbbf24' : g.score>0 ? '#e2e8f0' : '#374151',
+                        lineHeight:1}}>{g.score.toLocaleString('tr')}</div>
+                      <div style={{fontSize:10,color:'#475569'}}>puan</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            <button onClick={() => { setQuizCurrentQ(1); setQuizStep('scoring'); }}
+              style={{width:'100%',marginTop:8,padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
+                background:'linear-gradient(135deg,#fbbf24,#f59e0b)',color:'#000',fontWeight:800,fontSize:14}}>
+              ← Puanlamaya Dön
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  }
+
   // ─── MALZEME TAKİBİ EKRANI ─────────────────────────────────────────────────
   if (mode === 'malzeme') {
 
@@ -2936,6 +3435,20 @@ export default function App() {
             </div>
             <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
           </button>
+          <button
+            onClick={() => { setMode('quiz'); setQuizStep(quizData ? 'groups' : 'select'); if(quizData){setQuizEventType(quizData.eventType);setQuizGroups(quizData.groups||[]);setQuizScores(quizData.scores||{});} }}
+            style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
+              borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+              background:'#0d1120',transition:'all 0.2s'}}
+            onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.background='#0f1525';}}
+            onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+            <span style={{fontSize:26}}>🏆</span>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Quiz Night</span>
+              <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Grup puanlarını takip et ve sırala</span>
+            </div>
+            <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
+          </button>
         </div>
       ) : (
         /* Yönetici: iki kart yan yana + Seans Yazdır bar */
@@ -2983,6 +3496,23 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Malzeme Takibi</span>
                 <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Atölye malzeme stoklarını takip et</span>
+              </div>
+              <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Quiz Night */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={() => { setMode('quiz'); setQuizStep(quizData ? 'groups' : 'select'); if(quizData){setQuizEventType(quizData.eventType);setQuizGroups(quizData.groups||[]);setQuizScores(quizData.scores||{});} }}
+              style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
+                borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+                background:'#0d1120',boxShadow:'none',transition:'all 0.2s'}}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.boxShadow='0 0 18px #fbbf2422';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>🏆</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Quiz Night</span>
+                <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Grup puanlarını takip et ve sırala</span>
               </div>
               <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
             </button>

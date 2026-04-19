@@ -2250,6 +2250,46 @@ app.post('/api/whatsapp-phone', function(req, res) {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── Quiz Night API ────────────────────────────────────────────────────────────
+
+// Quiz Night verilerini getir
+app.get('/api/quiz', async function(req, res) {
+  try {
+    var rec = await getJsonbinRecord();
+    res.json({ quizData: rec.quizData || null });
+  } catch(e) {
+    res.json({ quizData: null });
+  }
+});
+
+// Quiz Night puanlarını kaydet (her işaretlemede)
+app.post('/api/quiz', async function(req, res) {
+  try {
+    const quizData = req.body.quizData;
+    if (!quizData) return res.status(400).json({ error: 'quizData gerekli' });
+    var rec = await getJsonbinRecord();
+    rec.quizData = quizData;
+    jsonbinCacheDirty = true;
+    await flushJsonbinCache();
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Quiz Night verilerini sil
+app.delete('/api/quiz', async function(req, res) {
+  try {
+    var rec = await getJsonbinRecord();
+    rec.quizData = null;
+    jsonbinCacheDirty = true;
+    await flushJsonbinCache();
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Frontend dist klasörünü servis et (PWA için)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('/{*path}', function(req, res) {
