@@ -565,6 +565,10 @@ export default function App() {
   const [quizScores, setQuizScores]       = useState({});      // {groupNo: {1:true,2:false,...}}
   const [quizSaving, setQuizSaving]       = useState(false);
   const [quizDeleteConfirm, setQuizDeleteConfirm] = useState(false);
+  const [quizAnswers, setQuizAnswers]           = useState({});  // {1:'Ankara', 2:'Van Gogh', ...}
+  const [quizAnswerFile, setQuizAnswerFile]     = useState(null); // yüklenen dosya adı
+  const [quizAnswerLoading, setQuizAnswerLoading] = useState(false);
+  const [quizAnswerError, setQuizAnswerError]   = useState('');
 
   const QUIZ_EVENTS = {
     genelkultur: { label: 'Genel Kültür', totalQ: 50, pointPerQ: 10, icon: '🧠' },
@@ -620,7 +624,67 @@ export default function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quizData: newData })
-    }).catch(() => {}).finally(() => setQuizSaving(false));
+    })
+    .then(r => r.json())
+    .then(json => {
+      // Sunucu merge edip güncel scores döndürüyor — local state'i güncelle
+      if (json.mergedScores) {
+        setQuizScores(json.mergedScores);
+        setQuizData(prev => prev ? {...prev, scores: json.mergedScores} : prev);
+      }
+    })
+    .catch(() => {})
+    .finally(() => setQuizSaving(false));
+  };
+
+  // Word dosyasından cevapları parse et
+  const parseAnswerText = (text) => {
+    const lines = text.split(/\n/);
+    const answers = {};
+    lines.forEach(line => {
+      line = line.trim();
+      if (!line) return;
+      // "1- Ankara", "2- B) Van Gogh", "1. Ankara" gibi formatlar
+      const m = line.match(/^(\d+)[\-\.\)\s]+(.+)$/);
+      if (m) {
+        answers[parseInt(m[1])] = m[2].trim();
+      }
+    });
+    return answers;
+  };
+
+  // Word/txt dosyası yükle ve parse et
+  const handleAnswerFileUpload = async (file) => {
+    if (!file) return;
+    setQuizAnswerLoading(true);
+    setQuizAnswerError('');
+    const ext = file.name.split('.').pop().toLowerCase();
+    try {
+      if (ext === 'txt') {
+        const text = await file.text();
+        const parsed = parseAnswerText(text);
+        setQuizAnswers(parsed);
+        setQuizAnswerFile(file.name);
+      } else if (ext === 'docx') {
+        // mammoth ile docx → text
+        const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js').catch(() => null);
+        if (!mammoth) {
+          setQuizAnswerError('docx desteği için tarayıcı uyumlu kütüphane yükleniyor, .txt formatını deneyin.');
+          setQuizAnswerLoading(false);
+          return;
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        const parsed = parseAnswerText(result.value);
+        setQuizAnswers(parsed);
+        setQuizAnswerFile(file.name);
+      } else {
+        setQuizAnswerError('Sadece .txt veya .docx dosyaları desteklenir');
+      }
+    } catch(e) {
+      setQuizAnswerError('Dosya okunamadı: ' + e.message);
+    }
+    setQuizAnswerLoading(false);
   };
 
   const deleteQuizData = async () => {
@@ -2790,6 +2854,41 @@ export default function App() {
               })}
             </div>
 
+            {/* Cevap Dosyası Yükleme */}
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Cevap Anahtarı (Opsiyonel)</div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:10}}>
+                .txt veya .docx dosyası yükleyin. Format: her satırda "1- Ankara" veya "1. Cevap"
+              </div>
+              <label style={{
+                display:'flex',alignItems:'center',gap:10,padding:'12px 16px',
+                borderRadius:12,border:'1px dashed #1a2035',cursor:'pointer',
+                background:'#0a0e1a',transition:'all 0.15s'
+              }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#4fc9ff';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';}}>
+                <span style={{fontSize:20}}>📄</span>
+                <div style={{flex:1}}>
+                  {quizAnswerLoading
+                    ? <span style={{fontSize:13,color:'#4fc9ff'}}>⟳ Okunuyor…</span>
+                    : quizAnswerFile
+                      ? <span style={{fontSize:12,color:'#22c55e',fontWeight:700}}>✓ {quizAnswerFile} ({Object.keys(quizAnswers).length} cevap)</span>
+                      : <span style={{fontSize:12,color:'#475569'}}>Dosya seç (.txt veya .docx)</span>
+                  }
+                </div>
+                <input type="file" accept=".txt,.docx" style={{display:'none'}}
+                  onChange={e => { if(e.target.files[0]) handleAnswerFileUpload(e.target.files[0]); }} />
+              </label>
+              {quizAnswerError && <div style={{fontSize:11,color:'#f87171',marginTop:6}}>{quizAnswerError}</div>}
+              {quizAnswerFile && (
+                <button onClick={() => {setQuizAnswers({});setQuizAnswerFile(null);}}
+                  style={{marginTop:6,padding:'5px 14px',borderRadius:8,border:'1px solid #1a2035',
+                    background:'transparent',color:'#64748b',fontSize:11,cursor:'pointer'}}>
+                  × Cevap dosyasını kaldır
+                </button>
+              )}
+            </div>
+
             <button
               onClick={handleStart}
               disabled={quizGroups.length === 0 || quizMyGroups.length === 0}
@@ -2867,7 +2966,7 @@ export default function App() {
 
             {/* Soru kartı */}
             <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'20px 20px 16px',marginBottom:16}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:quizAnswers[quizCurrentQ]?8:12}}>
                 <div style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,padding:'4px 12px'}}>
                   <span style={{fontSize:12,fontWeight:800,color:'#fbbf24'}}>Soru {quizCurrentQ}</span>
                 </div>
@@ -2875,6 +2974,13 @@ export default function App() {
                   <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
                 </div>
               </div>
+              {quizAnswers[quizCurrentQ] && (
+                <div style={{background:'#0a1a2e',border:'1px solid #0ea5e933',borderRadius:10,
+                  padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:13,color:'#4fc9ff',fontWeight:800,flexShrink:0}}>Cevap:</span>
+                  <span style={{fontSize:14,color:'#e2e8f0',fontWeight:700}}>{quizAnswers[quizCurrentQ]}</span>
+                </div>
+              )}
 
               {/* Grup kutucukları */}
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
@@ -2930,10 +3036,30 @@ export default function App() {
 
     // Sonuçlar ekranı
     if (quizStep === 'results') {
-      // Tüm grupların toplam puanını hesapla
-      const allGroupScores = quizGroups.map(g => ({
+      // Sunucudan güncel verileri çek sonra göster
+      const [resultsLoading, setResultsLoading] = useState(true);
+      const [liveScores, setLiveScores]         = useState(quizScores);
+      const [liveGroups, setLiveGroups]         = useState(quizGroups);
+
+      useEffect(() => {
+        fetch('/api/quiz')
+          .then(r => r.json())
+          .then(d => {
+            if (d.quizData) {
+              setLiveScores(d.quizData.scores || {});
+              setLiveGroups(d.quizData.groups || quizGroups);
+              setQuizScores(d.quizData.scores || {});
+              setQuizGroups(d.quizData.groups || quizGroups);
+            }
+          })
+          .catch(() => {})
+          .finally(() => setResultsLoading(false));
+      }, []);
+
+      // Tüm grupların toplam puanını hesapla — live veriden
+      const allGroupScores = liveGroups.map(g => ({
         ...g,
-        score: calcGroupScore(g.no, quizEventType, quizScores)
+        score: calcGroupScore(g.no, quizEventType, liveScores)
       })).sort((a, b) => b.score - a.score);
 
       const maxScore = allGroupScores.length > 0 ? allGroupScores[0].score : 0;
@@ -2947,6 +3073,7 @@ export default function App() {
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
             <div style={S.headerRight}>
+              {resultsLoading && <span style={{fontSize:11,color:'#4fc9ff'}}>⟳ Veriler yükleniyor…</span>}
               <button onClick={() => setQuizDeleteConfirm(true)}
                 style={{...S.smallBtn,color:'#f87171',borderColor:'#7f1d1d22'}}>🗑 Sıfırla</button>
             </div>
@@ -3022,8 +3149,24 @@ export default function App() {
               );
             })}
 
+            <button
+              onClick={() => {
+                fetch('/api/quiz')
+                  .then(r=>r.json())
+                  .then(d => {
+                    if (d.quizData) {
+                      setLiveScores(d.quizData.scores || {});
+                      setLiveGroups(d.quizData.groups || quizGroups);
+                      setQuizScores(d.quizData.scores || {});
+                    }
+                  });
+              }}
+              style={{width:'100%',marginTop:8,padding:'13px',borderRadius:12,border:'1px solid #4fc9ff44',cursor:'pointer',
+                background:'#0d1a2e',color:'#4fc9ff',fontWeight:700,fontSize:14,marginBottom:8}}>
+              ⟳ Tüm Puantör Verilerini Güncelle
+            </button>
             <button onClick={() => { setQuizCurrentQ(1); setQuizStep('scoring'); }}
-              style={{width:'100%',marginTop:8,padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
+              style={{width:'100%',padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
                 background:'linear-gradient(135deg,#fbbf24,#f59e0b)',color:'#000',fontWeight:800,fontSize:14}}>
               ← Puanlamaya Dön
             </button>

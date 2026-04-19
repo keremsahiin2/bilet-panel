@@ -2262,16 +2262,28 @@ app.get('/api/quiz', async function(req, res) {
   }
 });
 
-// Quiz Night puanlarını kaydet (her işaretlemede)
+// Quiz Night puanlarını kaydet — sunucudaki scores ile merge et (çoklu puantör desteği)
 app.post('/api/quiz', async function(req, res) {
   try {
     const quizData = req.body.quizData;
     if (!quizData) return res.status(400).json({ error: 'quizData gerekli' });
     var rec = await getJsonbinRecord();
-    rec.quizData = quizData;
+    var existing = rec.quizData;
+
+    if (existing && existing.eventType === quizData.eventType) {
+      // Mevcut scores ile gelen scores merge: her iki puantörün skorları korunur
+      var mergedScores = Object.assign({}, existing.scores || {});
+      Object.keys(quizData.scores || {}).forEach(function(groupNo) {
+        mergedScores[groupNo] = Object.assign({}, mergedScores[groupNo] || {}, quizData.scores[groupNo] || {});
+      });
+      rec.quizData = Object.assign({}, existing, quizData, { scores: mergedScores });
+    } else {
+      rec.quizData = quizData;
+    }
+
     jsonbinCacheDirty = true;
     await flushJsonbinCache();
-    res.json({ success: true });
+    res.json({ success: true, mergedScores: rec.quizData.scores });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
