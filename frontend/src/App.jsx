@@ -585,6 +585,8 @@ export default function App() {
   const [quizQLoading, setQuizQLoading]         = useState(false);
   const [quizQError, setQuizQError]             = useState('');
   const [quizHostQ, setQuizHostQ]               = useState(1);  // sunucu ekranındaki aktif soru no
+  const [quizShowQuestion, setQuizShowQuestion] = useState(false); // puantör soru göster toggle
+  const [quizResultSortMode, setQuizResultSortMode] = useState('score'); // 'score' | 'groupno'
   // Results screen live data (must be top-level — no hooks inside if blocks)
   const [quizResultsLoading, setQuizResultsLoading] = useState(false);
   const [quizLiveScores, setQuizLiveScores]     = useState({});
@@ -812,6 +814,8 @@ export default function App() {
     setQuizQuestions({});
     setQuizQFile(null);
     setQuizHostQ(1);
+    setQuizShowQuestion(false);
+    setQuizResultSortMode('score');
   };
 
   // SORU CEVAPLARI — etkinliğe göre
@@ -2225,10 +2229,87 @@ export default function App() {
 
   // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
   if (!loggedIn) {
+    // Quiz Night doğrudan pin girişi (loggedIn olmadan)
+    if (rolePinTarget === 'quiz') {
+      const PINS_DIRECT = { quiz: '0000' };
+      const color = '#fbbf24'; const grad = 'linear-gradient(135deg,#fbbf24,#f59e0b)';
+      const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+      const numpadPress = (digit) => {
+        if (rolePin.length >= 4) return;
+        const next = rolePin + digit;
+        setRolePin(next);
+        setRolePinError(false);
+        if (next.length === 4) {
+          setTimeout(() => {
+            if (next === PINS_DIRECT.quiz) {
+              setLoggedIn(true); setRoleScreen(false);
+              setRole('quiz'); setMode('quiz');
+              setRolePin(''); setRolePinTarget(null); setRolePinError(false);
+            } else { setRolePinError(true); setRolePin(''); }
+          }, 120);
+        }
+      };
+      return (
+        <div style={S.page}>
+          <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+            <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
+              <div style={{fontSize:36, marginBottom:12}}>🏆</div>
+              <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>Quiz Night Girişi</div>
+              <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
+              {rolePinError && <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>}
+              <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{width:16,height:16,borderRadius:'50%',
+                    background: rolePin.length > i ? color : '#1a2035',
+                    border: '2px solid ' + (rolePin.length > i ? color : '#374151'),
+                    transition:'background 0.15s'}}/>
+                ))}
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
+                {NUMPAD.flat().map((k, i) => (
+                  k === '' ? <div key={i}/> :
+                  k === '⌫' ? (
+                    <button key={i} onClick={() => { setRolePin(p => p.slice(0,-1)); setRolePinError(false); }}
+                      style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:20, cursor:'pointer', fontWeight:600}}>⌫</button>
+                  ) : (
+                    <button key={i} onClick={() => numpadPress(k)}
+                      style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
+                        border:'1px solid #1a2035', borderRadius:12, fontSize:22, cursor:'pointer', fontWeight:700}}>
+                      {k}
+                    </button>
+                  )
+                ))}
+              </div>
+              <button style={{...S.smallBtn, width:'100%', textAlign:'center'}}
+                onClick={() => { setRolePinTarget(null); setRolePin(''); setRolePinError(false); }}>
+                ← Geri
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{...S.page, overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'27vh',paddingBottom:40}}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'18vh',paddingBottom:40}}>
           <div style={{...S.loginCard, width:'100%'}}>
+            {/* Quiz Night direkt giriş butonu */}
+            <button
+              onClick={() => { setRolePinTarget('quiz'); setRolePin(''); setRolePinError(false); }}
+              style={{width:'100%',display:'flex',alignItems:'center',gap:14,
+                padding:'18px 20px',borderRadius:16,border:'1px solid #fbbf2433',
+                cursor:'pointer',textAlign:'left',background:'linear-gradient(135deg,#12100a,#1a1400)',
+                marginBottom:20,transition:'all 0.2s'}}>
+              <span style={{fontSize:30}}>🏆</span>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:'#fbbf24',marginBottom:2}}>Quiz Night Girişi</div>
+                <div style={{fontSize:12,color:'#64748b'}}>Sunucu veya puantör olarak katıl</div>
+              </div>
+              <span style={{marginLeft:'auto',color:'#fbbf24',fontSize:20}}>›</span>
+            </button>
+            <div style={{height:1,background:'#1a2035',marginBottom:20}}/>
             <div style={S.brand}><span style={S.brandIcon}>🎟</span><span style={S.brandName}>BİLET PANELİ</span></div>
             <p style={S.brandSub}>Çoklu platform satış yönetimi</p>
             {loginError && <div style={S.errBox}>{loginError}</div>}
@@ -2851,11 +2932,46 @@ export default function App() {
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
             </div>
           </div>
-          <div style={{maxWidth:480,margin:'0 auto',padding:'40px 18px'}}>
-            <div style={{textAlign:'center',marginBottom:36}}>
-              <div style={{fontSize:52,marginBottom:10}}>🏆</div>
-              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
-              <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'24px 18px'}}>
+
+            {/* Birleşik Dosya Yükleme — rol seçmeden önce */}
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px 20px',marginBottom:24}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#4fc9ff',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
+                📄 Soru & Cevap Dosyası
+              </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:12,lineHeight:1.6}}>
+                Yarışma dosyasını yükleyin — hem sunucu ekranı hem puantör cevapları bu dosyadan çıkar.<br/>
+                Format: <span style={{color:'#b47cff'}}>Soru metni</span> ardından <span style={{color:'#22c55e'}}>Cevap: …</span>
+              </div>
+              <label style={{
+                display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
+                borderRadius:10,border:'1px dashed ' + (quizAnswerFile || Object.keys(quizAnswers).length > 0 ? '#22c55e66' : '#1a2035'),
+                cursor:'pointer',background:'#07090f',transition:'all 0.15s'
+              }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor='#4fc9ff';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor=(quizAnswerFile||Object.keys(quizAnswers).length>0)?'#22c55e66':'#1a2035';}}>
+                <span style={{fontSize:22}}>📂</span>
+                <div style={{flex:1}}>
+                  {quizAnswerLoading
+                    ? <span style={{fontSize:13,color:'#4fc9ff',fontWeight:700}}>⟳ Yükleniyor…</span>
+                    : (quizAnswerFile || Object.keys(quizAnswers).length > 0)
+                      ? <span style={{fontSize:13,color:'#22c55e',fontWeight:700}}>✓ {quizAnswerFile || (Object.keys(quizAnswers).length + ' cevap yüklü')}</span>
+                      : <span style={{fontSize:13,color:'#64748b'}}>Dosya seç (.docx veya .txt)</span>
+                  }
+                </div>
+                {(quizAnswerFile || Object.keys(quizAnswers).length > 0) && (
+                  <span style={{fontSize:11,color:'#22c55e',background:'#0a1a0a',border:'1px solid #22c55e33',borderRadius:6,padding:'3px 8px',fontWeight:700}}>Yüklendi ✓</span>
+                )}
+                <input type="file" accept=".txt,.docx" style={{display:'none'}}
+                  onChange={e => { if(e.target.files[0]) { handleUnifiedFileUpload(e.target.files[0]); handleQuestionFileUpload(e.target.files[0]); } }} />
+              </label>
+              {quizAnswerError && <div style={{fontSize:11,color:'#f87171',marginTop:8}}>❌ {quizAnswerError}</div>}
+              {quizQError && <div style={{fontSize:11,color:'#f87171',marginTop:6}}>❌ {quizQError}</div>}
+            </div>
+
+            <div style={{textAlign:'center',marginBottom:24}}>
+              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Rolünüzü Seçin</div>
+              <div style={{fontSize:14,color:'#475569'}}>Sunucu veya puantör olarak devam edin</div>
             </div>
             {/* Sunucu kartı */}
             <button
@@ -3471,14 +3587,40 @@ export default function App() {
 
             {/* Soru kartı */}
             <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'20px 20px 16px',marginBottom:16}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:quizAnswers[quizCurrentQ]?8:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <div style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,padding:'4px 12px'}}>
                   <span style={{fontSize:12,fontWeight:800,color:'#fbbf24'}}>Soru {quizCurrentQ}</span>
                 </div>
-                <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 12px'}}>
-                  <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  {quizQuestions[quizCurrentQ] && (
+                    <button
+                      onClick={() => setQuizShowQuestion(s => !s)}
+                      style={{background: quizShowQuestion ? '#1a0a2a' : '#111827',
+                        color: quizShowQuestion ? '#b47cff' : '#64748b',
+                        border: '1px solid ' + (quizShowQuestion ? '#b47cff44' : '#1a2035'),
+                        borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer'}}>
+                      {quizShowQuestion ? '🙈 Soruyu Gizle' : '👁 Soruyu Göster'}
+                    </button>
+                  )}
+                  <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 12px'}}>
+                    <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
+                  </div>
                 </div>
               </div>
+              {/* Soruyu Göster alanı */}
+              {quizShowQuestion && quizQuestions[quizCurrentQ] && (
+                <div style={{background:'#0a0a1a',border:'1px solid #b47cff33',borderRadius:10,
+                  padding:'12px 14px',marginBottom:10}}>
+                  {quizQuestions[quizCurrentQ].section && (
+                    <div style={{fontSize:10,color:'#b47cff',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>
+                      📌 {quizQuestions[quizCurrentQ].section}
+                    </div>
+                  )}
+                  <div style={{fontSize:14,color:'#e2e8f0',fontWeight:600,lineHeight:1.6}}>
+                    {quizQuestions[quizCurrentQ].question}
+                  </div>
+                </div>
+              )}
               {quizAnswers[quizCurrentQ] && (
                 <div style={{background:'#0a1a2e',border:'1px solid #0ea5e933',borderRadius:10,
                   padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
@@ -3565,7 +3707,7 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep(quizData ? 'groups' : 'select')}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep(quizMyGroups && quizMyGroups.length > 0 ? 'scoring' : quizData ? 'groups' : 'select')}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
             <div style={S.headerRight}>
@@ -3594,11 +3736,30 @@ export default function App() {
           )}
 
           <div style={{maxWidth:480,margin:'0 auto',padding:'16px 18px'}}>
-            <div style={{textAlign:'center',marginBottom:20}}>
+            <div style={{textAlign:'center',marginBottom:16}}>
               <div style={{fontSize:11,color:'#475569',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
-                {ev?.label} · {quizGroups.length} Grup
+                {ev?.label} · {displayGroups.length} Grup
               </div>
-              <div style={{fontSize:13,color:'#64748b'}}>Puana göre sıralanmış tam liste</div>
+            </div>
+
+            {/* Sıralama Seçenekleri */}
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <button
+                onClick={() => setQuizResultSortMode('score')}
+                style={{flex:1,padding:'9px 12px',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer',border:'1px solid',
+                  background: quizResultSortMode === 'score' ? '#0a1a2e' : '#0d1120',
+                  color: quizResultSortMode === 'score' ? '#4fc9ff' : '#475569',
+                  borderColor: quizResultSortMode === 'score' ? '#4fc9ff44' : '#1a2035'}}>
+                🏆 Puana Göre
+              </button>
+              <button
+                onClick={() => setQuizResultSortMode('groupno')}
+                style={{flex:1,padding:'9px 12px',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer',border:'1px solid',
+                  background: quizResultSortMode === 'groupno' ? '#12100a' : '#0d1120',
+                  color: quizResultSortMode === 'groupno' ? '#fbbf24' : '#475569',
+                  borderColor: quizResultSortMode === 'groupno' ? '#fbbf2444' : '#1a2035'}}>
+                🔢 Grup No'ya Göre
+              </button>
             </div>
 
             {allGroupScores.length === 0 && (
@@ -3606,14 +3767,18 @@ export default function App() {
             )}
 
             {(() => {
-              // Aynı puanlı gruplara aynı sıra ver (dense ranking: 1,1,2,2,3 ...)
-              const rankedGroups = allGroupScores.map((g, idx) => {
-                let r = 1;
-                for (let i = 0; i < idx; i++) {
-                  if (allGroupScores[i].score > g.score) r++;
-                }
-                return { ...g, rank: r };
-              });
+              // Dense ranking: benzersiz puanlara göre sırala (1,1,2,2,3... — 1,1,3 değil)
+              const uniqueScores = [...new Set(allGroupScores.map(g => g.score))].sort((a,b) => b-a);
+
+              // Sıralama moduna göre listele
+              const sortedForDisplay = quizResultSortMode === 'groupno'
+                ? [...allGroupScores].sort((a,b) => parseInt(a.no) - parseInt(b.no))
+                : allGroupScores; // zaten puana göre sıralı
+
+              const rankedGroups = sortedForDisplay.map(g => ({
+                ...g,
+                rank: uniqueScores.indexOf(g.score) + 1
+              }));
               return rankedGroups.map((g) => {
                 const currentRank = g.rank;
                 const isTop = currentRank <= 3 && g.score > 0;
@@ -3727,11 +3892,13 @@ export default function App() {
                 background:'#0d1a2e',color:'#4fc9ff',fontWeight:700,fontSize:14,marginBottom:8}}>
               ⟳ Tüm Puantör Verilerini Güncelle
             </button>
-            <button onClick={() => { setQuizStep('scoring'); }}
-              style={{width:'100%',padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
-                background:'linear-gradient(135deg,#fbbf24,#f59e0b)',color:'#000',fontWeight:800,fontSize:14}}>
-              ← Puanlamaya Dön
-            </button>
+            {quizMyGroups && quizMyGroups.length > 0 && (
+              <button onClick={() => { setQuizStep('scoring'); }}
+                style={{width:'100%',padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
+                  background:'linear-gradient(135deg,#fbbf24,#f59e0b)',color:'#000',fontWeight:800,fontSize:14}}>
+                ← {quizCurrentQ > 1 ? `${quizCurrentQ}. Sorudan Devam Et` : 'Puanlamaya Dön'}
+              </button>
+            )}
           </div>
         </div>
       );
