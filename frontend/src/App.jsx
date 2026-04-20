@@ -2978,7 +2978,8 @@ export default function App() {
 
 
   // ─── QUIZ NIGHT EKRANI ─────────────────────────────────────────────────────
-  if (mode === 'quiz') {
+  // quiznight rolü veya quiz modu → quiz ekranını göster
+  if (mode === 'quiz' || role === 'quiznight') {
     const ev = QUIZ_EVENTS[quizEventType];
     const totalQ = ev ? ev.totalQ : 0;
 
@@ -2988,7 +2989,15 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setMode(null); setQuizNightMode(false); }}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
+                if (role === 'quiznight') {
+                  // quiznight rolünden çıkış — tam logout
+                  setLoggedIn(false); setRole(null); setRoleScreen(false);
+                  setQuizNightMode(false); setQuizRole(null); setMode(null);
+                } else {
+                  setMode(null); setQuizNightMode(false);
+                }
+              }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
             </div>
           </div>
@@ -4243,13 +4252,6 @@ export default function App() {
 
   // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
   const seances = buildSeanceMap(salesData);
-
-  // Quiz Night rolü — doğrudan quiz moduna yönlendir
-  useEffect(() => {
-    if (role === 'quiznight' && mode !== 'quiz') {
-      setMode('quiz');
-    }
-  }, [role, mode]);
 
   return (
     <div style={S.page}>
