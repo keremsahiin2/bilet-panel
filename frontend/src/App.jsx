@@ -752,8 +752,13 @@ export default function App() {
 
   const saveQuizData = (newData, includeCurrentQ = false) => {
     setQuizSaving(true);
-    // currentQ'yu sadece istenirse ekle (goNext'te), yoksa mevcut sunucu değerini koru
-    const dataToSend = includeCurrentQ ? { ...newData, currentQ: quizCurrentQ } : newData;
+    // questions ve answers her zaman ekle — aksi halde her kayıtta sunucudan silinir
+    const withQA = {
+      ...newData,
+      ...(Object.keys(quizQuestions).length > 0 ? { questions: quizQuestions, questionsFile: quizQFile } : {}),
+      ...(Object.keys(quizAnswers).length > 0 ? { answers: quizAnswers, answersFile: quizAnswerFile } : {}),
+    };
+    const dataToSend = includeCurrentQ ? { ...withQA, currentQ: quizCurrentQ } : withQA;
     fetch('/api/quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3645,8 +3650,13 @@ export default function App() {
           const newGs = {...gs, [quizCurrentQ]: !gs[quizCurrentQ]};
           const newScores = {...prev, [groupNo]: newGs};
           quizScoresRef.current = newScores;
-          // Hemen kaydet — polling gelip eski değeri yazmasın
-          const data = { eventType: quizEventType, groups: quizGroups, scores: newScores, myGroups: quizMyGroups, currentQ: quizCurrentQ };
+          // Hemen kaydet — polling gelip eski değeri yazmasın (questions/answers da ekle, silinmesin)
+          const data = {
+            eventType: quizEventType, groups: quizGroups, scores: newScores,
+            myGroups: quizMyGroups, currentQ: quizCurrentQ,
+            ...(Object.keys(quizQuestions).length > 0 ? { questions: quizQuestions, questionsFile: quizQFile } : {}),
+            ...(Object.keys(quizAnswers).length > 0 ? { answers: quizAnswers, answersFile: quizAnswerFile } : {}),
+          };
           fetch('/api/quiz', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
