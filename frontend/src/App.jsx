@@ -609,7 +609,7 @@ export default function App() {
   const [quizExpandedGroup, setQuizExpandedGroup] = useState(null); // detay paneli
 
   const QUIZ_EVENTS = {
-    genelkultur: { label: 'Genel Kültür', totalQ: 50, pointPerQ: 10, icon: '🧠' },
+    genelkultur: { label: 'Genel Kültür', totalQ: 55, pointPerQ: 10, icon: '🧠' },
     diziyfilm:   { label: 'Dizi & Film',  totalQ: 40, pointPerQ: null, icon: '🎬',
       // ilk 10→10pt, 11-20→20pt, 21-30→30pt, 31-40→40pt
       getPoints: (qNo) => {
@@ -3060,7 +3060,13 @@ export default function App() {
           </div>
           <div style={{maxWidth:480,margin:'0 auto',padding:'24px 18px'}}>
 
-            {/* ── KOMBINE DOSYA YÜKLEME (EN ÜSTTE) ─────────────────────────── */}
+            <div style={{textAlign:'center',marginBottom:24}}>
+              <div style={{fontSize:52,marginBottom:18}}>🏆</div>
+              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
+              <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
+            </div>
+
+            {/* ── KOMBINE DOSYA YÜKLEME ─────────────────────────── */}
             <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px 20px',marginBottom:20}}>
               <div style={{fontSize:12,fontWeight:700,color:'#4fc9ff',textTransform:'uppercase',letterSpacing:1,marginBottom:10}}>
                 📁 Soru &amp; Cevap Dosyası
@@ -3101,12 +3107,6 @@ export default function App() {
                   × Dosyayı kaldır
                 </button>
               )}
-            </div>
-
-            <div style={{textAlign:'center',marginBottom:24}}>
-              <div style={{fontSize:52,marginBottom:18}}>🏆</div>
-              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
-              <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
             </div>
             {/* Sunucu kartı */}
             <button
@@ -3485,7 +3485,8 @@ export default function App() {
       const updateGroup = (idx, field, val) => {
         const updated = quizGroups.map((g,i)=>i===idx?{...g,[field]:val}:g);
         setQuizGroups(updated);
-        // Anlık kaydet — diğer puantörler görsün
+      };
+      const saveGroups = (updated) => {
         const data = { eventType: quizEventType, groups: updated, scores: quizScores, myGroups: quizMyGroups };
         saveQuizData(data);
       };
@@ -3607,6 +3608,7 @@ export default function App() {
                       <input
                         value={g.name}
                         onChange={e => updateGroup(idx,'name',e.target.value)}
+                        onBlur={e => saveGroups(quizGroups.map((gr,i)=>i===idx?{...gr,name:e.target.value}:gr))}
                         placeholder={`Grup ${g.no} adı (opsiyonel)`}
                         style={{...S.input, marginBottom:0, padding:'6px 10px', fontSize:13,
                           background: isMine ? '#1a1000' : '#07090f',
@@ -3617,6 +3619,20 @@ export default function App() {
                 );
               })}
             </div>
+
+            {/* Ekstra Slot Ekle butonu */}
+            <button
+              onClick={() => {
+                const nextNo = String(quizGroups.length + 1);
+                const updated = [...quizGroups, {no: nextNo, name:''}];
+                setQuizGroups(updated);
+                saveGroups(updated);
+              }}
+              style={{width:'100%',padding:'11px',borderRadius:10,border:'1px dashed #374151',cursor:'pointer',
+                background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:12,
+                display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+              ＋ Ekstra Slot Ekle
+            </button>
 
             <div style={{background:'#0a1a0a',border:'1px solid #22c55e22',borderRadius:10,padding:'10px 14px',marginBottom:16}}>
               <div style={{fontSize:11,color:'#22c55e',fontWeight:700,marginBottom:4}}>✓ Seçili Slotlarınız</div>
