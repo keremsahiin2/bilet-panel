@@ -675,10 +675,11 @@ export default function App() {
           quizScoresRef.current = d.quizData.scores || {};
           // Kaldığı sorudan devam et
           if (d.quizData.currentQ) setQuizCurrentQ(d.quizData.currentQ);
-          // Grup sayısı ayarlandıysa
+          // Grup sayısı ayarlandıysa — grup ekranına al, select'te kalma
           if (d.quizData.groups && d.quizData.groups.length > 0) {
             setQuizGroupCountSet(true);
             setQuizGroupCount(String(d.quizData.groups.length));
+            setQuizStep('groups'); // ← YENİ: yeni puantör de groups ekranını görsün
           }
           // Cevap anahtarı sunucuda varsa yükle
           if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
@@ -708,24 +709,33 @@ export default function App() {
         .then(r => r.json())
         .then(d => {
           if (!d.quizData) return;
+          const srv = d.quizData;
           // Grupları güncelle (isim değişiklikleri yansısın)
-          setQuizGroups(prev => {
-            const srv = d.quizData.groups || [];
-            if (JSON.stringify(prev) !== JSON.stringify(srv)) return srv;
-            return prev;
-          });
+          if (srv.groups && srv.groups.length > 0) {
+            setQuizGroups(prev => {
+              if (JSON.stringify(prev) !== JSON.stringify(srv.groups)) return srv.groups;
+              return prev;
+            });
+            setQuizGroupCountSet(true);
+            // quizStep 'select'te kalmışsa 'groups'a geç (yeni puantör için)
+            setQuizStep(prev => prev === 'select' ? 'groups' : prev);
+          }
+          // eventType güncelle
+          if (srv.eventType) setQuizEventType(srv.eventType);
           // Skorları merge et
           setQuizScores(prev => {
-            const srv = d.quizData.scores || {};
-            const merged = { ...srv };
+            const merged = { ...(srv.scores||{}) };
             Object.keys(prev).forEach(gno => {
               merged[gno] = { ...(merged[gno]||{}), ...prev[gno] };
             });
             return merged;
           });
-          // currentQ sunucudan yükle ama biz değiştiriyorsak önceliğimiz
-          if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
-            setQuizAnswers(d.quizData.answers);
+          // Cevap ve sorular güncel gelsin
+          if (srv.answers && Object.keys(srv.answers).length > 0) {
+            setQuizAnswers(srv.answers);
+          }
+          if (srv.questions && Object.keys(srv.questions).length > 0) {
+            setQuizQuestions(prev => Object.keys(prev).length === 0 ? srv.questions : prev);
           }
         })
         .catch(() => {});
@@ -734,14 +744,14 @@ export default function App() {
     return () => clearInterval(poll);
   }, [mode]);
 
-  const saveQuizData = (newData) => {
+  const saveQuizData = (newData, includeCurrentQ = false) => {
     setQuizSaving(true);
-    // currentQ'yu da kaydet
-    const dataWithQ = { ...newData, currentQ: quizCurrentQ };
+    // currentQ'yu sadece istenirse ekle (goNext'te), yoksa mevcut sunucu değerini koru
+    const dataToSend = includeCurrentQ ? { ...newData, currentQ: quizCurrentQ } : newData;
     fetch('/api/quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quizData: dataWithQ })
+      body: JSON.stringify({ quizData: dataToSend })
     })
     .then(r => r.json())
     .then(json => {
@@ -817,25 +827,48 @@ export default function App() {
       setQuizQFile(file.name + ' (' + qJson.count + ' soru)');
       setQuizHostQ(1);
 
-      // Aynı dosyadan cevapları da çıkar (cevap anahtarı)
-      const formData2 = new FormData();
-      formData2.append('file', file);
-      const aRes = await fetch('/api/quiz/parse-answers', { method: 'POST', body: formData2 });
-      const aJson = await aRes.json();
-      if (!aJson.error && aJson.count > 0) {
-        setQuizAnswers(aJson.answers || {});
-        setQuizAnswerFile(file.name + ' (' + aJson.count + ' cevap)');
-        // Cevapları sunucuya da kaydet
+      // parse-questions'dan gelen {question, answer} çiftlerinden cevap anahtarı oluştur
+      const answersFromQuestions = {};
+      Object.entries(qJson.questions || {}).forEach(([no, q]) => {
+        if (q.answer && q.answer.trim()) {
+          answersFromQuestions[parseInt(no)] = q.answer.trim();
+        }
+      });
+      const answersCount = Object.keys(answersFromQuestions).length;
+
+      if (answersCount > 0) {
+        // Cevapları questions parse'dan al (daha güvenilir)
+        setQuizAnswers(answersFromQuestions);
+        setQuizAnswerFile(file.name + ' (' + answersCount + ' cevap)');
         const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
         const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
-        const updated = {...base, answers: aJson.answers, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
+        const updated = {...base, answers: answersFromQuestions, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
         await fetch('/api/quiz', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({quizData: updated})
         }).catch(()=>{});
-      }
-      setQuizCombinedFile(file.name + ' (' + qJson.count + ' soru, ' + (aJson.count||0) + ' cevap)');
-    } catch(e) {
+        setQuizCombinedFile(file.name + ' (' + qJson.count + ' soru, ' + answersCount + ' cevap)');
+      } else {
+        // Fallback: parse-answers ile dene
+        const formData2 = new FormData();
+        formData2.append('file', file);
+        const aRes = await fetch('/api/quiz/parse-answers', { method: 'POST', body: formData2 });
+        const aJson = await aRes.json();
+        const answers = (!aJson.error && aJson.count > 0) ? aJson.answers : {};
+        const cnt = Object.keys(answers).length;
+        if (cnt > 0) {
+          setQuizAnswers(answers);
+          setQuizAnswerFile(file.name + ' (' + cnt + ' cevap)');
+        }
+        const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
+        const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
+        const updated = {...base, answers, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
+        await fetch('/api/quiz', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({quizData: updated})
+        }).catch(()=>{});
+        setQuizCombinedFile(file.name + ' (' + qJson.count + ' soru, ' + cnt + ' cevap)');
+      }    } catch(e) {
       setQuizCombinedError('Dosya okunamadı: ' + e.message);
     }
     setQuizCombinedLoading(false);
