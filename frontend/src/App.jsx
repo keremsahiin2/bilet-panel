@@ -723,9 +723,11 @@ export default function App() {
           }
           // eventType güncelle
           if (srv.eventType) setQuizEventType(srv.eventType);
-          // Skorları merge et
+          // Skorları merge et — ama aktif puanlama sırasında mevcut local değeri koru
           setQuizScores(prev => {
             const merged = { ...(srv.scores||{}) };
+            // Her grup için: local'daki değerler sunucudakinden daha güncel olabilir (yeni toggle)
+            // Bu yüzden local'ı server üzerine yaz (local öncelikli merge)
             Object.keys(prev).forEach(gno => {
               merged[gno] = { ...(merged[gno]||{}), ...prev[gno] };
             });
@@ -3028,8 +3030,8 @@ export default function App() {
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
                 if (role === 'quiznight') {
-                  // quiznight rolünden çıkış — tam logout
-                  setLoggedIn(false); setRole(null); setRoleScreen(false);
+                  // quiznight rolünden çık → rol seçim ekranına dön (loggedIn kalır)
+                  setRole(null); setRoleScreen(true);
                   setQuizNightMode(false); setQuizRole(null); setMode(null);
                 } else {
                   setMode(null); setQuizNightMode(false);
@@ -3207,6 +3209,11 @@ export default function App() {
             </div>
             <div style={S.headerRight}>
               <button
+                onClick={() => setQuizStep('results')}
+                style={{...S.smallBtn, color:'#fbbf24', borderColor:'#fbbf2444'}}>
+                📊 Puan Durumu
+              </button>
+              <button
                 onClick={() => { setQuizQFile(null); setQuizQuestions({}); setQuizHostQ(1); }}
                 style={{...S.smallBtn, color:'#f87171', borderColor:'#7f1d1d22'}}>
                 🗑 Dosyayı Değiştir
@@ -3300,6 +3307,84 @@ export default function App() {
                 })}
               </div>
             </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── SUNUCU PUAN DURUMU (host results) ─────────────────────────────────────
+    if (quizRole === 'host' && quizStep === 'results') {
+      const displayScores = Object.keys(quizLiveScores).length > 0 ? quizLiveScores : quizScores;
+      const displayGroups = quizLiveGroups.length > 0 ? quizLiveGroups : quizGroups;
+      const allGroupScores = displayGroups.map(g => ({
+        ...g,
+        score: calcGroupScore(g.no, quizEventType, displayScores)
+      })).sort((a, b) => b.score - a.score);
+      const maxScore = allGroupScores.length > 0 ? allGroupScores[0].score : 0;
+      const medals = ['🥇','🥈','🥉'];
+      const sortedByScore = [...allGroupScores].sort((a,b) => b.score - a.score);
+      const rankMap = {};
+      sortedByScore.forEach((g, i) => {
+        if (i === 0) { rankMap[g.no] = 1; }
+        else if (g.score === sortedByScore[i-1].score) { rankMap[g.no] = rankMap[sortedByScore[i-1].no]; }
+        else { const d = new Set(sortedByScore.slice(0,i).map(x=>x.score)).size; rankMap[g.no] = d + 1; }
+      });
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('select')}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 PUAN DURUMU</span>
+            </div>
+            <div style={S.headerRight}>
+              {quizResultsLoading && <span style={{fontSize:11,color:'#4fc9ff'}}>⟳ Yükleniyor…</span>}
+              <button onClick={() => {
+                setQuizResultsLoading(true);
+                fetch('/api/quiz').then(r=>r.json()).then(d => {
+                  if (d.quizData) { setQuizLiveScores(d.quizData.scores||{}); setQuizLiveGroups(d.quizData.groups||[]); }
+                }).catch(()=>{}).finally(()=>setQuizResultsLoading(false));
+              }} style={{...S.smallBtn}}>⟳ Güncelle</button>
+            </div>
+          </div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'16px 18px'}}>
+            <div style={{fontSize:11,color:'#475569',textTransform:'uppercase',letterSpacing:1,marginBottom:16,textAlign:'center'}}>
+              {ev?.label} · {displayGroups.length} Grup
+            </div>
+            {allGroupScores.map(g => {
+              const rank = rankMap[g.no];
+              const isTop = rank <= 3 && g.score > 0;
+              const medal = medals[rank - 1];
+              const barWidth = maxScore > 0 ? Math.round((g.score / maxScore) * 100) : 0;
+              return (
+                <div key={g.no} style={{
+                  background: isTop && rank===1 && g.score>0 ? '#12100a' : '#0d1120',
+                  border: '1px solid ' + (isTop && rank===1 && g.score>0 ? '#fbbf2444' : '#0f1525'),
+                  borderRadius:12, padding:'14px 16px', marginBottom:8, position:'relative', overflow:'hidden'
+                }}>
+                  <div style={{position:'absolute',left:0,top:0,bottom:0,width:barWidth+'%',
+                    background: isTop&&rank===1&&g.score>0 ? '#fbbf2408' : '#ffffff04', transition:'width 0.5s'}}/>
+                  <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
+                    <div style={{fontSize:20,minWidth:28,textAlign:'center',flexShrink:0}}>
+                      {isTop && medal ? medal : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{rank}</span>}
+                    </div>
+                    <div style={{flex:1}}>
+                      <span style={{fontSize:14,fontWeight:800,color: isTop&&rank===1&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
+                        {g.no} No{g.name ? ' · ' + g.name : ''}
+                      </span>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <div style={{fontSize:22,fontWeight:900,
+                        color: rank===1&&g.score>0 ? '#fbbf24' : g.score>0 ? '#e2e8f0' : '#374151',
+                        lineHeight:1}}>{g.score.toLocaleString('tr')}</div>
+                      <div style={{fontSize:10,color:'#475569'}}>puan</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {allGroupScores.length === 0 && (
+              <div style={{textAlign:'center',color:'#374151',padding:'40px 0'}}>Henüz skor yok</div>
+            )}
           </div>
         </div>
       );
@@ -3560,6 +3645,13 @@ export default function App() {
           const newGs = {...gs, [quizCurrentQ]: !gs[quizCurrentQ]};
           const newScores = {...prev, [groupNo]: newGs};
           quizScoresRef.current = newScores;
+          // Hemen kaydet — polling gelip eski değeri yazmasın
+          const data = { eventType: quizEventType, groups: quizGroups, scores: newScores, myGroups: quizMyGroups, currentQ: quizCurrentQ };
+          fetch('/api/quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quizData: data })
+          }).catch(() => {});
           return newScores;
         });
       };
@@ -3709,7 +3801,7 @@ export default function App() {
     }
 
     // Sonuçlar ekranı
-    if (quizStep === 'results') {
+    if (quizStep === 'results' && quizRole !== 'host') {
       // quizLiveScores/quizLiveGroups top-level state'ten gelir (hooks if içinde olmaz)
       const displayScores = Object.keys(quizLiveScores).length > 0 ? quizLiveScores : quizScores;
       const displayGroups = quizLiveGroups.length > 0 ? quizLiveGroups : quizGroups;
@@ -3727,7 +3819,12 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('scoring')}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
+                // Host buradan geliyorsa host ekranına dön (quizRole=host, quizStep önemli değil)
+                // Puantör buradan geliyorsa scoring'e dön
+                if (quizRole !== 'host') setQuizStep('scoring');
+                // host ise quizRole zaten 'host', tekrar render host ekranını gösterir
+              }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
             <div style={S.headerRight}>
