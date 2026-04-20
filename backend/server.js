@@ -2255,13 +2255,16 @@ app.post('/api/whatsapp-phone', function(req, res) {
 
 // ─── Quiz Night API ────────────────────────────────────────────────────────────
 
+// In-memory slot locks: { groupNo: clientId }
+var quizSlotLocks = {};
+
 // Quiz Night verilerini getir
 app.get('/api/quiz', async function(req, res) {
   try {
     var rec = await getJsonbinRecord();
-    res.json({ quizData: rec.quizData || null });
+    res.json({ quizData: rec.quizData || null, slotLocks: quizSlotLocks });
   } catch(e) {
-    res.json({ quizData: null });
+    res.json({ quizData: null, slotLocks: {} });
   }
 });
 
@@ -2279,7 +2282,15 @@ app.post('/api/quiz', async function(req, res) {
       Object.keys(quizData.scores || {}).forEach(function(groupNo) {
         mergedScores[groupNo] = Object.assign({}, mergedScores[groupNo] || {}, quizData.scores[groupNo] || {});
       });
-      rec.quizData = Object.assign({}, existing, quizData, { scores: mergedScores });
+      // Grup isimlerini merge et (en son gelen isim kazanır)
+      var mergedGroups = existing.groups || [];
+      if (quizData.groups && quizData.groups.length > 0) {
+        mergedGroups = quizData.groups.map(function(g) {
+          var found = (existing.groups || []).find(function(eg) { return eg.no === g.no; });
+          return g.name ? g : (found || g);
+        });
+      }
+      rec.quizData = Object.assign({}, existing, quizData, { scores: mergedScores, groups: mergedGroups });
     } else {
       rec.quizData = quizData;
     }
@@ -2297,6 +2308,7 @@ app.delete('/api/quiz', async function(req, res) {
   try {
     var rec = await getJsonbinRecord();
     rec.quizData = null;
+    quizSlotLocks = {};
     jsonbinCacheDirty = true;
     await flushJsonbinCache();
     res.json({ success: true });
