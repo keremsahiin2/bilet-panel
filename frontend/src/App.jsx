@@ -438,6 +438,13 @@ export default function App() {
     // #root div'i de sifirla (Vite/CRA'da genellikle margin/padding kalir)
     const root = document.getElementById('root');
     if (root) resetEl(root);
+    // Buton focus outline'ı kaldır (tarayıcı varsayılan sarı/mavi çerçeve)
+    if (!document.getElementById('__quiz_no_focus')) {
+      const style = document.createElement('style');
+      style.id = '__quiz_no_focus';
+      style.textContent = 'button:focus{outline:none!important;box-shadow:none!important;}button:focus-visible{outline:none!important;box-shadow:none!important;}';
+      document.head.appendChild(style);
+    }
   }
   const [loggedIn, setLoggedIn]             = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);   // başlangıçta login ekranı gizle
@@ -704,6 +711,7 @@ export default function App() {
   }, []);
 
   // Real-time polling — her 1.5 saniyede sunucudan güncel veriyi çek
+  const quizGroupEditingRef = useRef(false); // input focus sırasında grup isimlerini ezme
   useEffect(() => {
     if (mode !== 'quiz' && role !== 'quiznight') return;
     const poll = setInterval(() => {
@@ -712,9 +720,16 @@ export default function App() {
         .then(d => {
           if (!d.quizData) return;
           const srv = d.quizData;
-          // Grupları güncelle (isim değişiklikleri yansısın)
+          // Grupları güncelle — ama kullanıcı input'a yazıyorsa grup isimlerini ezme
           if (srv.groups && srv.groups.length > 0) {
             setQuizGroups(prev => {
+              if (quizGroupEditingRef.current) {
+                // Sadece yeni grup eklendiyse (uzunluk farkı) yeni grupları ekle, mevcut isimleri koru
+                if (srv.groups.length > prev.length) {
+                  return [...prev, ...srv.groups.slice(prev.length)];
+                }
+                return prev;
+              }
               if (JSON.stringify(prev) !== JSON.stringify(srv.groups)) return srv.groups;
               return prev;
             });
@@ -2189,6 +2204,11 @@ export default function App() {
   }
 
   // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
+  // initialLoading sırasında hiçbir ekran gösterme — koyu boş sayfa
+  if (initialLoading) {
+    return <div style={{background:'#07090f',minHeight:'100vh',width:'100%'}} />;
+  }
+
   // ─── QUIZ NIGHT ÖZEL GİRİŞ MODU ──────────────────────────────────────────────
   if (quizNightMode && !role) {
     // Şifre ekranı — numpad ile
@@ -2441,9 +2461,6 @@ export default function App() {
   }
 
   if (!loggedIn) {
-    if (initialLoading) {
-      return <div style={{...S.page, minHeight:'100vh'}} />;
-    }
     return (
       <div style={{...S.page, overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'27vh',paddingBottom:40}}>
@@ -3416,7 +3433,6 @@ export default function App() {
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setQuizRole(null); }}>← Geri</button>
-              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 PUANTÖR</span>
             </div>
           </div>
           <div style={{maxWidth:480,margin:'0 auto',padding:'32px 18px'}}>
@@ -3558,11 +3574,7 @@ export default function App() {
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
-                // Puanlama başlamışsa (currentQ > 1 veya scores dolu) → scoring'e dön
-                const scoringStarted = quizCurrentQ > 1 || Object.keys(quizScores).some(g => Object.keys(quizScores[g]||{}).length > 0);
-                if (scoringStarted) { setQuizStep('scoring'); }
-                else if (!quizData) { setQuizGroupCountSet(false); setQuizGroups([]); }
-                else { setQuizStep('select'); }
+                setQuizStep('select');
               }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{ev?.icon} {ev?.label}</span>
             </div>
@@ -3608,7 +3620,11 @@ export default function App() {
                       <input
                         value={g.name}
                         onChange={e => updateGroup(idx,'name',e.target.value)}
-                        onBlur={e => saveGroups(quizGroups.map((gr,i)=>i===idx?{...gr,name:e.target.value}:gr))}
+                        onFocus={() => { quizGroupEditingRef.current = true; }}
+                        onBlur={e => {
+                          quizGroupEditingRef.current = false;
+                          saveGroups(quizGroups.map((gr,i)=>i===idx?{...gr,name:e.target.value}:gr));
+                        }}
                         placeholder={`Grup ${g.no} adı (opsiyonel)`}
                         style={{...S.input, marginBottom:0, padding:'6px 10px', fontSize:13,
                           background: isMine ? '#1a1000' : '#07090f',
@@ -3724,9 +3740,7 @@ export default function App() {
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
-                // Geri = bir önceki soru (ya da 1'deyse groups'a git)
-                if (quizCurrentQ > 1) setQuizCurrentQ(q => q - 1);
-                else setQuizStep('groups');
+                setQuizStep('groups');
               }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎯 PUANLAMA</span>
             </div>
@@ -3957,10 +3971,7 @@ export default function App() {
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
-                // Host buradan geliyorsa host ekranına dön (quizRole=host, quizStep önemli değil)
-                // Puantör buradan geliyorsa scoring'e dön
-                if (quizRole !== 'host') setQuizStep('scoring');
-                // host ise quizRole zaten 'host', tekrar render host ekranını gösterir
+                setQuizStep('scoring');
               }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
