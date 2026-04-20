@@ -2298,7 +2298,7 @@ export default function App() {
   }
 
   if (loggedIn && roleScreen && !role) {
-    const PINS = { admin: '2580', staff: '1525' };
+    const PINS = { admin: '2580', staff: '1225' };
     const handleRolePin = () => {
       if (rolePin === PINS[rolePinTarget]) {
         setRole(rolePinTarget);
