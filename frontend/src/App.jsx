@@ -583,6 +583,25 @@ export default function App() {
   const [quizHostQ, setQuizHostQ]               = useState(1);  // sunucu ekranındaki aktif soru no
   // Results screen live data (must be top-level — no hooks inside if blocks)
   const [quizResultsLoading, setQuizResultsLoading] = useState(false);
+  // Quiz Night özel giriş modu
+  const [quizNightMode, setQuizNightMode]       = useState(false); // true = quiz night role screen
+  const [quizNightPin, setQuizNightPin]         = useState('');
+  const [quizNightPinError, setQuizNightPinError] = useState(false);
+  // Kombine dosya (soru+cevap) yükleme
+  const [quizCombinedLoading, setQuizCombinedLoading] = useState(false);
+  const [quizCombinedError, setQuizCombinedError] = useState('');
+  const [quizCombinedFile, setQuizCombinedFile] = useState(null);
+  // Puantör ekranında soruyu göster
+  const [quizShowQuestion, setQuizShowQuestion] = useState(false);
+  // Sıralama seçeneği
+  const [quizSortMode, setQuizSortMode]         = useState('score'); // 'score' | 'groupno'
+  // Slot kilitleme state (gruplar ekranında)
+  const [quizSlots, setQuizSlots]               = useState({}); // {slotKey: clientId}
+  const [quizClientId]                          = useState(() => 'client_' + Math.random().toString(36).slice(2));
+  const [quizGroupCount, setQuizGroupCount]     = useState(''); // kaç grup olacak (string input)
+  const [quizGroupCountSet, setQuizGroupCountSet] = useState(false); // grup sayısı belirlendi mi
+  // Polling interval ref
+  const quizPollRef = useRef(null);
   const [quizLiveScores, setQuizLiveScores]     = useState({});
   const [quizLiveGroups, setQuizLiveGroups]     = useState([]);
   const [quizExpandedGroup, setQuizExpandedGroup] = useState(null); // detay paneli
@@ -654,10 +673,26 @@ export default function App() {
           setQuizGroups(d.quizData.groups || []);
           setQuizScores(d.quizData.scores || {});
           quizScoresRef.current = d.quizData.scores || {};
+          // Kaldığı sorudan devam et
+          if (d.quizData.currentQ) setQuizCurrentQ(d.quizData.currentQ);
+          // Grup sayısı ayarlandıysa
+          if (d.quizData.groups && d.quizData.groups.length > 0) {
+            setQuizGroupCountSet(true);
+            setQuizGroupCount(String(d.quizData.groups.length));
+          }
           // Cevap anahtarı sunucuda varsa yükle
           if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
             setQuizAnswers(d.quizData.answers);
             setQuizAnswerFile((d.quizData.answersFile || 'Sunucudan yüklendi') + ' (' + Object.keys(d.quizData.answers).length + ' cevap)');
+          }
+          // Soru dosyası sunucuda varsa yükle
+          if (d.quizData.questions && Object.keys(d.quizData.questions).length > 0) {
+            setQuizQuestions(d.quizData.questions);
+            setQuizQFile((d.quizData.questionsFile || 'Sunucudan yüklendi') + ' (' + Object.keys(d.quizData.questions).length + ' soru)');
+          }
+          // Kombine dosya adı
+          if (d.quizData.questionsFile) {
+            setQuizCombinedFile(d.quizData.questionsFile);
           }
         }
         setQuizLoaded(true);
@@ -665,12 +700,48 @@ export default function App() {
       .catch(() => setQuizLoaded(true));
   }, []);
 
+  // Real-time polling — her 3 saniyede sunucudan güncel veriyi çek
+  useEffect(() => {
+    if (!mode || mode !== 'quiz') return;
+    const poll = setInterval(() => {
+      fetch('/api/quiz')
+        .then(r => r.json())
+        .then(d => {
+          if (!d.quizData) return;
+          // Grupları güncelle (isim değişiklikleri yansısın)
+          setQuizGroups(prev => {
+            const srv = d.quizData.groups || [];
+            if (JSON.stringify(prev) !== JSON.stringify(srv)) return srv;
+            return prev;
+          });
+          // Skorları merge et
+          setQuizScores(prev => {
+            const srv = d.quizData.scores || {};
+            const merged = { ...srv };
+            Object.keys(prev).forEach(gno => {
+              merged[gno] = { ...(merged[gno]||{}), ...prev[gno] };
+            });
+            return merged;
+          });
+          // currentQ sunucudan yükle ama biz değiştiriyorsak önceliğimiz
+          if (d.quizData.answers && Object.keys(d.quizData.answers).length > 0) {
+            setQuizAnswers(d.quizData.answers);
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+    quizPollRef.current = poll;
+    return () => clearInterval(poll);
+  }, [mode]);
+
   const saveQuizData = (newData) => {
     setQuizSaving(true);
+    // currentQ'yu da kaydet
+    const dataWithQ = { ...newData, currentQ: quizCurrentQ };
     fetch('/api/quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quizData: newData })
+      body: JSON.stringify({ quizData: dataWithQ })
     })
     .then(r => r.json())
     .then(json => {
@@ -730,6 +801,46 @@ export default function App() {
     setQuizAnswerLoading(false);
   };
 
+  // Kombine dosya yükleme — hem sorular (sunucu için) hem cevaplar (puantör için) aynı dosyadan
+  const handleCombinedFileUpload = async (file) => {
+    if (!file) return;
+    setQuizCombinedLoading(true);
+    setQuizCombinedError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      // Önce soru dosyası olarak parse et (sunucu modu)
+      const qRes = await fetch('/api/quiz/parse-questions', { method: 'POST', body: formData });
+      const qJson = await qRes.json();
+      if (qJson.error) throw new Error(qJson.error);
+      setQuizQuestions(qJson.questions || {});
+      setQuizQFile(file.name + ' (' + qJson.count + ' soru)');
+      setQuizHostQ(1);
+
+      // Aynı dosyadan cevapları da çıkar (cevap anahtarı)
+      const formData2 = new FormData();
+      formData2.append('file', file);
+      const aRes = await fetch('/api/quiz/parse-answers', { method: 'POST', body: formData2 });
+      const aJson = await aRes.json();
+      if (!aJson.error && aJson.count > 0) {
+        setQuizAnswers(aJson.answers || {});
+        setQuizAnswerFile(file.name + ' (' + aJson.count + ' cevap)');
+        // Cevapları sunucuya da kaydet
+        const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
+        const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
+        const updated = {...base, answers: aJson.answers, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
+        await fetch('/api/quiz', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({quizData: updated})
+        }).catch(()=>{});
+      }
+      setQuizCombinedFile(file.name + ' (' + qJson.count + ' soru, ' + (aJson.count||0) + ' cevap)');
+    } catch(e) {
+      setQuizCombinedError('Dosya okunamadı: ' + e.message);
+    }
+    setQuizCombinedLoading(false);
+  };
+
   // Soru dosyası parse et (sunucu modu) — server'a gönder, mammoth parse eder
   const handleQuestionFileUpload = async (file) => {
     if (!file) return;
@@ -760,6 +871,13 @@ export default function App() {
     setQuizCurrentQ(1);
     setQuizScores({});
     setQuizDeleteConfirm(false);
+    setQuizGroupCount('');
+    setQuizGroupCountSet(false);
+    setQuizCombinedFile(null);
+    setQuizAnswers({});
+    setQuizAnswerFile(null);
+    setQuizQuestions({});
+    setQuizQFile(null);
   };
 
   // SORU CEVAPLARI — etkinliğe göre
@@ -2007,6 +2125,94 @@ export default function App() {
   }
 
   // ─── ROL SEÇİM EKRANI ──────────────────────────────────────────────────────
+  // ─── QUIZ NIGHT ÖZEL GİRİŞ MODU ──────────────────────────────────────────────
+  if (quizNightMode && !role) {
+    // Şifre ekranı — numpad ile
+    const QUIZ_PIN = '0000';
+    const numpadPress = (digit) => {
+      if (quizNightPin.length >= 4) return;
+      const next = quizNightPin + digit;
+      setQuizNightPin(next);
+      setQuizNightPinError(false);
+      if (next.length === 4) {
+        setTimeout(() => {
+          if (next === QUIZ_PIN) {
+            setLoggedIn(true);
+            setRoleScreen(false);
+            setRole('quiznight');
+            setQuizNightPin('');
+            setQuizNightPinError(false);
+          } else {
+            setQuizNightPinError(true);
+            setQuizNightPin('');
+          }
+        }, 120);
+      }
+    };
+    const numpadDel = () => { setQuizNightPin(p => p.slice(0,-1)); setQuizNightPinError(false); };
+    const NUMPAD = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
+    return (
+      <div style={S.page}>
+        <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
+          <div style={{...S.loginCard, maxWidth:320, textAlign:'center', width:'100%', border:'none'}}>
+            <div style={{fontSize:36, marginBottom:12}}>🏆</div>
+            <div style={{fontSize:15, fontWeight:700, color:'#fff', marginBottom:4}}>Quiz Night Girişi</div>
+            <div style={{fontSize:12, color:'#475569', marginBottom:20}}>Şifrenizi girin</div>
+            {quizNightPinError && (
+              <div style={{...S.errBox, marginBottom:14}}>❌ Yanlış şifre, tekrar deneyin</div>
+            )}
+            <div style={{display:'flex', justifyContent:'center', gap:14, marginBottom:28}}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{
+                  width:16, height:16, borderRadius:'50%',
+                  background: quizNightPin.length > i ? '#fbbf24' : '#1a2035',
+                  border: '2px solid ' + (quizNightPin.length > i ? '#fbbf24' : '#374151'),
+                  transition:'background 0.15s'
+                }}/>
+              ))}
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16}}>
+              {NUMPAD.flat().map((k, i) => (
+                k === '' ? <div key={i}/> :
+                k === '⌫' ? (
+                  <button key={i} onClick={numpadDel}
+                    style={{padding:'16px 0', background:'#111827', color:'#94a3b8',
+                      border:'1px solid #1a2035', borderRadius:12, fontSize:20,
+                      cursor:'pointer', fontWeight:600}}>⌫</button>
+                ) : (
+                  <button key={i} onClick={() => numpadPress(k)}
+                    style={{padding:'16px 0', background:'#0d1120', color:'#e2e8f0',
+                      border:'1px solid #1a2035', borderRadius:12, fontSize:22,
+                      cursor:'pointer', fontWeight:700}}>
+                    {k}
+                  </button>
+                )
+              ))}
+            </div>
+            <button
+              style={{...S.loginBtn,
+                background: quizNightPin.length >= 4 ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : '#1a2035',
+                color: quizNightPin.length >= 4 ? '#000' : '#374151',
+                cursor: quizNightPin.length >= 4 ? 'pointer' : 'default', marginBottom:8
+              }}
+              onClick={() => {
+                if (quizNightPin === QUIZ_PIN) {
+                  setLoggedIn(true); setRoleScreen(false); setRole('quiznight');
+                  setQuizNightPin(''); setQuizNightPinError(false);
+                } else { setQuizNightPinError(true); setQuizNightPin(''); }
+              }}
+              disabled={quizNightPin.length < 4}
+            >Giriş →</button>
+            <button style={{...S.smallBtn, width:'100%', textAlign:'center'}}
+              onClick={() => { setQuizNightMode(false); setQuizNightPin(''); setQuizNightPinError(false); }}>
+              ← Geri
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loggedIn && roleScreen && !role) {
     const PINS = { admin: '2580', staff: '1525' };
     const handleRolePin = () => {
@@ -2161,6 +2367,18 @@ export default function App() {
                   <div style={{fontSize:12, opacity:0.7}}>Yalnızca satışları görüntüle</div>
                 </div>
               </button>
+              <button
+                style={{background:'linear-gradient(135deg,#fbbf24,#f59e0b)', border:'none', borderRadius:14,
+                  padding:'20px', cursor:'pointer', color:'#000', textAlign:'left', display:'flex',
+                  alignItems:'center', gap:14}}
+                onClick={() => { setQuizNightMode(true); setRolePinTarget(null); }}
+              >
+                <span style={{fontSize:32}}>🏆</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, marginBottom:2}}>Quiz Night Girişi</div>
+                  <div style={{fontSize:12, opacity:0.7}}>Sunucu ve puantör girişi</div>
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -2168,7 +2386,6 @@ export default function App() {
     );
   }
 
-  // ─── GİRİŞ ─────────────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
       <div style={{...S.page, overflowY:'auto'}}>
@@ -2199,6 +2416,15 @@ export default function App() {
             <button style={S.loginBtn} onClick={handleLogin} disabled={loginLoading}>
               {loginLoading ? '⏳ Giriş yapılıyor… (1-3 dk)' : 'Giriş Yap →'}
             </button>
+            <div style={{borderTop:'1px solid #1a2035',marginTop:20,paddingTop:16}}>
+              <div style={{fontSize:11,color:'#374151',textAlign:'center',marginBottom:10}}>veya</div>
+              <button
+                onClick={() => setQuizNightMode(true)}
+                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#fbbf24,#f59e0b)',
+                  color:'#000',border:'none',borderRadius:12,fontSize:14,fontWeight:800,cursor:'pointer'}}>
+                🏆 Quiz Night Girişi
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2762,12 +2988,56 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => { setMode(null); setQuizNightMode(false); }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
             </div>
           </div>
-          <div style={{maxWidth:480,margin:'0 auto',padding:'40px 18px'}}>
-            <div style={{textAlign:'center',marginBottom:36}}>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'24px 18px'}}>
+
+            {/* ── KOMBINE DOSYA YÜKLEME (EN ÜSTTE) ─────────────────────────── */}
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px 20px',marginBottom:20}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#4fc9ff',textTransform:'uppercase',letterSpacing:1,marginBottom:10}}>
+                📁 Soru &amp; Cevap Dosyası
+              </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:12,lineHeight:1.6}}>
+                Hem soruları hem cevapları içeren dosyayı yükleyin.<br/>
+                Sunucu için sorular, puantör için cevaplar otomatik ayrılır.
+              </div>
+              <label style={{
+                display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
+                borderRadius:12,border:'2px dashed ' + (quizCombinedFile ? '#22c55e' : '#1a2035'),
+                cursor:'pointer',background:'#0a0e1a',transition:'all 0.2s'
+              }}
+                onMouseOver={e=>{e.currentTarget.style.borderColor=quizCombinedFile?'#22c55e':'#4fc9ff';}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor=quizCombinedFile?'#22c55e':'#1a2035';}}>
+                <span style={{fontSize:24}}>{quizCombinedFile ? '✅' : '📂'}</span>
+                <div style={{flex:1}}>
+                  {quizCombinedLoading
+                    ? <span style={{fontSize:13,color:'#4fc9ff',fontWeight:700}}>⟳ Dosya işleniyor…</span>
+                    : quizCombinedFile
+                      ? <span style={{fontSize:12,color:'#22c55e',fontWeight:700}}>{quizCombinedFile}</span>
+                      : <span style={{fontSize:12,color:'#475569'}}>Dosya seç (.docx veya .txt)</span>
+                  }
+                </div>
+                <input type="file" accept=".txt,.docx" style={{display:'none'}}
+                  onChange={e => { if(e.target.files[0]) handleCombinedFileUpload(e.target.files[0]); }} />
+              </label>
+              {quizCombinedError && (
+                <div style={{fontSize:11,color:'#f87171',marginTop:8}}>❌ {quizCombinedError}</div>
+              )}
+              {quizCombinedFile && (
+                <button onClick={() => {
+                  setQuizCombinedFile(null); setQuizAnswers({}); setQuizAnswerFile(null);
+                  setQuizQuestions({}); setQuizQFile(null); setQuizCombinedError('');
+                }}
+                  style={{marginTop:8,padding:'5px 14px',borderRadius:8,border:'1px solid #1a2035',
+                    background:'transparent',color:'#64748b',fontSize:11,cursor:'pointer'}}>
+                  × Dosyayı kaldır
+                </button>
+              )}
+            </div>
+
+            <div style={{textAlign:'center',marginBottom:24}}>
               <div style={{fontSize:52,marginBottom:10}}>🏆</div>
               <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
               <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
@@ -2790,8 +3060,11 @@ export default function App() {
               <div>
                 <div style={{fontSize:17,fontWeight:800,color:'#b47cff',marginBottom:4}}>Sunucu</div>
                 <div style={{fontSize:12,color:'#64748b',lineHeight:1.5}}>
-                  Soru dosyası yükle ve soruları ekranda göster.<br/>
-                  Sonraki butonuyla sorular sırayla gelir.
+                  Soruları ekranda göster.<br/>
+                  {quizQuestions && Object.keys(quizQuestions).length > 0
+                    ? <span style={{color:'#22c55e',fontWeight:700}}>✓ {Object.keys(quizQuestions).length} soru yüklendi</span>
+                    : 'Dosya yüklendikten sonra sorular görünür.'
+                  }
                 </div>
               </div>
             </button>
@@ -3032,7 +3305,7 @@ export default function App() {
                   {QUIZ_EVENTS[quizData.eventType]?.label} · {quizData.groups?.length || 0} grup
                 </div>
                 <button
-                  onClick={() => { setQuizEventType(quizData.eventType); setQuizGroups(quizData.groups||[]); setQuizScores(quizData.scores||{}); setQuizMyGroups(quizData.myGroups||[]); setQuizCurrentQ(1); setQuizStep('groups'); }}
+                  onClick={() => { setQuizEventType(quizData.eventType); setQuizGroups(quizData.groups||[]); setQuizScores(quizData.scores||{}); setQuizMyGroups(quizData.myGroups||[]); setQuizCurrentQ(quizData.currentQ||1); setQuizGroupCountSet(true); setQuizGroupCount(String((quizData.groups||[]).length)); setQuizStep('groups'); }}
                   style={{width:'100%',padding:'10px',borderRadius:10,border:'none',cursor:'pointer',
                     background:'linear-gradient(135deg,#22c55e,#16a34a)',color:'#fff',fontWeight:700,fontSize:13,marginBottom:8}}>
                   Devam Et →
@@ -3059,16 +3332,18 @@ export default function App() {
 
     // Grup ayarlama ekranı
     if (quizStep === 'groups') {
-      const addGroup = () => {
-        const nextNo = String((quizGroups.length > 0 ? Math.max(...quizGroups.map(g=>parseInt(g.no)||0)) : 0) + 1);
-        setQuizGroups(prev => [...prev, {no: nextNo, name: ''}]);
+      const updateGroup = (idx, field, val) => {
+        const updated = quizGroups.map((g,i)=>i===idx?{...g,[field]:val}:g);
+        setQuizGroups(updated);
+        // Anlık kaydet — diğer puantörler görsün
+        const data = { eventType: quizEventType, groups: updated, scores: quizScores, myGroups: quizMyGroups };
+        saveQuizData(data);
       };
-      const removeGroup = (idx) => setQuizGroups(prev => prev.filter((_,i)=>i!==idx));
-      const updateGroup = (idx, field, val) => setQuizGroups(prev => prev.map((g,i)=>i===idx?{...g,[field]:val}:g));
-      const toggleMyGroup = (no) => setQuizMyGroups(prev => prev.includes(no) ? prev.filter(n=>n!==no) : [...prev, no]);
+      const toggleMyGroup = (no) => {
+        setQuizMyGroups(prev => prev.includes(no) ? prev.filter(n=>n!==no) : [...prev, no]);
+      };
 
       const handleStart = () => {
-        // Gruplara no ve isimleri kaydet, başlangıç scorlarını hazırla
         const newScores = {...quizScores};
         quizGroups.forEach(g => {
           if (!newScores[g.no]) newScores[g.no] = {};
@@ -3081,105 +3356,126 @@ export default function App() {
         setQuizStep('scoring');
       };
 
+      // Grup sayısı henüz belirlenmedi
+      if (!quizGroupCountSet && !quizData) {
+        const cnt = parseInt(quizGroupCount);
+        const isValid = cnt >= 1 && cnt <= 50;
+        return (
+          <div style={S.page}>
+            <div style={S.header}>
+              <div style={S.headerLeft}>
+                <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('select')}>← Geri</button>
+                <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{ev?.icon} {ev?.label}</span>
+              </div>
+            </div>
+            <div style={{maxWidth:480,margin:'0 auto',padding:'40px 18px',textAlign:'center'}}>
+              <div style={{fontSize:48,marginBottom:12}}>👥</div>
+              <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:6}}>Kaç grup katılıyor?</div>
+              <div style={{fontSize:13,color:'#475569',marginBottom:28}}>Grup sayısını girin, sonra her grubun adını girebilirsiniz.</div>
+              <input
+                type="number" min="1" max="50"
+                value={quizGroupCount}
+                onChange={e => setQuizGroupCount(e.target.value)}
+                placeholder="Örn: 8"
+                style={{...S.input, fontSize:28, padding:'18px', textAlign:'center', marginBottom:20, maxWidth:200, margin:'0 auto 20px'}}
+              />
+              <br/>
+              <button
+                onClick={() => {
+                  const n = parseInt(quizGroupCount);
+                  if (isValid) {
+                    const groups = Array.from({length:n}, (_,i) => ({no: String(i+1), name:''}));
+                    setQuizGroups(groups);
+                    setQuizGroupCountSet(true);
+                  }
+                }}
+                disabled={!isValid}
+                style={{padding:'15px 40px',borderRadius:12,border:'none',cursor:isValid?'pointer':'default',fontWeight:800,fontSize:16,
+                  background: isValid ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : '#111827',
+                  color: isValid ? '#000' : '#374151'}}>
+                Grupları Oluştur →
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // Gruplar oluşturuldu — slot seçimi + isim girişi
+      // Polling: her 3 saniyede sunucudan grup verilerini al
       return (
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('select')}>← Geri</button>
-              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>
-                {ev?.icon} {ev?.label}
-              </span>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
+                if (!quizData) { setQuizGroupCountSet(false); }
+                else { setQuizStep('select'); }
+              }}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{ev?.icon} {ev?.label}</span>
+            </div>
+            <div style={S.headerRight}>
+              <span style={{fontSize:10,color:'#22c55e'}}>🔄 Canlı</span>
             </div>
           </div>
           <div style={{maxWidth:480,margin:'0 auto',padding:'20px 18px'}}>
-            <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Gruplar</div>
-            <div style={{fontSize:11,color:'#475569',marginBottom:16}}>Grup numaraları ve isimlerini girin</div>
+            <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>
+              Gruplar · {quizGroups.length} grup
+            </div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:16}}>
+              Bir slotu seçerek o gruba bakacağınızı belirtin. Seçili slotlar kilitlenir.
+            </div>
 
-            {quizGroups.map((g, idx) => (
-              <div key={idx} style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
-                <div style={{
-                  width:36,height:36,borderRadius:8,background:'#111827',border:'1px solid #1a2035',
-                  display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
-                }}>
-                  <input
-                    value={g.no}
-                    onChange={e => updateGroup(idx,'no',e.target.value)}
-                    style={{width:28,background:'transparent',color:'#fbbf24',border:'none',outline:'none',
-                      fontSize:14,fontWeight:800,textAlign:'center'}}
-                    placeholder="No"
-                  />
-                </div>
-                <input
-                  value={g.name}
-                  onChange={e => updateGroup(idx,'name',e.target.value)}
-                  placeholder={`Grup ${g.no} adı (opsiyonel)`}
-                  style={{...S.input, marginBottom:0, flex:1}}
-                />
-                <button
-                  onClick={() => removeGroup(idx)}
-                  style={{width:36,height:36,borderRadius:8,border:'1px solid #1a2035',background:'#1a0a0a',
-                    color:'#ef4444',fontSize:18,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-              </div>
-            ))}
-
-            <button onClick={addGroup}
-              style={{width:'100%',padding:'10px',borderRadius:10,border:'1px dashed #1a2035',cursor:'pointer',
-                background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:20}}>
-              + Grup Ekle
-            </button>
-
-            <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Benim Gruplarım</div>
-            <div style={{fontSize:11,color:'#475569',marginBottom:12}}>Hangi gruplara bakıyorsunuz? Seçin (puanlama ekranında sadece bunlar görünür)</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:24}}>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
               {quizGroups.map((g, idx) => {
-                const selected = quizMyGroups.includes(g.no);
+                const isMine = quizMyGroups.includes(g.no);
                 return (
-                  <button key={idx} onClick={() => toggleMyGroup(g.no)}
-                    style={{padding:'8px 16px',borderRadius:10,border:'1px solid',cursor:'pointer',fontWeight:700,fontSize:13,
-                      background: selected ? '#12100a' : '#0d1120',
-                      color: selected ? '#fbbf24' : '#475569',
-                      borderColor: selected ? '#fbbf24' : '#1a2035',
-                      transition:'all 0.15s'
-                    }}>
-                    {g.no}{g.name ? ` · ${g.name}` : ''}
-                  </button>
+                  <div key={idx} style={{
+                    background: isMine ? '#12100a' : '#0d1120',
+                    border: '2px solid ' + (isMine ? '#fbbf24' : '#1a2035'),
+                    borderRadius:12, padding:'12px 14px',
+                    display:'flex', alignItems:'center', gap:10, transition:'all 0.2s'
+                  }}>
+                    {/* Slot numarası / kilit butonu */}
+                    <button
+                      onClick={() => toggleMyGroup(g.no)}
+                      style={{
+                        width:42,height:42,borderRadius:10,border:'2px solid',flexShrink:0,
+                        cursor:'pointer',fontSize:16,fontWeight:800,
+                        background: isMine ? '#fbbf24' : '#111827',
+                        color: isMine ? '#000' : '#475569',
+                        borderColor: isMine ? '#fbbf24' : '#374151',
+                        transition:'all 0.15s'
+                      }}>
+                      {isMine ? '✓' : g.no}
+                    </button>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:11,color: isMine ? '#fbbf24' : '#475569',fontWeight:700,marginBottom:3}}>
+                        {isMine ? '🔒 Sizin Slotunuz' : `Grup ${g.no}`}
+                      </div>
+                      <input
+                        value={g.name}
+                        onChange={e => updateGroup(idx,'name',e.target.value)}
+                        placeholder={`Grup ${g.no} adı (opsiyonel)`}
+                        style={{...S.input, marginBottom:0, padding:'6px 10px', fontSize:13,
+                          background: isMine ? '#1a1000' : '#07090f',
+                          border: '1px solid ' + (isMine ? '#fbbf2444' : '#1a2035')}}
+                      />
+                    </div>
+                  </div>
                 );
               })}
             </div>
 
-            {/* Cevap Dosyası Yükleme */}
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:4,textTransform:'uppercase',letterSpacing:1}}>Cevap Anahtarı (Opsiyonel)</div>
-              <div style={{fontSize:11,color:'#475569',marginBottom:10}}>
-                .txt veya .docx dosyası yükleyin. Format: her satırda "1- Ankara" veya "1. Cevap"
+            <div style={{background:'#0a1a0a',border:'1px solid #22c55e22',borderRadius:10,padding:'10px 14px',marginBottom:16}}>
+              <div style={{fontSize:11,color:'#22c55e',fontWeight:700,marginBottom:4}}>✓ Seçili Slotlarınız</div>
+              <div style={{fontSize:12,color:'#64748b'}}>
+                {quizMyGroups.length === 0
+                  ? 'Henüz slot seçmediniz. Yukarıdan bir grup numarasına tıklayın.'
+                  : quizMyGroups.map(no => {
+                    const g = quizGroups.find(x=>x.no===no);
+                    return `Grup ${no}${g?.name ? ' · ' + g.name : ''}`;
+                  }).join(' / ')
+                }
               </div>
-              <label style={{
-                display:'flex',alignItems:'center',gap:10,padding:'12px 16px',
-                borderRadius:12,border:'1px dashed #1a2035',cursor:'pointer',
-                background:'#0a0e1a',transition:'all 0.15s'
-              }}
-                onMouseOver={e=>{e.currentTarget.style.borderColor='#4fc9ff';}}
-                onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';}}>
-                <span style={{fontSize:20}}>📄</span>
-                <div style={{flex:1}}>
-                  {quizAnswerLoading
-                    ? <span style={{fontSize:13,color:'#4fc9ff'}}>⟳ Okunuyor…</span>
-                    : quizAnswerFile
-                      ? <span style={{fontSize:12,color:'#22c55e',fontWeight:700}}>✓ {quizAnswerFile} ({Object.keys(quizAnswers).length} cevap)</span>
-                      : <span style={{fontSize:12,color:'#475569'}}>Dosya seç (.txt veya .docx)</span>
-                  }
-                </div>
-                <input type="file" accept=".txt,.docx" style={{display:'none'}}
-                  onChange={e => { if(e.target.files[0]) handleAnswerFileUpload(e.target.files[0]); }} />
-              </label>
-              {quizAnswerError && <div style={{fontSize:11,color:'#f87171',marginTop:6}}>{quizAnswerError}</div>}
-              {quizAnswerFile && (
-                <button onClick={() => {setQuizAnswers({});setQuizAnswerFile(null);}}
-                  style={{marginTop:6,padding:'5px 14px',borderRadius:8,border:'1px solid #1a2035',
-                    background:'transparent',color:'#64748b',fontSize:11,cursor:'pointer'}}>
-                  × Cevap dosyasını kaldır
-                </button>
-              )}
             </div>
 
             <button
@@ -3222,7 +3518,8 @@ export default function App() {
       const goNext = () => {
         // Sonraki'ye basınca kaydet
         const latestScores = quizScoresRef.current;
-        const data = { eventType: quizEventType, groups: quizGroups, scores: latestScores, myGroups: quizMyGroups };
+        const nextQ = quizCurrentQ < totalQ ? quizCurrentQ + 1 : quizCurrentQ;
+        const data = { eventType: quizEventType, groups: quizGroups, scores: latestScores, myGroups: quizMyGroups, currentQ: nextQ };
         setQuizData(data);
         saveQuizData(data);
         if (quizCurrentQ < totalQ) setQuizCurrentQ(q => q + 1);
@@ -3233,6 +3530,7 @@ export default function App() {
       };
 
       const progressPct = Math.round((quizCurrentQ / totalQ) * 100);
+      const currentQuestion = quizQuestions[quizCurrentQ];
 
       return (
         <div style={S.page}>
@@ -3242,6 +3540,7 @@ export default function App() {
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎯 PUANLAMA</span>
             </div>
             <div style={S.headerRight}>
+              {quizSaving && <span style={{fontSize:10,color:'#22c55e'}}>⟳ Kaydediliyor</span>}
               <button onClick={() => setQuizStep('results')}
                 style={{...S.smallBtn,color:'#fbbf24',borderColor:'#fbbf2444'}}>📊 Sonuçlar</button>
             </div>
@@ -3253,21 +3552,42 @@ export default function App() {
               <span style={{fontSize:11,color:'#475569'}}>{ev?.label}</span>
               <span style={{fontSize:11,color:'#475569'}}>{quizCurrentQ} / {totalQ}</span>
             </div>
-            <div style={{background:'#1a2035',borderRadius:6,height:6,marginBottom:20,overflow:'hidden'}}>
+            <div style={{background:'#1a2035',borderRadius:6,height:6,marginBottom:16,overflow:'hidden'}}>
               <div style={{height:'100%',background:'linear-gradient(90deg,#fbbf24,#f59e0b)',
                 width:progressPct+'%',borderRadius:6,transition:'width 0.3s'}}/>
             </div>
 
             {/* Soru kartı */}
-            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'20px 20px 16px',marginBottom:16}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:quizAnswers[quizCurrentQ]?8:12}}>
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'16px 18px 14px',marginBottom:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
                 <div style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,padding:'4px 12px'}}>
                   <span style={{fontSize:12,fontWeight:800,color:'#fbbf24'}}>Soru {quizCurrentQ}</span>
                 </div>
-                <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 12px'}}>
-                  <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  {/* Soruyu Göster butonu */}
+                  {currentQuestion && (
+                    <button
+                      onClick={() => setQuizShowQuestion(q => !q)}
+                      style={{background:'#1a0a2e',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 10px',
+                        color:'#b47cff',fontSize:11,fontWeight:700,cursor:'pointer'}}>
+                      {quizShowQuestion ? '🙈 Soruyu Gizle' : '👁 Soruyu Göster'}
+                    </button>
+                  )}
+                  <div style={{background:'#b47cff22',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 12px'}}>
+                    <span style={{fontSize:12,fontWeight:800,color:'#b47cff'}}>{qPoint} puan</span>
+                  </div>
                 </div>
               </div>
+
+              {/* Soru metni (göster butonuna basılınca açılır) */}
+              {quizShowQuestion && currentQuestion && (
+                <div style={{background:'#0a0e1a',border:'1px solid #b47cff33',borderRadius:10,
+                  padding:'12px 14px',marginBottom:12}}>
+                  <div style={{fontSize:11,color:'#b47cff',fontWeight:700,marginBottom:6,textTransform:'uppercase',letterSpacing:1}}>Soru</div>
+                  <div style={{fontSize:14,color:'#e2e8f0',lineHeight:1.6,fontWeight:600}}>{currentQuestion.question}</div>
+                </div>
+              )}
+
               {quizAnswers[quizCurrentQ] && (
                 <div style={{background:'#0a1a2e',border:'1px solid #0ea5e933',borderRadius:10,
                   padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
@@ -3383,11 +3703,30 @@ export default function App() {
           )}
 
           <div style={{maxWidth:480,margin:'0 auto',padding:'16px 18px'}}>
-            <div style={{textAlign:'center',marginBottom:20}}>
+            <div style={{textAlign:'center',marginBottom:16}}>
               <div style={{fontSize:11,color:'#475569',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
                 {ev?.label} · {quizGroups.length} Grup
               </div>
-              <div style={{fontSize:13,color:'#64748b'}}>Puana göre sıralanmış tam liste</div>
+            </div>
+
+            {/* Sıralama seçeneği */}
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <button
+                onClick={() => setQuizSortMode('score')}
+                style={{flex:1,padding:'9px',borderRadius:9,fontSize:12,fontWeight:700,cursor:'pointer',
+                  background: quizSortMode==='score' ? '#12100a' : '#0d1120',
+                  color: quizSortMode==='score' ? '#fbbf24' : '#475569',
+                  border: '1px solid ' + (quizSortMode==='score' ? '#fbbf2444' : '#1a2035')}}>
+                🏆 Puana Göre
+              </button>
+              <button
+                onClick={() => setQuizSortMode('groupno')}
+                style={{flex:1,padding:'9px',borderRadius:9,fontSize:12,fontWeight:700,cursor:'pointer',
+                  background: quizSortMode==='groupno' ? '#0a1a2e' : '#0d1120',
+                  color: quizSortMode==='groupno' ? '#4fc9ff' : '#475569',
+                  border: '1px solid ' + (quizSortMode==='groupno' ? '#4fc9ff44' : '#1a2035')}}>
+                🔢 Grup No'ya Göre
+              </button>
             </div>
 
             {allGroupScores.length === 0 && (
@@ -3395,18 +3734,40 @@ export default function App() {
             )}
 
             {(() => {
-              // Aynı puanlı gruplara aynı sıra ver (dense ranking: 1,1,2,2,3 ...)
-              const rankedGroups = allGroupScores.map((g, idx) => {
-                let r = 1;
-                for (let i = 0; i < idx; i++) {
-                  if (allGroupScores[i].score > g.score) r++;
+              // Sıralama: puana veya grup no'suna göre
+              const sorted = quizSortMode === 'groupno'
+                ? [...allGroupScores].sort((a,b) => (parseInt(a.no)||0) - (parseInt(b.no)||0))
+                : allGroupScores; // allGroupScores zaten puana göre sıralı
+
+              // Dense ranking: aynı puana eşit sıra, bir sonraki sıra atlanmaz
+              // Örn: 370, 370, 300 → 1., 1., 2. (3. yok)
+              const sortedByScore = [...allGroupScores].sort((a,b) => b.score - a.score);
+              const rankMap = {};
+              let currentRankVal = 1;
+              sortedByScore.forEach((g, i) => {
+                if (i === 0) {
+                  rankMap[g.no] = 1;
+                } else {
+                  // Öncekiyle aynı puan → aynı rank
+                  if (g.score === sortedByScore[i-1].score) {
+                    rankMap[g.no] = rankMap[sortedByScore[i-1].no];
+                  } else {
+                    // Kaç tane aynı puanlı varsa o kadar artar: dense = count of unique ranks below
+                    const higherCount = Object.values(rankMap).filter(r => r < rankMap[sortedByScore[i-1].no] + 1).length;
+                    // Dense ranking: her farklı puan bir sonraki rakamı alır
+                    rankMap[g.no] = Object.values(rankMap).reduce((acc, r) => Math.max(acc, r), 0) + 
+                      (g.score < sortedByScore[i-1].score ? 1 : 0);
+                    // Simplified: just count distinct score groups above this one + 1
+                    const distinctHigher = new Set(sortedByScore.slice(0, i).map(x=>x.score)).size;
+                    rankMap[g.no] = distinctHigher + 1;
+                  }
                 }
-                return { ...g, rank: r };
               });
-              return rankedGroups.map((g) => {
-                const currentRank = g.rank;
-                const isTop = currentRank <= 3 && g.score > 0;
-                const medal = medals[currentRank - 1];
+
+              return sorted.map((g) => {
+                const currentRank = quizSortMode === 'score' ? rankMap[g.no] : null;
+                const isTop = currentRank !== null && currentRank <= 3 && g.score > 0;
+                const medal = currentRank !== null ? medals[currentRank - 1] : null;
                 const isMe = quizMyGroups.includes(g.no);
                 const barWidth = maxScore > 0 ? Math.round((g.score / maxScore) * 100) : 0;
                 const isExpanded = quizExpandedGroup === g.no;
@@ -3419,22 +3780,27 @@ export default function App() {
                     <div
                       onClick={() => setQuizExpandedGroup(isExpanded ? null : g.no)}
                       style={{
-                        background: currentRank===1 && g.score>0 ? '#12100a' : '#0d1120',
-                        border: '1px solid ' + (isExpanded ? '#fbbf2466' : currentRank===1 && g.score>0 ? '#fbbf2444' : isMe ? '#4fc9ff33' : '#0f1525'),
+                        background: isTop && currentRank===1 && g.score>0 ? '#12100a' : '#0d1120',
+                        border: '1px solid ' + (isExpanded ? '#fbbf2466' : isTop && currentRank===1 && g.score>0 ? '#fbbf2444' : isMe ? '#4fc9ff33' : '#0f1525'),
                         borderRadius: isExpanded ? '12px 12px 0 0' : 12,
                         padding:'14px 16px',
                         position:'relative', overflow:'hidden', cursor:'pointer'
                       }}>
                       <div style={{position:'absolute',left:0,top:0,bottom:0,
-                        width:barWidth+'%',background: currentRank===1&&g.score>0 ? '#fbbf2408' : '#ffffff04',
+                        width:barWidth+'%',background: isTop&&currentRank===1&&g.score>0 ? '#fbbf2408' : '#ffffff04',
                         transition:'width 0.5s ease'}}/>
                       <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
                         <div style={{fontSize:20,minWidth:28,textAlign:'center',flexShrink:0}}>
-                          {isTop ? medal : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{currentRank}</span>}
+                          {isTop && medal
+                            ? medal
+                            : currentRank !== null
+                              ? <span style={{fontSize:13,color:'#374151',fontWeight:700}}>#{currentRank}</span>
+                              : <span style={{fontSize:13,color:'#374151',fontWeight:700}}>G{g.no}</span>
+                          }
                         </div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                            <span style={{fontSize:14,fontWeight:800,color: currentRank===1&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
+                            <span style={{fontSize:14,fontWeight:800,color: isTop&&currentRank===1&&g.score>0 ? '#fbbf24' : '#e2e8f0'}}>
                               {g.no} No{g.name ? ' · ' + g.name : ''}
                             </span>
                             {isMe && <span style={{fontSize:10,color:'#4fc9ff',background:'#4fc9ff11',
@@ -3516,10 +3882,10 @@ export default function App() {
                 background:'#0d1a2e',color:'#4fc9ff',fontWeight:700,fontSize:14,marginBottom:8}}>
               ⟳ Tüm Puantör Verilerini Güncelle
             </button>
-            <button onClick={() => { setQuizCurrentQ(1); setQuizStep('scoring'); }}
+            <button onClick={() => { setQuizStep('scoring'); }}
               style={{width:'100%',padding:'13px',borderRadius:12,border:'none',cursor:'pointer',
                 background:'linear-gradient(135deg,#fbbf24,#f59e0b)',color:'#000',fontWeight:800,fontSize:14}}>
-              ← Puanlamaya Dön
+              ← Puanlamaya Dön (Soru {quizCurrentQ})
             </button>
           </div>
         </div>
@@ -3878,6 +4244,13 @@ export default function App() {
   // ─── ANA EKRAN ─────────────────────────────────────────────────────────────
   const seances = buildSeanceMap(salesData);
 
+  // Quiz Night rolü — doğrudan quiz moduna yönlendir
+  useEffect(() => {
+    if (role === 'quiznight' && mode !== 'quiz') {
+      setMode('quiz');
+    }
+  }, [role, mode]);
+
   return (
     <div style={S.page}>
       <div style={S.header}>
@@ -3885,14 +4258,14 @@ export default function App() {
         <div style={S.headerRight}>
           {lastUpdated && <span style={S.ts}>{lastUpdated}</span>}
           {role && (
-            <span style={{fontSize:11, color: role==='admin'?'#b47cff':'#0ea5e9',
-              background: role==='admin'?'#1a0a2e':'#0a1a2e',
-              border:'1px solid '+(role==='admin'?'#b47cff44':'#0ea5e944'),
+            <span style={{fontSize:11, color: role==='admin'?'#b47cff': role==='quiznight'?'#fbbf24':'#0ea5e9',
+              background: role==='admin'?'#1a0a2e': role==='quiznight'?'#1a1000':'#0a1a2e',
+              border:'1px solid '+(role==='admin'?'#b47cff44': role==='quiznight'?'#fbbf2444':'#0ea5e944'),
               borderRadius:6, padding:'3px 10px', fontWeight:700}}>
-              {role === 'admin' ? '🔐 Yönetici' : '👤 Çalışan'}
+              {role === 'admin' ? '🔐 Yönetici' : role === 'quiznight' ? '🏆 Quiz Night' : '👤 Çalışan'}
             </span>
           )}
-          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);}}>Çıkış</button>
+          <button style={S.smallBtn} onClick={()=>{setLoggedIn(false);setMode(null);setSalesData(null);setRole(null);setRoleScreen(false);setQuizNightMode(false);setQuizRole(null);}}>Çıkış</button>
         </div>
       </div>
 
