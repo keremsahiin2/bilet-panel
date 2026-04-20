@@ -701,9 +701,9 @@ export default function App() {
       .catch(() => setQuizLoaded(true));
   }, []);
 
-  // Real-time polling — her 3 saniyede sunucudan güncel veriyi çek
+  // Real-time polling — her 1.5 saniyede sunucudan güncel veriyi çek
   useEffect(() => {
-    if (!mode || mode !== 'quiz') return;
+    if (mode !== 'quiz' && role !== 'quiznight') return;
     const poll = setInterval(() => {
       fetch('/api/quiz')
         .then(r => r.json())
@@ -717,6 +717,7 @@ export default function App() {
               return prev;
             });
             setQuizGroupCountSet(true);
+            setQuizGroupCount(prev => prev || String(srv.groups.length));
             // quizStep 'select'te kalmışsa 'groups'a geç (yeni puantör için)
             setQuizStep(prev => prev === 'select' ? 'groups' : prev);
           }
@@ -728,21 +729,24 @@ export default function App() {
             Object.keys(prev).forEach(gno => {
               merged[gno] = { ...(merged[gno]||{}), ...prev[gno] };
             });
+            if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
             return merged;
           });
-          // Cevap ve sorular güncel gelsin
+          // Cevapları güncelle
           if (srv.answers && Object.keys(srv.answers).length > 0) {
-            setQuizAnswers(srv.answers);
+            setQuizAnswers(prev => Object.keys(prev).length > 0 ? prev : srv.answers);
           }
+          // Sorular — her puantör görsün (sunucudan yükle)
           if (srv.questions && Object.keys(srv.questions).length > 0) {
-            setQuizQuestions(prev => Object.keys(prev).length === 0 ? srv.questions : prev);
+            setQuizQuestions(prev => Object.keys(prev).length > 0 ? prev : srv.questions);
+            setQuizQFile(prev => prev || ((srv.questionsFile || 'Sunucudan yüklendi') + ' (' + Object.keys(srv.questions).length + ' soru)'));
           }
         })
         .catch(() => {});
-    }, 3000);
+    }, 1500);
     quizPollRef.current = poll;
     return () => clearInterval(poll);
-  }, [mode]);
+  }, [mode, role]);
 
   const saveQuizData = (newData, includeCurrentQ = false) => {
     setQuizSaving(true);
@@ -3449,7 +3453,10 @@ export default function App() {
           <div style={S.header}>
             <div style={S.headerLeft}>
               <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
-                if (!quizData) { setQuizGroupCountSet(false); }
+                // Puanlama başlamışsa (currentQ > 1 veya scores dolu) → scoring'e dön
+                const scoringStarted = quizCurrentQ > 1 || Object.keys(quizScores).some(g => Object.keys(quizScores[g]||{}).length > 0);
+                if (scoringStarted) { setQuizStep('scoring'); }
+                else if (!quizData) { setQuizGroupCountSet(false); setQuizGroups([]); }
                 else { setQuizStep('select'); }
               }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>{ev?.icon} {ev?.label}</span>
@@ -3578,7 +3585,11 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('groups')}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
+                // Geri = bir önceki soru (ya da 1'deyse groups'a git)
+                if (quizCurrentQ > 1) setQuizCurrentQ(q => q - 1);
+                else setQuizStep('groups');
+              }}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🎯 PUANLAMA</span>
             </div>
             <div style={S.headerRight}>
@@ -3716,7 +3727,7 @@ export default function App() {
         <div style={S.page}>
           <div style={S.header}>
             <div style={S.headerLeft}>
-              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep(quizData ? 'groups' : 'select')}>← Geri</button>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('scoring')}>← Geri</button>
               <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>📊 SONUÇLAR</span>
             </div>
             <div style={S.headerRight}>
