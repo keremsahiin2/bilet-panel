@@ -440,6 +440,7 @@ export default function App() {
     if (root) resetEl(root);
   }
   const [loggedIn, setLoggedIn]             = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);   // başlangıçta login ekranı gizle
   const [autoLoginLoading, setAutoLoginLoading] = useState(false); // artık kullanılmıyor
   const [roleScreen, setRoleScreen]         = useState(false);  // rol seçim ekranı
   const [role, setRole]                     = useState(null);   // 'admin' | 'staff'
@@ -955,6 +956,7 @@ export default function App() {
         if (json.success) {
           setLoggedIn(true);
           setRoleScreen(true);
+          setInitialLoading(false);
           setSalesLoading(true);
           if (json.ready) {
             fetch("/api/sales").then(r=>r.json()).then(d=>{ if(!d.error){ setSalesData(d); setLastUpdated(new Date().toLocaleTimeString("tr-TR")); } }).catch(()=>{}).finally(()=>setSalesLoading(false));
@@ -984,10 +986,11 @@ export default function App() {
                   ideasoftPass:    d.ideasoftPassFilled ? '••••••••' : '',
                 }));
               }
-            }).catch(()=>{});
+            }).catch(()=>{})
+            .finally(() => setInitialLoading(false));
         }
       })
-      .catch(() => {});
+      .catch(() => { setInitialLoading(false); });
   }, []);
 
   // ─── Malzeme stoğunu sunucudan yükle (sayfa açılınca)
@@ -2392,17 +2395,7 @@ export default function App() {
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%', border:'none'}}>
             <div style={{fontSize:30, marginBottom:8}}>🎟</div>
             <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
-            {salesLoading && (
-              <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'center',padding:'8px 0 4px'}}>
-                <div style={{width:18,height:18,border:'2px solid #1a2035',borderTop:'2px solid #b47cff',
-                  borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
-                <span style={{fontSize:11,color:'#475569'}}>Veriler yükleniyor…</span>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              </div>
-            )}
-            {!salesLoading && (
-              <div style={{fontSize:12, color:'#475569', marginBottom:16}}>Devam etmek için rolünüzü seçin</div>
-            )}
+            <div style={{fontSize:12, color:'#475569', marginBottom:16}}>Devam etmek için rolünüzü seçin</div>
             <div style={{display:'flex', flexDirection:'column', gap:12, marginTop:8}}>
               <button
                 style={{background:'linear-gradient(135deg,#b47cff,#7c3aff)', border:'none', borderRadius:14,
@@ -2448,6 +2441,9 @@ export default function App() {
   }
 
   if (!loggedIn) {
+    if (initialLoading) {
+      return <div style={{...S.page, minHeight:'100vh'}} />;
+    }
     return (
       <div style={{...S.page, overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'center',padding:'0 20px',paddingTop:'27vh',paddingBottom:40}}>
@@ -3108,7 +3104,7 @@ export default function App() {
             </div>
 
             <div style={{textAlign:'center',marginBottom:24}}>
-              <div style={{fontSize:52,marginBottom:10}}>🏆</div>
+              <div style={{fontSize:52,marginBottom:18}}>🏆</div>
               <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
               <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
             </div>
@@ -3119,10 +3115,11 @@ export default function App() {
                 width:'100%',display:'flex',alignItems:'center',gap:18,
                 padding:'24px 22px',borderRadius:18,border:'1px solid #1a2035',
                 cursor:'pointer',textAlign:'left',background:'#0d1120',
-                marginBottom:14,transition:'all 0.2s'
+                marginBottom:14,transition:'all 0.2s',outline:'none'
               }}
               onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#0e0a1a';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}
+              onFocus={e=>{e.currentTarget.style.outline='none';}}>
               <div style={{width:56,height:56,borderRadius:14,background:'linear-gradient(135deg,#b47cff22,#7c3aff22)',
                 border:'1px solid #b47cff44',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                 <span style={{fontSize:28}}>🎤</span>
@@ -3145,11 +3142,11 @@ export default function App() {
                 width:'100%',display:'flex',alignItems:'center',gap:18,
                 padding:'24px 22px',borderRadius:18,border:'1px solid #1a2035',
                 cursor:'pointer',textAlign:'left',background:'#0d1120',
-                marginBottom:14,transition:'all 0.2s'
+                marginBottom:14,transition:'all 0.2s',outline:'none'
               }}
               onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.background='#12100a';}}
-              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
-              <div style={{width:56,height:56,borderRadius:14,background:'linear-gradient(135deg,#fbbf2422,#f59e0b22)',
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}
+              onFocus={e=>{e.currentTarget.style.outline='none';}}>              <div style={{width:56,height:56,borderRadius:14,background:'linear-gradient(135deg,#fbbf2422,#f59e0b22)',
                 border:'1px solid #fbbf2444',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                 <span style={{fontSize:28}}>📊</span>
               </div>
