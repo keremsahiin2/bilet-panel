@@ -3072,15 +3072,12 @@ export default function App() {
                   setMode(null); setQuizNightMode(false);
                 }
               }}>← Geri</button>
-              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>
-            </div>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏆 QUIZ NIGHT</span>            </div>
           </div>
           <div style={{maxWidth:480,margin:'0 auto',padding:'24px 18px'}}>
 
             <div style={{textAlign:'center',marginBottom:24}}>
-              <div style={{fontSize:52,marginBottom:18}}>🏆</div>
-              <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:6}}>Quiz Night</div>
-              <div style={{fontSize:14,color:'#475569'}}>Rolünüzü seçin</div>
+              <div style={{fontSize:13,color:'#475569'}}>Rolünüzü seçin</div>
             </div>
 
             {/* ── KOMBINE DOSYA YÜKLEME ─────────────────────────── */}
@@ -3279,8 +3276,7 @@ export default function App() {
                 <div style={{fontSize:44,marginBottom:10}}>📄</div>
                 <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:6}}>Soru Dosyası Yükle</div>
                 <div style={{fontSize:12,color:'#64748b',lineHeight:1.6}}>
-                  .docx veya .txt formatında soru dosyası yükleyin.<br/>
-                  Format: <span style={{color:'#4fc9ff',fontWeight:700}}>Soru1 bla bla</span> ardından <span style={{color:'#22c55e',fontWeight:700}}>Cevap: bla bla</span>
+                  .docx veya .txt formatında soru dosyası yükleyin.
                 </div>
               </div>
               <label style={{
@@ -3457,8 +3453,8 @@ export default function App() {
                   <div style={{fontSize:17,fontWeight:800,color:'#fff',marginBottom:4}}>{evt.label}</div>
                   <div style={{fontSize:12,color:'#64748b'}}>
                     {key === 'genelkultur'
-                      ? `${evt.totalQ} soru · Her soru ${evt.pointPerQ} puan · Toplam ${evt.totalQ * evt.pointPerQ} puan`
-                      : `${evt.totalQ} soru · 1-10: 10pt  11-20: 20pt  21-30: 30pt  31-40: 40pt · Toplam 1000 puan`
+                      ? `${evt.totalQ} Soru · ${evt.totalQ * evt.pointPerQ} Puan`
+                      : `40 Soru · 1000 Puan`
                     }
                   </div>
                 </div>
@@ -3587,7 +3583,7 @@ export default function App() {
               Gruplar · {quizGroups.length} grup
             </div>
             <div style={{fontSize:11,color:'#475569',marginBottom:16}}>
-              Bir slotu seçerek o gruba bakacağınızı belirtin. Seçili slotlar kilitlenir.
+              Bir gruba tıklayarak o gruba bakacağınızı belirtin.
             </div>
 
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
@@ -3600,7 +3596,7 @@ export default function App() {
                     borderRadius:12, padding:'12px 14px',
                     display:'flex', alignItems:'center', gap:10, transition:'all 0.2s'
                   }}>
-                    {/* Slot numarası / kilit butonu */}
+                    {/* Grup numarası / seçim butonu */}
                     <button
                       onClick={() => toggleMyGroup(g.no)}
                       style={{
@@ -3615,7 +3611,7 @@ export default function App() {
                     </button>
                     <div style={{flex:1}}>
                       <div style={{fontSize:11,color: isMine ? '#fbbf24' : '#475569',fontWeight:700,marginBottom:3}}>
-                        {isMine ? '🔒 Sizin Slotunuz' : `Grup ${g.no}`}
+                        {isMine ? '✓ Seçildi' : `Grup ${g.no}`}
                       </div>
                       <input
                         value={g.name}
@@ -3631,12 +3627,26 @@ export default function App() {
                           border: '1px solid ' + (isMine ? '#fbbf2444' : '#1a2035')}}
                       />
                     </div>
+                    {/* Grup sil butonu — sadece sonraki eklenenler için (son grup silinebilir) */}
+                    {idx === quizGroups.length - 1 && quizGroups.length > 1 && (
+                      <button
+                        onClick={() => {
+                          const updated = quizGroups.slice(0, -1);
+                          setQuizGroups(updated);
+                          setQuizMyGroups(prev => prev.filter(n => n !== g.no));
+                          saveGroups(updated);
+                        }}
+                        style={{width:36,height:36,borderRadius:8,border:'1px solid #374151',cursor:'pointer',
+                          background:'#1f0f0f',color:'#f87171',fontSize:16,fontWeight:700,flexShrink:0}}>
+                        ×
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Ekstra Slot Ekle butonu */}
+            {/* Ekstra Grup Ekle butonu */}
             <button
               onClick={() => {
                 const nextNo = String(quizGroups.length + 1);
@@ -3647,14 +3657,14 @@ export default function App() {
               style={{width:'100%',padding:'11px',borderRadius:10,border:'1px dashed #374151',cursor:'pointer',
                 background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:12,
                 display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
-              ＋ Ekstra Slot Ekle
+              ＋ Ekstra Grup Ekle
             </button>
 
             <div style={{background:'#0a1a0a',border:'1px solid #22c55e22',borderRadius:10,padding:'10px 14px',marginBottom:16}}>
-              <div style={{fontSize:11,color:'#22c55e',fontWeight:700,marginBottom:4}}>✓ Seçili Slotlarınız</div>
+              <div style={{fontSize:11,color:'#22c55e',fontWeight:700,marginBottom:4}}>✓ Seçili Gruplarınız</div>
               <div style={{fontSize:12,color:'#64748b'}}>
                 {quizMyGroups.length === 0
-                  ? 'Henüz slot seçmediniz. Yukarıdan bir grup numarasına tıklayın.'
+                  ? 'Henüz grup seçmediniz. Yukarıdan bir grup numarasına tıklayın.'
                   : quizMyGroups.map(no => {
                     const g = quizGroups.find(x=>x.no===no);
                     return `Grup ${no}${g?.name ? ' · ' + g.name : ''}`;
