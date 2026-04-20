@@ -593,6 +593,7 @@ export default function App() {
   const [quizCombinedFile, setQuizCombinedFile] = useState(null);
   // Puantör ekranında soruyu göster
   const [quizShowQuestion, setQuizShowQuestion] = useState(false);
+  const [quizPickerOpen, setQuizPickerOpen] = useState(false);
   // Sıralama seçeneği
   const [quizSortMode, setQuizSortMode]         = useState('score'); // 'score' | 'groupno'
   // Slot kilitleme state (gruplar ekranında)
@@ -3737,9 +3738,13 @@ export default function App() {
             {/* Soru kartı */}
             <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'16px 18px 14px',marginBottom:14}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-                <div style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,padding:'4px 12px'}}>
+                <button
+                  onClick={() => setQuizPickerOpen(true)}
+                  style={{background:'#fbbf2422',border:'1px solid #fbbf2444',borderRadius:8,
+                    padding:'4px 12px',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:12,fontWeight:800,color:'#fbbf24'}}>Soru {quizCurrentQ}</span>
-                </div>
+                  <span style={{fontSize:10,color:'#f59e0b'}}>▼</span>
+                </button>
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
                   {/* Soruyu Göster butonu */}
                   {currentQuestion && (
@@ -3828,6 +3833,93 @@ export default function App() {
               </button>
             </div>
           </div>
+
+          {/* Soru Seçici Modal */}
+          {quizPickerOpen && (
+            <div
+              onClick={() => setQuizPickerOpen(false)}
+              style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:50,
+                display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{background:'#0d1120',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,
+                  maxHeight:'70vh',display:'flex',flexDirection:'column',
+                  boxShadow:'0 -8px 40px rgba(0,0,0,0.6)'}}>
+                {/* Handle */}
+                <div style={{width:40,height:4,borderRadius:2,background:'#1e293b',margin:'14px auto 0'}}/>
+                {/* Başlık */}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                  padding:'14px 20px 10px'}}>
+                  <span style={{fontSize:14,fontWeight:800,color:'#fff'}}>Soruya Git</span>
+                  <button onClick={() => setQuizPickerOpen(false)}
+                    style={{background:'#1a2035',border:'none',borderRadius:8,padding:'5px 12px',
+                      color:'#94a3b8',fontSize:13,cursor:'pointer',fontWeight:600}}>✕</button>
+                </div>
+                {/* Soru grid */}
+                <div style={{overflowY:'auto',padding:'8px 16px 32px',flex:1}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
+                    {Array.from({length: totalQ}, (_, i) => i + 1).map(qNo => {
+                      const isCurrent = qNo === quizCurrentQ;
+                      // Bu puantörün sorumlu olduğu gruplarda doğru/yanlış durumu
+                      const answered = myGroupObjs.some(g => quizScores[g.no]?.[qNo] !== undefined);
+                      const allCorrect = myGroupObjs.length > 0 && myGroupObjs.every(g => quizScores[g.no]?.[qNo] === true);
+                      const someCorrect = myGroupObjs.some(g => quizScores[g.no]?.[qNo] === true);
+                      return (
+                        <button
+                          key={qNo}
+                          onClick={() => { setQuizCurrentQ(qNo); setQuizPickerOpen(false); setQuizShowQuestion(false); }}
+                          style={{
+                            aspectRatio:'1',borderRadius:10,border:'2px solid',
+                            fontSize:13,fontWeight:800,cursor:'pointer',
+                            background: isCurrent
+                              ? '#fbbf24'
+                              : allCorrect
+                                ? '#0a1a0a'
+                                : someCorrect
+                                  ? '#0d1a10'
+                                  : answered
+                                    ? '#0a0e1a'
+                                    : '#111827',
+                            color: isCurrent
+                              ? '#000'
+                              : allCorrect
+                                ? '#22c55e'
+                                : someCorrect
+                                  ? '#4ade80'
+                                  : '#475569',
+                            borderColor: isCurrent
+                              ? '#fbbf24'
+                              : allCorrect
+                                ? '#22c55e66'
+                                : someCorrect
+                                  ? '#22c55e33'
+                                  : '#1e293b',
+                            transition:'all 0.1s'
+                          }}>
+                          {qNo}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Renk açıklaması */}
+                  <div style={{display:'flex',gap:14,marginTop:16,flexWrap:'wrap'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}>
+                      <div style={{width:12,height:12,borderRadius:3,background:'#fbbf24'}}/>
+                      <span style={{fontSize:11,color:'#64748b'}}>Mevcut soru</span>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}>
+                      <div style={{width:12,height:12,borderRadius:3,background:'#0a1a0a',border:'1px solid #22c55e66'}}/>
+                      <span style={{fontSize:11,color:'#64748b'}}>Tümü doğru</span>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}>
+                      <div style={{width:12,height:12,borderRadius:3,background:'#111827',border:'1px solid #1e293b'}}/>
+                      <span style={{fontSize:11,color:'#64748b'}}>İşaretlenmedi</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
