@@ -3286,7 +3286,7 @@ export default function App() {
             </div>
             {Object.entries(QUIZ_EVENTS).map(([key, evt]) => (
               <button key={key}
-                onClick={() => { setQuizEventType(key); setQuizGroups([{no:'1',name:''},{no:'2',name:''}]); setQuizStep('groups'); setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1); }}
+                onClick={() => { setQuizEventType(key); setQuizGroups([]); setQuizGroupCountSet(false); setQuizGroupCount(''); setQuizStep('groups'); setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1); }}
                 style={{
                   width:'100%',display:'flex',alignItems:'center',gap:16,
                   padding:'22px 24px',borderRadius:16,border:'1px solid #1a2035',
@@ -3365,8 +3365,8 @@ export default function App() {
         setQuizStep('scoring');
       };
 
-      // Grup sayısı henüz belirlenmedi
-      if (!quizGroupCountSet && !quizData) {
+      // Grup sayısı henüz belirlenmedi — quizGroups da boşsa sor
+      if (!quizGroupCountSet && quizGroups.length === 0) {
         const cnt = parseInt(quizGroupCount);
         const isValid = cnt >= 1 && cnt <= 50;
         return (
