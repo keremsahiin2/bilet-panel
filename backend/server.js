@@ -87,30 +87,12 @@ const IDEASOFT_PRODUCTS = [
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
 // Seramik için AYRI bin — quiz/baseline ile çakışmaz, daha hızlı
-const CERAMICS_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulur
+const CERAMICS_BIN_ID = '69e7b2a4856a6821895a1d4b';
 var ceramicsBinId = CERAMICS_BIN_ID;
 var ceramicsCache = null; // { records:[], nextNo:1 }
 
 async function loadCeramicsFromBin() {
   if (ceramicsCache) return ceramicsCache;
-  // ceramicsBinId yoksa ana bin'den taşı
-  if (!ceramicsBinId) {
-    // Yeni bin oluştur
-    try {
-      var createRes = await axios.post('https://api.jsonbin.io/v3/b',
-        { records: [], nextNo: 1 },
-        { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json', 'X-Bin-Name': 'ceramics' } }
-      );
-      ceramicsBinId = createRes.data.metadata.id;
-      console.log('Ceramics bin olusturuldu:', ceramicsBinId);
-      ceramicsCache = { records: [], nextNo: 1 };
-      return ceramicsCache;
-    } catch(e) {
-      console.error('Ceramics bin olusturma hatasi:', e.message);
-      ceramicsCache = { records: [], nextNo: 1 };
-      return ceramicsCache;
-    }
-  }
   try {
     var res = await axios.get('https://api.jsonbin.io/v3/b/' + ceramicsBinId + '/latest',
       { headers: { 'X-Master-Key': JSONBIN_API_KEY } }
@@ -126,19 +108,17 @@ async function loadCeramicsFromBin() {
   return ceramicsCache;
 }
 
-async function saveCeramicsToBin() {
+// Arka planda yaz — kullanıcıyı beklettirme
+function saveCeramicsAsync() {
   if (!ceramicsCache) return;
-  if (!ceramicsBinId) { await loadCeramicsFromBin(); }
-  try {
-    await axios.put('https://api.jsonbin.io/v3/b/' + ceramicsBinId,
-      ceramicsCache,
-      { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } }
-    );
+  axios.put('https://api.jsonbin.io/v3/b/' + ceramicsBinId,
+    ceramicsCache,
+    { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } }
+  ).then(() => {
     console.log('Ceramics: kaydedildi,', ceramicsCache.records.length, 'kayit');
-  } catch(e) {
+  }).catch(e => {
     console.error('Ceramics yazma hatasi:', e.message);
-    throw e;
-  }
+  });
 }
 
 
@@ -2561,8 +2541,8 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
 
     data.records = data.records || [];
     data.records.push(record);
-    await saveCeramicsToBin();
-    res.json({ success: true, record });
+    saveCeramicsAsync(); // arka planda kaydet
+    res.json({ success: true, record }); // anında yanıt
   } catch(e) {
     console.error('Ceramics record error:', e.message);
     res.status(500).json({ error: e.message });
@@ -2577,7 +2557,7 @@ app.patch('/api/ceramics/record/:no/status', async function(req, res) {
     record.status = req.body.status;
     record.statusHistory = record.statusHistory || [];
     record.statusHistory.push({ status: req.body.status, date: new Date().toISOString() });
-    await saveCeramicsToBin();
+    saveCeramicsAsync();
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2590,7 +2570,7 @@ app.patch('/api/ceramics/record/:no', async function(req, res) {
     ['firstName','lastName','phone','notes'].forEach(function(k) {
       if (req.body[k] !== undefined) record[k] = req.body[k];
     });
-    await saveCeramicsToBin();
+    saveCeramicsAsync();
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2599,7 +2579,7 @@ app.delete('/api/ceramics/record/:no', async function(req, res) {
   try {
     var data = await loadCeramicsFromBin();
     data.records = data.records.filter(function(r) { return String(r.no) !== String(req.params.no); });
-    await saveCeramicsToBin();
+    saveCeramicsAsync();
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
