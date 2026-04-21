@@ -459,6 +459,19 @@ export default function App() {
   const [loginLoading, setLoginLoading]     = useState(false);
   const [loginError, setLoginError]         = useState(null);
   const [mode, setMode]                     = useState(null);
+
+  // ─── Seramik Takip ────────────────────────────────────────────────────────────
+  const [ceramicsData, setCeramicsData]       = useState(null);
+  const [ceramicsLoading, setCeramicsLoading] = useState(false);
+  const [ceramicsSearch, setCeramicsSearch]   = useState('');
+  const [ceramicsView, setCeramicsView]       = useState('list'); // 'list' | 'new' | 'detail' | 'session'
+  const [ceramicsSelected, setCeramicsSelected] = useState(null);
+  const [ceramicsForm, setCeramicsForm]       = useState({ firstName:'', lastName:'', phone:'', notes:'', sessionId:'' });
+  const [ceramicsImageFile, setCeramicsImageFile] = useState(null);
+  const [ceramicsImagePreview, setCeramicsImagePreview] = useState(null);
+  const [ceramicsSaving, setCeramicsSaving]   = useState(false);
+  const [ceramicsSessionForm, setCeramicsSessionForm] = useState({ date: new Date().toISOString().slice(0,10), category:'Seramik', participantCount:'', notes:'' });
+  const [ceramicsStatusFilter, setCeramicsStatusFilter] = useState('all');
   const [salesData, setSalesData]           = useState(null);
   const [salesLoading, setSalesLoading]     = useState(false);
   const [salesError, setSalesError]         = useState(null);
@@ -709,6 +722,17 @@ export default function App() {
       })
       .catch(() => setQuizLoaded(true));
   }, []);
+
+  // ─── Seramik Takip ────────────────────────────────────────────────────────────
+  const fetchCeramics = async () => {
+    setCeramicsLoading(true);
+    try {
+      const r = await fetch('/api/ceramics');
+      const d = await r.json();
+      setCeramicsData(d);
+    } catch(e) { console.error(e); }
+    setCeramicsLoading(false);
+  };
 
   // Real-time polling — her 1.5 saniyede sunucudan güncel veriyi çek
   const quizGroupEditingRef = useRef(false); // input focus sırasında grup isimlerini ezme
@@ -4204,6 +4228,375 @@ export default function App() {
   }
 
   // ─── MALZEME TAKİBİ EKRANI ─────────────────────────────────────────────────
+  // ─── SERAMİK TAKİP EKRANI ────────────────────────────────────────────────────
+  if (mode === 'ceramics') {
+    const STATUS_LABELS = {
+      firinda:     { label:'Fırında',      color:'#f59e0b', bg:'#1a1000' },
+      hazir:       { label:'Hazır',        color:'#4fc9ff', bg:'#001a2a' },
+      arandi:      { label:'Arandı',       color:'#a78bfa', bg:'#0f0020' },
+      ulasilamadi: { label:'Ulaşılamadı', color:'#f87171', bg:'#1a0000' },
+      teslimaldi:  { label:'Teslim Aldı', color:'#22c55e', bg:'#001a00' },
+    };
+
+    const records = (ceramicsData?.records || []);
+    const sessions = (ceramicsData?.sessions || []);
+
+    const filtered = records.filter(r => {
+      const q = ceramicsSearch.toLowerCase();
+      const matchSearch = !q ||
+        r.firstName?.toLowerCase().includes(q) ||
+        r.lastName?.toLowerCase().includes(q) ||
+        r.phone?.includes(q) ||
+        String(r.no).includes(q);
+      const matchStatus = ceramicsStatusFilter === 'all' || r.status === ceramicsStatusFilter;
+      return matchSearch && matchStatus;
+    });
+
+    const saveRecord = async () => {
+      if (!ceramicsForm.firstName && !ceramicsForm.lastName) return alert('İsim veya soyisim gerekli');
+      setCeramicsSaving(true);
+      try {
+        const fd = new FormData();
+        fd.append('firstName', ceramicsForm.firstName);
+        fd.append('lastName', ceramicsForm.lastName);
+        fd.append('phone', ceramicsForm.phone);
+        fd.append('notes', ceramicsForm.notes);
+        fd.append('sessionId', ceramicsForm.sessionId);
+        if (ceramicsImageFile) fd.append('image', ceramicsImageFile);
+        const r = await fetch('/api/ceramics/record', { method:'POST', body: fd });
+        const d = await r.json();
+        if (d.success) {
+          await fetchCeramics();
+          setCeramicsView('list');
+          setCeramicsForm({ firstName:'', lastName:'', phone:'', notes:'', sessionId:'' });
+          setCeramicsImageFile(null); setCeramicsImagePreview(null);
+        } else { alert('Hata: ' + d.error); }
+      } catch(e) { alert('Bağlantı hatası'); }
+      setCeramicsSaving(false);
+    };
+
+    const updateStatus = async (no, status) => {
+      await fetch('/api/ceramics/record/' + no + '/status', {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ status })
+      });
+      await fetchCeramics();
+    };
+
+    const saveSession = async () => {
+      if (!ceramicsSessionForm.participantCount) return alert('Katılımcı sayısı gerekli');
+      setCeramicsSaving(true);
+      try {
+        const r = await fetch('/api/ceramics/session', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(ceramicsSessionForm)
+        });
+        const d = await r.json();
+        if (d.success) { await fetchCeramics(); setCeramicsView('list'); }
+      } catch(e) { alert('Hata'); }
+      setCeramicsSaving(false);
+    };
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerLeft}>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+          </div>
+          <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏺 SERAMİK TAKİP</span>
+          <div style={{display:'flex',gap:6}}>
+            <button style={{...S.smallBtn}} onClick={() => { setCeramicsView('session'); }}>+ Etkinlik</button>
+            <button style={{...S.smallBtn, background:'#4fc9ff22', color:'#4fc9ff', border:'1px solid #4fc9ff44'}}
+              onClick={() => { setCeramicsView('new'); }}>+ Kayıt</button>
+          </div>
+        </div>
+
+        <div style={{maxWidth:600,margin:'0 auto',padding:'16px 14px'}}>
+
+          {/* YENİ KAYIT FORMU */}
+          {ceramicsView === 'new' && (
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px 18px',marginBottom:16}}>
+              <div style={{fontSize:14,fontWeight:800,color:'#4fc9ff',marginBottom:16}}>Yeni Ürün Kaydı</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Ad</div>
+                  <input value={ceramicsForm.firstName} onChange={e=>setCeramicsForm(p=>({...p,firstName:e.target.value}))}
+                    placeholder="Ad" style={{...S.input,marginBottom:0}} />
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Soyad</div>
+                  <input value={ceramicsForm.lastName} onChange={e=>setCeramicsForm(p=>({...p,lastName:e.target.value}))}
+                    placeholder="Soyad" style={{...S.input,marginBottom:0}} />
+                </div>
+              </div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Telefon</div>
+                <input value={ceramicsForm.phone} onChange={e=>setCeramicsForm(p=>({...p,phone:e.target.value}))}
+                  placeholder="05xx xxx xx xx" style={{...S.input,marginBottom:0}} type="tel" />
+              </div>
+              {sessions.length > 0 && (
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Etkinlik (opsiyonel)</div>
+                  <select value={ceramicsForm.sessionId} onChange={e=>setCeramicsForm(p=>({...p,sessionId:e.target.value}))}
+                    style={{...S.input,marginBottom:0}}>
+                    <option value="">Seçilmedi</option>
+                    {sessions.map(s=>(
+                      <option key={s.id} value={s.id}>{s.date} · {s.category} · {s.participantCount} kişi</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Not (opsiyonel)</div>
+                <input value={ceramicsForm.notes} onChange={e=>setCeramicsForm(p=>({...p,notes:e.target.value}))}
+                  placeholder="Ürün detayı, renk vb." style={{...S.input,marginBottom:0}} />
+              </div>
+              {/* Görsel yükleme */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Ürün Görseli</div>
+                <label style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
+                  borderRadius:10,border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
+                  cursor:'pointer',background:'#07090f'}}>
+                  <span style={{fontSize:20}}>{ceramicsImagePreview ? '✅' : '📷'}</span>
+                  <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569'}}>
+                    {ceramicsImageFile ? ceramicsImageFile.name : 'Fotoğraf seç veya çek'}
+                  </span>
+                  <input type="file" accept="image/*" capture="environment" style={{display:'none'}}
+                    onChange={e=>{
+                      const f = e.target.files[0];
+                      if (!f) return;
+                      setCeramicsImageFile(f);
+                      const reader = new FileReader();
+                      reader.onload = ev => setCeramicsImagePreview(ev.target.result);
+                      reader.readAsDataURL(f);
+                    }} />
+                </label>
+                {ceramicsImagePreview && (
+                  <img src={ceramicsImagePreview} alt="önizleme"
+                    style={{marginTop:8,width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8}} />
+                )}
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={() => { setCeramicsView('list'); setCeramicsImageFile(null); setCeramicsImagePreview(null); }}
+                  style={{...S.smallBtn,flex:1}}>İptal</button>
+                <button onClick={saveRecord} disabled={ceramicsSaving}
+                  style={{flex:2,padding:'10px',borderRadius:10,border:'none',cursor:'pointer',
+                    background:'#4fc9ff',color:'#000',fontWeight:800,fontSize:14}}>
+                  {ceramicsSaving ? '⟳ Kaydediliyor…' : '✓ Kaydet'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* YENİ ETKİNLİK FORMU */}
+          {ceramicsView === 'session' && (
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px 18px',marginBottom:16}}>
+              <div style={{fontSize:14,fontWeight:800,color:'#f59e0b',marginBottom:16}}>Yeni Etkinlik Kaydı</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Tarih</div>
+                  <input type="date" value={ceramicsSessionForm.date}
+                    onChange={e=>setCeramicsSessionForm(p=>({...p,date:e.target.value}))}
+                    style={{...S.input,marginBottom:0}} />
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Katılımcı Sayısı</div>
+                  <input type="number" value={ceramicsSessionForm.participantCount}
+                    onChange={e=>setCeramicsSessionForm(p=>({...p,participantCount:e.target.value}))}
+                    placeholder="0" style={{...S.input,marginBottom:0}} />
+                </div>
+              </div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Kategori</div>
+                <select value={ceramicsSessionForm.category}
+                  onChange={e=>setCeramicsSessionForm(p=>({...p,category:e.target.value}))}
+                  style={{...S.input,marginBottom:0}}>
+                  {['Seramik','Heykel','Resim','Bez Çanta','3D Figür','Maske','Plak Boyama','Cupcake Mum','Punch'].map(c=>(
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Not (opsiyonel)</div>
+                <input value={ceramicsSessionForm.notes}
+                  onChange={e=>setCeramicsSessionForm(p=>({...p,notes:e.target.value}))}
+                  placeholder="Etkinlik notu" style={{...S.input,marginBottom:0}} />
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>setCeramicsView('list')} style={{...S.smallBtn,flex:1}}>İptal</button>
+                <button onClick={saveSession} disabled={ceramicsSaving}
+                  style={{flex:2,padding:'10px',borderRadius:10,border:'none',cursor:'pointer',
+                    background:'#f59e0b',color:'#000',fontWeight:800,fontSize:14}}>
+                  {ceramicsSaving ? '⟳ Kaydediliyor…' : '✓ Etkinliği Kaydet'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* DETAY EKRANI */}
+          {ceramicsView === 'detail' && ceramicsSelected && (
+            <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px',marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                <button onClick={()=>{setCeramicsView('list');setCeramicsSelected(null);}} style={S.smallBtn}>← Geri</button>
+                <div style={{fontSize:16,fontWeight:800,color:'#fff'}}>
+                  #{ceramicsSelected.no} · {ceramicsSelected.firstName} {ceramicsSelected.lastName}
+                </div>
+              </div>
+              {ceramicsSelected.imageUrl && (
+                <img src={ceramicsSelected.imageUrl} alt="ürün"
+                  style={{width:'100%',maxHeight:260,objectFit:'cover',borderRadius:12,marginBottom:14}} />
+              )}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+                <div style={{background:'#07090f',borderRadius:10,padding:'10px 12px'}}>
+                  <div style={{fontSize:10,color:'#475569',marginBottom:3}}>TELEFON</div>
+                  <div style={{fontSize:14,color:'#fff',fontWeight:700}}>{ceramicsSelected.phone || '—'}</div>
+                </div>
+                <div style={{background:'#07090f',borderRadius:10,padding:'10px 12px'}}>
+                  <div style={{fontSize:10,color:'#475569',marginBottom:3}}>KAYIT TARİHİ</div>
+                  <div style={{fontSize:12,color:'#fff'}}>{ceramicsSelected.createdAt?.slice(0,10)}</div>
+                </div>
+              </div>
+              {ceramicsSelected.notes && (
+                <div style={{background:'#07090f',borderRadius:10,padding:'10px 12px',marginBottom:14}}>
+                  <div style={{fontSize:10,color:'#475569',marginBottom:3}}>NOT</div>
+                  <div style={{fontSize:13,color:'#94a3b8'}}>{ceramicsSelected.notes}</div>
+                </div>
+              )}
+              <div style={{fontSize:11,color:'#475569',marginBottom:8,fontWeight:700}}>DURUM GÜNCELLE</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
+                {Object.entries(STATUS_LABELS).map(([k,v])=>(
+                  <button key={k} onClick={async ()=>{
+                    await updateStatus(ceramicsSelected.no, k);
+                    setCeramicsSelected(p=>({...p, status:k}));
+                  }}
+                    style={{padding:'8px 14px',borderRadius:10,border:'2px solid',cursor:'pointer',fontSize:12,fontWeight:700,
+                      background: ceramicsSelected.status===k ? v.bg : '#07090f',
+                      color: ceramicsSelected.status===k ? v.color : '#475569',
+                      borderColor: ceramicsSelected.status===k ? v.color : '#1a2035'}}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+              {/* Durum geçmişi */}
+              {ceramicsSelected.statusHistory?.length > 0 && (
+                <div>
+                  <div style={{fontSize:11,color:'#475569',marginBottom:6,fontWeight:700}}>GEÇMİŞ</div>
+                  {[...ceramicsSelected.statusHistory].reverse().map((h,i)=>(
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',
+                      borderBottom:'1px solid #0d1120',fontSize:12}}>
+                      <span style={{color: STATUS_LABELS[h.status]?.color || '#94a3b8'}}>{STATUS_LABELS[h.status]?.label || h.status}</span>
+                      <span style={{color:'#475569'}}>{h.date?.slice(0,16).replace('T',' ')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LİSTE */}
+          {ceramicsView === 'list' && (
+            <>
+              {/* Arama */}
+              <div style={{position:'relative',marginBottom:10}}>
+                <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:14,color:'#475569'}}>🔍</span>
+                <input value={ceramicsSearch} onChange={e=>setCeramicsSearch(e.target.value)}
+                  placeholder="Ad, soyad, telefon veya ürün no ile ara…"
+                  style={{...S.input,marginBottom:0,paddingLeft:36}} />
+              </div>
+              {/* Durum filtresi */}
+              <div style={{display:'flex',gap:6,marginBottom:14,overflowX:'auto',paddingBottom:2}}>
+                {[['all','Tümü','#94a3b8'], ...Object.entries(STATUS_LABELS).map(([k,v])=>[k,v.label,v.color])].map(([k,label,color])=>(
+                  <button key={k} onClick={()=>setCeramicsStatusFilter(k)}
+                    style={{padding:'5px 12px',borderRadius:20,border:'1px solid',cursor:'pointer',
+                      fontSize:11,fontWeight:700,whiteSpace:'nowrap',
+                      background: ceramicsStatusFilter===k ? '#0f1525' : 'transparent',
+                      color: ceramicsStatusFilter===k ? color : '#374151',
+                      borderColor: ceramicsStatusFilter===k ? color : '#1a2035'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Özet */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+                {[
+                  {label:'Toplam Ürün', value: records.length, color:'#4fc9ff'},
+                  {label:'Fırında', value: records.filter(r=>r.status==='firinda').length, color:'#f59e0b'},
+                  {label:'Teslim Aldı', value: records.filter(r=>r.status==='teslimaldi').length, color:'#22c55e'},
+                ].map(s=>(
+                  <div key={s.label} style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,padding:'10px',textAlign:'center'}}>
+                    <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.value}</div>
+                    <div style={{fontSize:10,color:'#475569'}}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {ceramicsLoading && <div style={{textAlign:'center',color:'#475569',padding:20}}>⟳ Yükleniyor…</div>}
+
+              {filtered.length === 0 && !ceramicsLoading && (
+                <div style={{textAlign:'center',color:'#475569',padding:30}}>
+                  {ceramicsSearch ? 'Aramanızla eşleşen kayıt yok.' : 'Henüz kayıt yok. + Kayıt butonuna basın.'}
+                </div>
+              )}
+
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {filtered.map(r=>{
+                  const st = STATUS_LABELS[r.status] || STATUS_LABELS.firinda;
+                  return (
+                    <button key={r.no} onClick={()=>{ setCeramicsSelected(r); setCeramicsView('detail'); }}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',
+                        borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+                        background:'#0d1120',width:'100%',transition:'all 0.15s'}}
+                      onMouseOver={e=>{e.currentTarget.style.borderColor=st.color;}}
+                      onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';}}>
+                      {r.imageUrl
+                        ? <img src={r.imageUrl} alt="" style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} />
+                        : <div style={{width:48,height:48,borderRadius:8,background:'#0a0e1a',display:'flex',alignItems:'center',
+                            justifyContent:'center',fontSize:20,flexShrink:0}}>🏺</div>
+                      }
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:2}}>
+                          #{r.no} · {r.firstName} {r.lastName}
+                        </div>
+                        <div style={{fontSize:12,color:'#475569'}}>{r.phone || '—'}</div>
+                      </div>
+                      <div style={{padding:'4px 10px',borderRadius:20,background:st.bg,
+                        border:'1px solid',borderColor:st.color,color:st.color,fontSize:11,fontWeight:700,flexShrink:0}}>
+                        {st.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Etkinlikler özeti */}
+              {sessions.length > 0 && (
+                <div style={{marginTop:20}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#475569',marginBottom:8,textTransform:'uppercase',letterSpacing:1}}>
+                    Etkinlikler
+                  </div>
+                  {[...sessions].reverse().slice(0,5).map(s=>(
+                    <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                      padding:'10px 14px',borderRadius:12,background:'#0d1120',border:'1px solid #1a2035',marginBottom:6}}>
+                      <div>
+                        <div style={{fontSize:13,color:'#fff',fontWeight:700}}>{s.category}</div>
+                        <div style={{fontSize:11,color:'#475569'}}>{s.date} {s.notes ? '· ' + s.notes : ''}</div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:18,fontWeight:800,color:'#4fc9ff'}}>{s.participantCount}</div>
+                        <div style={{fontSize:10,color:'#475569'}}>katılımcı</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (mode === 'malzeme') {
 
     // Sunucuya otomatik kaydet (debounce — 800ms sonra)
@@ -4604,6 +4997,20 @@ export default function App() {
             <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
           </button>
           <button
+            onClick={() => { setMode('ceramics'); fetchCeramics(); }}
+            style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
+              borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+              background:'#0d1120',transition:'all 0.2s'}}
+            onMouseOver={e=>{e.currentTarget.style.borderColor='#f59e0b';e.currentTarget.style.background='#0f1525';}}
+            onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+            <span style={{fontSize:26}}>🏺</span>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Seramik Takip</span>
+              <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Ürün kayıt, durum ve teslim takibi</span>
+            </div>
+            <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
+          </button>
+          <button
             onClick={() => { setMode('quiz'); setQuizStep(quizData ? 'groups' : 'select'); if(quizData){setQuizEventType(quizData.eventType);setQuizGroups(quizData.groups||[]);setQuizScores(quizData.scores||{});} }}
             style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
               borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
@@ -4664,6 +5071,23 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
                 <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Malzeme Takibi</span>
                 <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Atölye malzeme stoklarını takip et</span>
+              </div>
+              <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
+            </button>
+          </div>
+          {/* Seramik Takip */}
+          <div style={{padding:'0 18px 6px', maxWidth:720, margin:'0 auto'}}>
+            <button
+              onClick={() => { setMode('ceramics'); fetchCeramics(); }}
+              style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
+                borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
+                background:'#0d1120',boxShadow:'none',transition:'all 0.2s'}}
+              onMouseOver={e=>{e.currentTarget.style.borderColor='#f59e0b';e.currentTarget.style.background='#0f1525';}}
+              onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+              <span style={{fontSize:26}}>🏺</span>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Seramik Takip</span>
+                <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>Ürün kayıt, durum ve teslim takibi</span>
               </div>
               <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
             </button>
