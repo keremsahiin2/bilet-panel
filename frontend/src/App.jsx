@@ -2602,29 +2602,31 @@ export default function App() {
             const bialOk     = (salesData.biletinial|| []).length > 0;
             const ideasoftOk = (salesData.ideasoft  || []).length > 0;
             return (
-              <div style={{display:'flex',gap:6,marginBottom:14}}>
-                {[['Bubilet',bubiletOk],['Biletini Al',bialOk],['İdeasoft',ideasoftOk]].map(([label,ok])=>(
-                  <div key={label} style={{display:'flex',alignItems:'center',gap:4,flex:1,
-                    background:ok?'#0d2a1a':'#2a0d0d',
-                    border:'1px solid '+(ok?'#22c55e44':'#ef444444'),
-                    borderRadius:8,padding:'5px 8px',minWidth:0}}>
-                    <span style={{width:8,height:8,borderRadius:'50%',display:'inline-block',flexShrink:0,
-                      background:ok?'#22c55e':'#ef4444',
-                      boxShadow:'0 0 6px '+(ok?'#22c55e':'#ef4444')}}/>
-                    <span style={{fontSize:12,color:ok?'#86efac':'#fca5a5',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
-                    <span style={{fontSize:10,color:'#475569',whiteSpace:'nowrap'}}>{ok?'bağlı':'yok'}</span>
-                  </div>
-                ))}
-              </div>
-              {!ideasoftOk && !salesLoading && (
-                <div style={{background:'#1a0d00',border:'1px solid #f59e0b44',borderRadius:8,padding:'8px 12px',
-                  display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:4}}>
-                  <span style={{fontSize:12,color:'#f59e0b',fontWeight:600}}>⚠ İdeasoft verisi alınamadı</span>
-                  <button onClick={fetchSales} style={{padding:'4px 12px',borderRadius:6,border:'none',
-                    background:'linear-gradient(135deg,#f59e0b,#d97706)',color:'#000',
-                    fontSize:11,fontWeight:800,cursor:'pointer'}}>⟳ Yenile</button>
+              <>
+                <div style={{display:'flex',gap:6,marginBottom:ideasoftOk?14:8}}>
+                  {[['Bubilet',bubiletOk],['Biletini Al',bialOk],['İdeasoft',ideasoftOk]].map(([label,ok])=>(
+                    <div key={label} style={{display:'flex',alignItems:'center',gap:4,flex:1,
+                      background:ok?'#0d2a1a':'#2a0d0d',
+                      border:'1px solid '+(ok?'#22c55e44':'#ef444444'),
+                      borderRadius:8,padding:'5px 8px',minWidth:0}}>
+                      <span style={{width:8,height:8,borderRadius:'50%',display:'inline-block',flexShrink:0,
+                        background:ok?'#22c55e':'#ef4444',
+                        boxShadow:'0 0 6px '+(ok?'#22c55e':'#ef4444')}}/>
+                      <span style={{fontSize:12,color:ok?'#86efac':'#fca5a5',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
+                      <span style={{fontSize:10,color:'#475569',whiteSpace:'nowrap'}}>{ok?'bağlı':'yok'}</span>
+                    </div>
+                  ))}
                 </div>
-              )}
+                {!ideasoftOk && !salesLoading && (
+                  <div style={{background:'#1a0d00',border:'1px solid #f59e0b44',borderRadius:8,padding:'8px 12px',
+                    display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:14}}>
+                    <span style={{fontSize:12,color:'#f59e0b',fontWeight:600}}>⚠ İdeasoft verisi alınamadı</span>
+                    <button onClick={fetchSales} style={{padding:'4px 12px',borderRadius:6,border:'none',
+                      background:'linear-gradient(135deg,#f59e0b,#d97706)',color:'#000',
+                      fontSize:11,fontWeight:800,cursor:'pointer'}}>⟳ Yenile</button>
+                  </div>
+                )}
+              </>
             );
           })()}
           {salesError && <div style={S.errBox}>{salesError}</div>}
