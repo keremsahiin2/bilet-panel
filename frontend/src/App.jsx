@@ -629,7 +629,7 @@ export default function App() {
   const [quizExpandedGroup, setQuizExpandedGroup] = useState(null); // detay paneli
 
   const QUIZ_EVENTS = {
-    genelkultur: { label: 'Genel Kültür', totalQ: 55, pointPerQ: 10, icon: '🧠' },
+    genelkultur: { label: 'Genel Kültür', totalQ: 55, pointPerQ: 10, icon: '🧠', altTotalQ: 50 },
     diziyfilm:   { label: 'Dizi & Film',  totalQ: 40, pointPerQ: null, icon: '🎬',
       // ilk 10→10pt, 11-20→20pt, 21-30→30pt, 31-40→40pt
       getPoints: (qNo) => {
@@ -988,7 +988,7 @@ export default function App() {
   };
 
   // Sayfa açılınca otomatik login dene — rol ekranı hemen göster, veri arka planda gelir
-  useState(() => {
+  useEffect(() => {
     fetch('/api/auto-login', { method:'POST' })
       .then(r => r.json())
       .then(json => {
@@ -2437,8 +2437,20 @@ export default function App() {
       <div style={S.page}>
         <div style={{display:'flex',justifyContent:'center',padding:'0 24px',marginTop:'22vh'}}>
           <div style={{...S.loginCard, maxWidth:400, textAlign:'center', width:'100%', border:'none'}}>
-            <div style={{fontSize:30, marginBottom:8}}>🎟</div>
-            <div style={{fontSize:16, fontWeight:800, letterSpacing:2, color:'#fff', marginBottom:4}}>BİLET PANELİ</div>
+            {/* Sosyal Sanathane Logosu */}
+            <div style={{display:'flex', justifyContent:'center', marginBottom:12}}>
+              <svg viewBox="0 0 200 200" width="90" height="90" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="100" cy="100" r="95" fill="#f5f0eb" stroke="#111" strokeWidth="3"/>
+                <circle cx="100" cy="100" r="75" fill="none" stroke="#111" strokeWidth="2"/>
+                <circle cx="100" cy="82" r="32" fill="#c8d88a" stroke="#111" strokeWidth="3"/>
+                <circle cx="100" cy="118" r="32" fill="#a8c4d4" stroke="#111" strokeWidth="3"/>
+                <ellipse cx="100" cy="100" rx="22" ry="16" fill="#8fb5a0"/>
+                <path id="textCurve" d="M 30,145 A 80,80 0 0,0 170,145" fill="none"/>
+                <text fontSize="15" fontFamily="Georgia, serif" fill="#111" letterSpacing="1">
+                  <textPath href="#textCurve" startOffset="10%">sosyal sanathane</textPath>
+                </text>
+              </svg>
+            </div>
             <div style={{fontSize:12, color:'#475569', marginBottom:16}}>Devam etmek için rolünüzü seçin</div>
             <div style={{display:'flex', flexDirection:'column', gap:12, marginTop:8}}>
               <button
@@ -3463,7 +3475,17 @@ export default function App() {
             </div>
             {Object.entries(QUIZ_EVENTS).map(([key, evt]) => (
               <button key={key}
-                onClick={() => { setQuizEventType(key); setQuizGroups([]); setQuizGroupCountSet(false); setQuizGroupCount(''); setQuizStep('groups'); setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1); }}
+                onClick={() => {
+                  if (key === 'genelkultur') {
+                    // Soru sayısı seçimi için state — modal yerine inline seçim
+                    setQuizEventType(key);
+                    setQuizGroups([]); setQuizGroupCountSet(false); setQuizGroupCount('');
+                    setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1);
+                    setQuizStep('qcount');
+                  } else {
+                    setQuizEventType(key); setQuizGroups([]); setQuizGroupCountSet(false); setQuizGroupCount(''); setQuizStep('groups'); setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1);
+                  }
+                }}
                 style={{
                   width:'100%',display:'flex',alignItems:'center',gap:16,
                   padding:'22px 24px',borderRadius:16,border:'1px solid #1a2035',
@@ -3477,7 +3499,7 @@ export default function App() {
                   <div style={{fontSize:17,fontWeight:800,color:'#fff',marginBottom:4}}>{evt.label}</div>
                   <div style={{fontSize:12,color:'#64748b'}}>
                     {key === 'genelkultur'
-                      ? `${evt.totalQ} Soru · ${evt.totalQ * evt.pointPerQ} Puan`
+                      ? `50 veya 55 Soru · 10 puan/soru`
                       : `40 Soru · 1000 Puan`
                     }
                   </div>
@@ -3511,6 +3533,52 @@ export default function App() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      );
+    }
+
+    // Genel Kültür soru sayısı seçimi
+    if (quizStep === 'qcount') {
+      return (
+        <div style={S.page}>
+          <div style={S.header}>
+            <div style={S.headerLeft}>
+              <button style={{...S.smallBtn, marginRight:4}} onClick={() => setQuizStep('select')}>← Geri</button>
+              <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🧠 Genel Kültür</span>
+            </div>
+          </div>
+          <div style={{maxWidth:480,margin:'0 auto',padding:'40px 18px',textAlign:'center'}}>
+            <div style={{fontSize:48,marginBottom:12}}>❓</div>
+            <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:6}}>Kaç soru?</div>
+            <div style={{fontSize:13,color:'#475569',marginBottom:32}}>Bu gecenin soru sayısını seçin</div>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              {[50, 55].map(count => (
+                <button key={count}
+                  onClick={() => {
+                    // totalQ'yu override et — quizData ile merge olacak
+                    QUIZ_EVENTS.genelkultur.totalQ = count;
+                    setQuizGroups([]); setQuizGroupCountSet(false); setQuizGroupCount('');
+                    setQuizScores({}); setQuizMyGroups([]); setQuizCurrentQ(1);
+                    setQuizStep('groups');
+                  }}
+                  style={{
+                    width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',
+                    padding:'22px 28px',borderRadius:16,border:'1px solid #1a2035',
+                    cursor:'pointer',textAlign:'left',background:'#0d1120',transition:'all 0.2s'
+                  }}
+                  onMouseOver={e=>{e.currentTarget.style.borderColor='#fbbf24';e.currentTarget.style.background='#12100a';}}
+                  onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
+                  <div>
+                    <div style={{fontSize:28,fontWeight:900,color:'#fbbf24',marginBottom:4}}>{count} Soru</div>
+                    <div style={{fontSize:13,color:'#64748b'}}>
+                      {count} × 10 puan = <span style={{color:'#fff',fontWeight:700}}>{count * 10} toplam puan</span>
+                    </div>
+                  </div>
+                  <span style={{fontSize:24,color:'#374151'}}>›</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       );
@@ -4280,7 +4348,10 @@ export default function App() {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ status })
       });
-      await fetchCeramics();
+      // Local state zaten optimistic olarak güncellendi, fetchCeramics sadece detay view için çağrılır
+      if (ceramicsView === 'detail') {
+        await fetchCeramics();
+      }
     };
 
     const saveSession = async () => {
@@ -4532,7 +4603,20 @@ export default function App() {
                         {/* Durum dropdown — sağda */}
                         <select
                           value={r.status}
-                          onChange={async(e)=>{ await updateStatus(r.no, e.target.value); }}
+                          onChange={async(e)=>{
+                            const newStatus = e.target.value;
+                            // Optimistic update — önce local state'i güncelle
+                            setCeramicsData(prev => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                records: prev.records.map(rec =>
+                                  rec.no === r.no ? {...rec, status: newStatus} : rec
+                                )
+                              };
+                            });
+                            await updateStatus(r.no, newStatus);
+                          }}
                           onClick={e=>e.stopPropagation()}
                           style={{
                             padding:'6px 24px 6px 10px', borderRadius:20,
