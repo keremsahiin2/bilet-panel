@@ -4514,52 +4514,40 @@ export default function App() {
                   const st = STATUS_LABELS[r.status] || STATUS_LABELS.firinda;
                   return (
                     <div key={r.no} style={{borderRadius:14,border:'1px solid #1a2035',background:'#0d1120',overflow:'hidden',marginBottom:0}}>
-                      <button onClick={()=>{ setCeramicsSelected(r); setCeramicsView('detail'); }}
-                        style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',
-                          cursor:'pointer',textAlign:'left',background:'transparent',width:'100%',border:'none'}}
-                        onMouseOver={e=>{e.currentTarget.style.background='#0a0e1a';}}
-                        onMouseOut={e=>{e.currentTarget.style.background='transparent';}}>
-                        {r.imageUrl
-                          ? <img src={r.imageUrl} alt="" style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} />
-                          : <div style={{width:48,height:48,borderRadius:8,background:'#0a0e1a',display:'flex',alignItems:'center',
-                              justifyContent:'center',fontSize:20,flexShrink:0}}>🏺</div>
-                        }
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:2}}>
-                            #{r.no} · {r.firstName} {r.lastName}
+                      <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px'}}>
+                        <button onClick={()=>{ setCeramicsSelected(r); setCeramicsView('detail'); }}
+                          style={{display:'flex',alignItems:'center',gap:12,flex:1,background:'transparent',border:'none',cursor:'pointer',textAlign:'left',padding:0}}>
+                          {r.imageUrl
+                            ? <img src={r.imageUrl} alt="" style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} />
+                            : <div style={{width:48,height:48,borderRadius:8,background:'#0a0e1a',display:'flex',alignItems:'center',
+                                justifyContent:'center',fontSize:20,flexShrink:0}}>🏺</div>
+                          }
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:2}}>
+                              #{r.no} · {r.firstName} {r.lastName}
+                            </div>
+                            <div style={{fontSize:12,color:'#475569'}}>{r.phone || '—'}</div>
                           </div>
-                          <div style={{fontSize:12,color:'#475569'}}>{r.phone || '—'}</div>
-                        </div>
-                        <div style={{padding:'4px 10px',borderRadius:20,background:st.bg,
-                          border:'1px solid',borderColor:st.color,color:st.color,fontSize:11,fontWeight:700,flexShrink:0}}>
-                          {st.label}
-                        </div>
-                      </button>
-                      {/* Hızlı durum dropdown */}
-                      {r.status !== 'teslimaldi' && (
-                        <div style={{borderTop:'1px solid #1a2035',padding:'6px 10px'}}>
-                          <select
-                            value={r.status}
-                            onChange={async(e)=>{
-                              e.stopPropagation();
-                              await updateStatus(r.no, e.target.value);
-                            }}
-                            onClick={e=>e.stopPropagation()}
-                            style={{
-                              width:'100%', padding:'6px 10px', borderRadius:8,
-                              border:'1px solid ' + st.color,
-                              background: st.bg, color: st.color,
-                              fontSize:12, fontWeight:700, cursor:'pointer',
-                              appearance:'none', WebkitAppearance:'none',
-                              backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='${encodeURIComponent(st.color)}'/%3E%3C/svg%3E")`,
-                              backgroundRepeat:'no-repeat', backgroundPosition:'right 10px center'
-                            }}>
-                            {Object.entries(STATUS_LABELS).map(([k,v])=>(
-                              <option key={k} value={k} style={{background:'#0d1120',color:v.color}}>{v.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                        </button>
+                        {/* Durum dropdown — sağda */}
+                        <select
+                          value={r.status}
+                          onChange={async(e)=>{ await updateStatus(r.no, e.target.value); }}
+                          onClick={e=>e.stopPropagation()}
+                          style={{
+                            padding:'6px 24px 6px 10px', borderRadius:20,
+                            border:'1px solid ' + st.color,
+                            background: st.bg, color: st.color,
+                            fontSize:11, fontWeight:700, cursor:'pointer', flexShrink:0,
+                            appearance:'none', WebkitAppearance:'none',
+                            backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='${encodeURIComponent(st.color)}'/%3E%3C/svg%3E")`,
+                            backgroundRepeat:'no-repeat', backgroundPosition:'right 8px center'
+                          }}>
+                          {Object.entries(STATUS_LABELS).map(([k,v])=>(
+                            <option key={k} value={k} style={{background:'#0d1120',color:v.color}}>{v.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   );
                 })}

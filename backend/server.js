@@ -38,17 +38,7 @@ const CLOUDINARY_API_KEY = '458914864563979';
 const CLOUDINARY_API_SECRET = 'foICaTxRH3pPOlItnj3AdLDTCrk';
 const cloudinaryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-async function loadCeramics() {
-  var rec = await getJsonbinRecord();
-  if (!rec.ceramics) rec.ceramics = { records: [], nextNo: 1 };
-  return rec.ceramics;
-}
-async function saveCeramics(ceramics) {
-  var rec = await getJsonbinRecord();
-  rec.ceramics = ceramics;
-  jsonbinCacheDirty = true;
-  await flushJsonbinCache();
-}
+
 
 
 const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
@@ -95,9 +85,63 @@ const IDEASOFT_PRODUCTS = [
 // ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
-const MONTHLY_SALES_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulacak
-// Not: monthly sales ayrı bir JSONBin bin'inde saklanır.
-// Eğer MONTHLY_SALES_BIN_ID boşsa baseline bin'i içinde "monthlySales" key'i kullanılır.
+// Seramik için AYRI bin — quiz/baseline ile çakışmaz, daha hızlı
+const CERAMICS_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulur
+var ceramicsBinId = CERAMICS_BIN_ID;
+var ceramicsCache = null; // { records:[], nextNo:1 }
+
+async function loadCeramicsFromBin() {
+  if (ceramicsCache) return ceramicsCache;
+  // ceramicsBinId yoksa ana bin'den taşı
+  if (!ceramicsBinId) {
+    // Yeni bin oluştur
+    try {
+      var createRes = await axios.post('https://api.jsonbin.io/v3/b',
+        { records: [], nextNo: 1 },
+        { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json', 'X-Bin-Name': 'ceramics' } }
+      );
+      ceramicsBinId = createRes.data.metadata.id;
+      console.log('Ceramics bin olusturuldu:', ceramicsBinId);
+      ceramicsCache = { records: [], nextNo: 1 };
+      return ceramicsCache;
+    } catch(e) {
+      console.error('Ceramics bin olusturma hatasi:', e.message);
+      ceramicsCache = { records: [], nextNo: 1 };
+      return ceramicsCache;
+    }
+  }
+  try {
+    var res = await axios.get('https://api.jsonbin.io/v3/b/' + ceramicsBinId + '/latest',
+      { headers: { 'X-Master-Key': JSONBIN_API_KEY } }
+    );
+    ceramicsCache = res.data.record || { records: [], nextNo: 1 };
+    if (!ceramicsCache.records) ceramicsCache.records = [];
+    if (!ceramicsCache.nextNo) ceramicsCache.nextNo = 1;
+    console.log('Ceramics: yuklendi,', ceramicsCache.records.length, 'kayit');
+  } catch(e) {
+    console.error('Ceramics okuma hatasi:', e.message);
+    ceramicsCache = { records: [], nextNo: 1 };
+  }
+  return ceramicsCache;
+}
+
+async function saveCeramicsToBin() {
+  if (!ceramicsCache) return;
+  if (!ceramicsBinId) { await loadCeramicsFromBin(); }
+  try {
+    await axios.put('https://api.jsonbin.io/v3/b/' + ceramicsBinId,
+      ceramicsCache,
+      { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } }
+    );
+    console.log('Ceramics: kaydedildi,', ceramicsCache.records.length, 'kayit');
+  } catch(e) {
+    console.error('Ceramics yazma hatasi:', e.message);
+    throw e;
+  }
+}
+
+
+const MONTHLY_SALES_BIN_ID = '';
 
 // JSONBin kayıtını memory cache'den döndür; yoksa bir kez çek
 async function getJsonbinRecord() {
@@ -2473,13 +2517,13 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
 // ─── Seramik Takip API ────────────────────────────────────────────────────────
 
 app.get('/api/ceramics', async function(req, res) {
-  try { res.json(await loadCeramics()); }
+  try { res.json(await loadCeramicsFromBin()); }
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async function(req, res) {
   try {
-    var data = await loadCeramics();
+    var data = await loadCeramicsFromBin();
     var { firstName, lastName, phone, notes } = req.body;
     var no = data.nextNo;
     data.nextNo = no + 1;
@@ -2516,7 +2560,7 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
 
     data.records = data.records || [];
     data.records.push(record);
-    await saveCeramics(data);
+    await saveCeramicsToBin();
     res.json({ success: true, record });
   } catch(e) {
     console.error('Ceramics record error:', e.message);
@@ -2526,35 +2570,35 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
 
 app.patch('/api/ceramics/record/:no/status', async function(req, res) {
   try {
-    var data = await loadCeramics();
+    var data = await loadCeramicsFromBin();
     var record = data.records.find(function(r) { return String(r.no) === String(req.params.no); });
     if (!record) return res.status(404).json({ error: 'Kayıt bulunamadı' });
     record.status = req.body.status;
     record.statusHistory = record.statusHistory || [];
     record.statusHistory.push({ status: req.body.status, date: new Date().toISOString() });
-    await saveCeramics(data);
+    await saveCeramicsToBin();
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/ceramics/record/:no', async function(req, res) {
   try {
-    var data = await loadCeramics();
+    var data = await loadCeramicsFromBin();
     var record = data.records.find(function(r) { return String(r.no) === String(req.params.no); });
     if (!record) return res.status(404).json({ error: 'Kayıt bulunamadı' });
     ['firstName','lastName','phone','notes'].forEach(function(k) {
       if (req.body[k] !== undefined) record[k] = req.body[k];
     });
-    await saveCeramics(data);
+    await saveCeramicsToBin();
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/ceramics/record/:no', async function(req, res) {
   try {
-    var data = await loadCeramics();
+    var data = await loadCeramicsFromBin();
     data.records = data.records.filter(function(r) { return String(r.no) !== String(req.params.no); });
-    await saveCeramics(data);
+    await saveCeramicsToBin();
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
