@@ -86,7 +86,7 @@ const IDEASOFT_PRODUCTS = [
 const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
 // Seramik için AYRI bin — quiz/baseline ile çakışmaz, daha hızlı
-const CERAMICS_BIN_ID = ''; // İlk çalıştırmada otomatik oluşturulur
+const CERAMICS_BIN_ID = '69e76a7d36566621a8d77600'; // İlk çalıştırmada otomatik oluşturulur
 var ceramicsBinId = CERAMICS_BIN_ID;
 var ceramicsCache = null; // { records:[], nextNo:1 }
 
