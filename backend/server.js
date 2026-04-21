@@ -2502,6 +2502,63 @@ app.get('/api/ceramics', async function(req, res) {
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── Cloudinary yardımcı fonksiyonlar ─────────────────────────────────────────
+
+// Cloudinary context değerlerinden | ve = karakterlerini temizle
+function sanitizeCtx(val) {
+  return String(val || '').replace(/[|=]/g, ' ').trim();
+}
+
+// Kayıt bilgilerinden context string oluştur
+function buildCeramicsContext(record) {
+  return [
+    'no='          + sanitizeCtx(record.no),
+    'firstName='   + sanitizeCtx(record.firstName),
+    'lastName='    + sanitizeCtx(record.lastName),
+    'phone='       + sanitizeCtx(record.phone),
+    'notes='       + sanitizeCtx(record.notes),
+    'status='      + sanitizeCtx(record.status),
+    'createdAt='   + sanitizeCtx(record.createdAt),
+  ].join('|');
+}
+
+// Cloudinary Admin API ile mevcut bir görselin context'ini güncelle
+async function updateCloudinaryContext(publicId, contextStr) {
+  if (!publicId) return;
+  try {
+    var crypto = require('crypto');
+    var timestamp = Math.floor(Date.now() / 1000);
+    // Admin API imzası: context + public_ids + timestamp sırasıyla
+    var sigStr = 'context=' + contextStr + '&public_ids[]=' + publicId + '&timestamp=' + timestamp + CLOUDINARY_API_SECRET;
+    var signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+    await axios.post(
+      'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/resources/context',
+      {
+        context:    contextStr,
+        public_ids: [publicId],
+        timestamp:  String(timestamp),
+        api_key:    CLOUDINARY_API_KEY,
+        signature:  signature,
+      }
+    );
+    console.log('Cloudinary context güncellendi:', publicId);
+  } catch(e) {
+    // Context güncellemesi başarısız olsa bile kayıt işlemi devam eder
+    console.error('Cloudinary context güncelleme hatası:', e.response?.data || e.message);
+  }
+}
+
+// public_id'yi imageUrl'den çıkar  (ör. ".../ceramics/5_1234567890.jpg" → "ceramics/5_1234567890")
+function publicIdFromUrl(url) {
+  if (!url) return null;
+  try {
+    var m = url.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-z]+)?$/i);
+    return m ? m[1] : null;
+  } catch(e) { return null; }
+}
+
+// ─── Ceramics API ──────────────────────────────────────────────────────────────
+
 app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async function(req, res) {
   try {
     var data = await loadCeramicsFromBin();
@@ -2510,19 +2567,37 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
     data.nextNo = no + 1;
 
     var imageUrl = null;
+    var publicId = null;
+
     if (req.file) {
       var crypto = require('crypto');
       var timestamp = Math.floor(Date.now() / 1000);
-      var publicId = 'ceramics/' + no + '_' + Date.now();
-      var sigStr = 'public_id=' + publicId + '&timestamp=' + timestamp + CLOUDINARY_API_SECRET;
+      publicId = 'ceramics/' + no + '_' + Date.now();
+
+      // Context string — katılımcı bilgilerini görsele göm
+      var contextStr = [
+        'no='        + sanitizeCtx(no),
+        'firstName=' + sanitizeCtx(firstName),
+        'lastName='  + sanitizeCtx(lastName),
+        'phone='     + sanitizeCtx(phone),
+        'notes='     + sanitizeCtx(notes),
+        'status=firinda',
+        'createdAt=' + sanitizeCtx(new Date().toISOString()),
+      ].join('|');
+
+      // İmzaya context'i de ekle (alfabetik sıra zorunlu)
+      var sigStr = 'context=' + contextStr + '&public_id=' + publicId + '&timestamp=' + timestamp + CLOUDINARY_API_SECRET;
       var signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+
       var FormData = require('form-data');
       var form = new FormData();
-      form.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
-      form.append('api_key', CLOUDINARY_API_KEY);
+      form.append('file',      req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
+      form.append('api_key',   CLOUDINARY_API_KEY);
       form.append('timestamp', String(timestamp));
       form.append('public_id', publicId);
+      form.append('context',   contextStr);   // ← katılımcı bilgileri görsele işleniyor
       form.append('signature', signature);
+
       var uploadRes = await axios.post(
         'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload',
         form, { headers: form.getHeaders(), maxBodyLength: Infinity }
@@ -2534,14 +2609,15 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
       id: no, no: String(no),
       firstName: firstName || '', lastName: lastName || '',
       phone: phone || '', notes: notes || '',
-      imageUrl: imageUrl, status: 'firinda',
+      imageUrl: imageUrl, publicId: publicId,
+      status: 'firinda',
       statusHistory: [{ status: 'firinda', date: new Date().toISOString() }],
       createdAt: new Date().toISOString()
     };
 
     data.records = data.records || [];
     data.records.push(record);
-    saveCeramicsAsync(); // arka planda kaydet
+    saveCeramicsAsync(); // arka planda JSONBin'e yaz
     res.json({ success: true, record }); // anında yanıt
   } catch(e) {
     console.error('Ceramics record error:', e.message);
@@ -2558,6 +2634,11 @@ app.patch('/api/ceramics/record/:no/status', async function(req, res) {
     record.statusHistory = record.statusHistory || [];
     record.statusHistory.push({ status: req.body.status, date: new Date().toISOString() });
     saveCeramicsAsync();
+
+    // Cloudinary context'i de güncelle (arka planda, hata kayıtı engellemez)
+    var pid = record.publicId || publicIdFromUrl(record.imageUrl);
+    if (pid) updateCloudinaryContext(pid, buildCeramicsContext(record)).catch(function(){});
+
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2571,6 +2652,11 @@ app.patch('/api/ceramics/record/:no', async function(req, res) {
       if (req.body[k] !== undefined) record[k] = req.body[k];
     });
     saveCeramicsAsync();
+
+    // Cloudinary context'i de güncelle
+    var pid = record.publicId || publicIdFromUrl(record.imageUrl);
+    if (pid) updateCloudinaryContext(pid, buildCeramicsContext(record)).catch(function(){});
+
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -2582,6 +2668,73 @@ app.delete('/api/ceramics/record/:no', async function(req, res) {
     saveCeramicsAsync();
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Cloudinary'den kurtarma — JSONBin boşalırsa tüm kayıtları geri yükle ────
+// Kullanım: GET /api/ceramics/recover
+// Cloudinary'deki tüm ceramics/ fotoğraflarını tarar, context'ten kayıtları yeniden oluşturur.
+app.get('/api/ceramics/recover', async function(req, res) {
+  try {
+    var crypto = require('crypto');
+    var timestamp = Math.floor(Date.now() / 1000);
+    // Search API — tüm ceramics klasörünü çek
+    var sigStr = 'expression=folder%3Aceramics&max_results=500&timestamp=' + timestamp + CLOUDINARY_API_SECRET;
+    var signature = crypto.createHash('sha1').update(
+      'expression=folder:ceramics&max_results=500&timestamp=' + timestamp + CLOUDINARY_API_SECRET
+    ).digest('hex');
+
+    var searchRes = await axios.post(
+      'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/resources/search',
+      {
+        expression:  'folder:ceramics',
+        max_results: 500,
+        with_field:  ['context'],
+        sort_by:     [{ created_at: 'asc' }],
+      },
+      {
+        headers: {
+          Authorization: 'Basic ' + Buffer.from(CLOUDINARY_API_KEY + ':' + CLOUDINARY_API_SECRET).toString('base64')
+        }
+      }
+    );
+
+    var resources = searchRes.data.resources || [];
+    var recovered = [];
+
+    resources.forEach(function(r) {
+      var ctx = (r.context && r.context.custom) ? r.context.custom : {};
+      recovered.push({
+        id:        parseInt(ctx.no) || 0,
+        no:        ctx.no        || r.public_id,
+        firstName: ctx.firstName || '',
+        lastName:  ctx.lastName  || '',
+        phone:     ctx.phone     || '',
+        notes:     ctx.notes     || '',
+        status:    ctx.status    || 'firinda',
+        imageUrl:  r.secure_url,
+        publicId:  r.public_id,
+        createdAt: ctx.createdAt || r.created_at,
+        statusHistory: [{ status: ctx.status || 'firinda', date: ctx.createdAt || r.created_at }],
+        _recovered: true
+      });
+    });
+
+    // Sadece önizleme mi, gerçekten geri yükle mi?
+    if (req.query.apply === 'true') {
+      // Mevcut JSONBin'i kurtarılan kayıtlarla değiştir
+      var maxNo = recovered.reduce(function(m, r) { return Math.max(m, parseInt(r.no) || 0); }, 0);
+      ceramicsCache = { records: recovered, nextNo: maxNo + 1 };
+      saveCeramicsAsync();
+      console.log('Ceramics kurtarma: ' + recovered.length + ' kayıt JSONBin\'e yazıldı.');
+      return res.json({ success: true, recovered: recovered.length, records: recovered });
+    }
+
+    // Varsayılan: sadece önizle, yazmadan göster
+    res.json({ preview: true, found: recovered.length, records: recovered });
+  } catch(e) {
+    console.error('Ceramics recover hatası:', e.response?.data || e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 
