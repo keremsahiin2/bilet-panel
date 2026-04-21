@@ -32,25 +32,22 @@ let jsonbinCacheDirty = false; // memory ↔ remote fark var mı
 const bulkProgressMap = {};
 
 
-const CERAMICS_FILE = path.join(__dirname, 'ceramics.json');
-
 // ─── Cloudinary ────────────────────────────────────────────────────────────────
 const CLOUDINARY_CLOUD = 'dmjlegofm';
 const CLOUDINARY_API_KEY = '458914864563979';
 const CLOUDINARY_API_SECRET = 'foICaTxRH3pPOlItnj3AdLDTCrk';
 const cloudinaryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-function loadCeramics() {
-  try {
-    if (fs.existsSync(CERAMICS_FILE)) {
-      var raw = fs.readFileSync(CERAMICS_FILE, 'utf8').trim();
-      if (raw) return JSON.parse(raw);
-    }
-  } catch(e) {}
-  return { records: [], sessions: [], nextNo: 1 };
+async function loadCeramics() {
+  var rec = await getJsonbinRecord();
+  if (!rec.ceramics) rec.ceramics = { records: [], nextNo: 1 };
+  return rec.ceramics;
 }
-function saveCeramics(data) {
-  fs.writeFileSync(CERAMICS_FILE, JSON.stringify(data, null, 2));
+async function saveCeramics(ceramics) {
+  var rec = await getJsonbinRecord();
+  rec.ceramics = ceramics;
+  jsonbinCacheDirty = true;
+  await flushJsonbinCache();
 }
 
 
@@ -2475,29 +2472,25 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
 
 // ─── Seramik Takip API ────────────────────────────────────────────────────────
 
-// Tüm kayıtları getir
-app.get('/api/ceramics', function(req, res) {
-  try { res.json(loadCeramics()); }
+app.get('/api/ceramics', async function(req, res) {
+  try { res.json(await loadCeramics()); }
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Yeni kayıt oluştur (görsel yükle → Cloudinary)
 app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async function(req, res) {
   try {
-    var data = loadCeramics();
-    var { firstName, lastName, phone, sessionId, notes } = req.body;
+    var data = await loadCeramics();
+    var { firstName, lastName, phone, notes } = req.body;
     var no = data.nextNo;
     data.nextNo = no + 1;
 
     var imageUrl = null;
     if (req.file) {
-      // Cloudinary'ye yükle — signed upload
       var crypto = require('crypto');
       var timestamp = Math.floor(Date.now() / 1000);
       var publicId = 'ceramics/' + no + '_' + Date.now();
       var sigStr = 'public_id=' + publicId + '&timestamp=' + timestamp + CLOUDINARY_API_SECRET;
       var signature = crypto.createHash('sha1').update(sigStr).digest('hex');
-
       var FormData = require('form-data');
       var form = new FormData();
       form.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
@@ -2505,7 +2498,6 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
       form.append('timestamp', String(timestamp));
       form.append('public_id', publicId);
       form.append('signature', signature);
-
       var uploadRes = await axios.post(
         'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload',
         form, { headers: form.getHeaders(), maxBodyLength: Infinity }
@@ -2514,21 +2506,17 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
     }
 
     var record = {
-      id: no,
-      no: String(no),
-      firstName: firstName || '',
-      lastName: lastName || '',
-      phone: phone || '',
-      sessionId: sessionId || null,
-      notes: notes || '',
-      imageUrl: imageUrl,
-      status: 'firinda',
+      id: no, no: String(no),
+      firstName: firstName || '', lastName: lastName || '',
+      phone: phone || '', notes: notes || '',
+      imageUrl: imageUrl, status: 'firinda',
       statusHistory: [{ status: 'firinda', date: new Date().toISOString() }],
       createdAt: new Date().toISOString()
     };
 
+    data.records = data.records || [];
     data.records.push(record);
-    saveCeramics(data);
+    await saveCeramics(data);
     res.json({ success: true, record });
   } catch(e) {
     console.error('Ceramics record error:', e.message);
@@ -2536,61 +2524,38 @@ app.post('/api/ceramics/record', cloudinaryUpload.single('image'), async functio
   }
 });
 
-// Durum güncelle
-app.patch('/api/ceramics/record/:no/status', function(req, res) {
+app.patch('/api/ceramics/record/:no/status', async function(req, res) {
   try {
-    var data = loadCeramics();
-    var no = req.params.no;
-    var { status } = req.body;
-    var record = data.records.find(function(r) { return String(r.no) === String(no); });
+    var data = await loadCeramics();
+    var record = data.records.find(function(r) { return String(r.no) === String(req.params.no); });
     if (!record) return res.status(404).json({ error: 'Kayıt bulunamadı' });
-    record.status = status;
+    record.status = req.body.status;
     record.statusHistory = record.statusHistory || [];
-    record.statusHistory.push({ status, date: new Date().toISOString() });
-    saveCeramics(data);
+    record.statusHistory.push({ status: req.body.status, date: new Date().toISOString() });
+    await saveCeramics(data);
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Kayıt güncelle (isim, telefon, not)
-app.patch('/api/ceramics/record/:no', function(req, res) {
+app.patch('/api/ceramics/record/:no', async function(req, res) {
   try {
-    var data = loadCeramics();
-    var no = req.params.no;
-    var record = data.records.find(function(r) { return String(r.no) === String(no); });
+    var data = await loadCeramics();
+    var record = data.records.find(function(r) { return String(r.no) === String(req.params.no); });
     if (!record) return res.status(404).json({ error: 'Kayıt bulunamadı' });
-    var allowed = ['firstName','lastName','phone','notes','sessionId'];
-    allowed.forEach(function(k) { if (req.body[k] !== undefined) record[k] = req.body[k]; });
-    saveCeramics(data);
+    ['firstName','lastName','phone','notes'].forEach(function(k) {
+      if (req.body[k] !== undefined) record[k] = req.body[k];
+    });
+    await saveCeramics(data);
     res.json({ success: true, record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Etkinlik oturumu ekle
-app.post('/api/ceramics/session', function(req, res) {
+app.delete('/api/ceramics/record/:no', async function(req, res) {
   try {
-    var data = loadCeramics();
-    var { date, category, participantCount, notes } = req.body;
-    var session = {
-      id: Date.now(),
-      date: date || new Date().toISOString().slice(0,10),
-      category: category || 'Seramik',
-      participantCount: parseInt(participantCount) || 0,
-      notes: notes || '',
-      createdAt: new Date().toISOString()
-    };
-    data.sessions = data.sessions || [];
-    data.sessions.push(session);
-    saveCeramics(data);
-    res.json({ success: true, session });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// Etkinlik oturumlarını getir
-app.get('/api/ceramics/sessions', function(req, res) {
-  try {
-    var data = loadCeramics();
-    res.json({ sessions: data.sessions || [] });
+    var data = await loadCeramics();
+    data.records = data.records.filter(function(r) { return String(r.no) !== String(req.params.no); });
+    await saveCeramics(data);
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
