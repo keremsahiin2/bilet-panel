@@ -4301,7 +4301,11 @@ export default function App() {
       <div style={S.page}>
         <div style={S.header}>
           <div style={S.headerLeft}>
-            <button style={{...S.smallBtn, marginRight:4}} onClick={() => setMode(null)}>← Geri</button>
+            <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
+              if (ceramicsView === 'detail') { setCeramicsView('list'); setCeramicsSelected(null); }
+              else if (ceramicsView === 'new') { setCeramicsView('list'); }
+              else { setMode(null); }
+            }}>← Geri</button>
           </div>
           <span style={{fontSize:13,fontWeight:800,letterSpacing:2,color:'#fff'}}>🏺 SERAMİK TAKİP</span>
           <div style={{display:'flex',gap:6}}>
@@ -4391,7 +4395,6 @@ export default function App() {
           {ceramicsView === 'detail' && ceramicsSelected && (
             <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:16,padding:'18px',marginBottom:16}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-                <button onClick={()=>{setCeramicsView('list');setCeramicsSelected(null);}} style={S.smallBtn}>← Geri</button>
                 <div style={{fontSize:16,fontWeight:800,color:'#fff',flex:1}}>
                   #{ceramicsSelected.no} · {ceramicsSelected.firstName} {ceramicsSelected.lastName}
                 </div>
@@ -4532,19 +4535,29 @@ export default function App() {
                           {st.label}
                         </div>
                       </button>
-                      {/* Hızlı durum butonları */}
+                      {/* Hızlı durum dropdown */}
                       {r.status !== 'teslimaldi' && (
-                        <div style={{display:'flex',gap:0,borderTop:'1px solid #1a2035'}}>
-                          {r.status === 'firinda' && (
-                            <button onClick={async(e)=>{e.stopPropagation(); await updateStatus(r.no,'hazir'); }}
-                              style={{flex:1,padding:'7px',border:'none',cursor:'pointer',background:'#001a2a',
-                                color:'#4fc9ff',fontSize:11,fontWeight:700}}>✓ Hazır</button>
-                          )}
-                          {(r.status === 'hazir' || r.status === 'arandi' || r.status === 'ulasilamadi') && (
-                            <button onClick={async(e)=>{e.stopPropagation(); await updateStatus(r.no,'teslimaldi'); }}
-                              style={{flex:1,padding:'7px',border:'none',cursor:'pointer',background:'#001a00',
-                                color:'#22c55e',fontSize:11,fontWeight:700}}>✓ Teslim Aldı</button>
-                          )}
+                        <div style={{borderTop:'1px solid #1a2035',padding:'6px 10px'}}>
+                          <select
+                            value={r.status}
+                            onChange={async(e)=>{
+                              e.stopPropagation();
+                              await updateStatus(r.no, e.target.value);
+                            }}
+                            onClick={e=>e.stopPropagation()}
+                            style={{
+                              width:'100%', padding:'6px 10px', borderRadius:8,
+                              border:'1px solid ' + st.color,
+                              background: st.bg, color: st.color,
+                              fontSize:12, fontWeight:700, cursor:'pointer',
+                              appearance:'none', WebkitAppearance:'none',
+                              backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='${encodeURIComponent(st.color)}'/%3E%3C/svg%3E")`,
+                              backgroundRepeat:'no-repeat', backgroundPosition:'right 10px center'
+                            }}>
+                            {Object.entries(STATUS_LABELS).map(([k,v])=>(
+                              <option key={k} value={k} style={{background:'#0d1120',color:v.color}}>{v.label}</option>
+                            ))}
+                          </select>
                         </div>
                       )}
                     </div>
