@@ -4315,7 +4315,7 @@ export default function App() {
       teslimaldi:  { label:'Teslim Aldı', color:'#22c55e', bg:'#001a00' },
     };
 
-    const records = (ceramicsData?.records || []);
+    const records = [...(ceramicsData?.records || [])].reverse();
     const sessions = (ceramicsData?.sessions || []);
 
     const filtered = records.filter(r => {
