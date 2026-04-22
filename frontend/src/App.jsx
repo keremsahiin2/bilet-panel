@@ -4437,26 +4437,49 @@ export default function App() {
               {/* Görsel yükleme */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Ürün Görseli</div>
-                <label style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
-                  borderRadius:10,border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
-                  cursor:'pointer',background:'#07090f'}}>
-                  <span style={{fontSize:20}}>{ceramicsImagePreview ? '✅' : '📷'}</span>
-                  <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569'}}>
-                    {ceramicsImageFile ? ceramicsImageFile.name : 'Fotoğraf seç veya çek'}
-                  </span>
-                  <input type="file" accept="image/*" capture="environment" style={{display:'none'}}
-                    onChange={e=>{
-                      const f = e.target.files[0];
-                      if (!f) return;
-                      setCeramicsImageFile(f);
-                      const reader = new FileReader();
-                      reader.onload = ev => setCeramicsImagePreview(ev.target.result);
-                      reader.readAsDataURL(f);
-                    }} />
-                </label>
+                <div style={{display:'flex',gap:8,marginBottom:ceramicsImagePreview?8:0}}>
+                  {/* Kamera butonu */}
+                  <label style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                    padding:'10px 12px',borderRadius:10,
+                    border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
+                    cursor:'pointer',background:'#07090f'}}>
+                    <span style={{fontSize:18}}>{ceramicsImagePreview ? '✅' : '📷'}</span>
+                    <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569',whiteSpace:'nowrap'}}>
+                      Fotoğraf çek
+                    </span>
+                    <input type="file" accept="image/*" capture="environment" style={{display:'none'}}
+                      onChange={e=>{
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setCeramicsImageFile(f);
+                        const reader = new FileReader();
+                        reader.onload = ev => setCeramicsImagePreview(ev.target.result);
+                        reader.readAsDataURL(f);
+                      }} />
+                  </label>
+                  {/* Galeri butonu */}
+                  <label style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                    padding:'10px 12px',borderRadius:10,
+                    border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
+                    cursor:'pointer',background:'#07090f'}}>
+                    <span style={{fontSize:18}}>🖼️</span>
+                    <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569',whiteSpace:'nowrap'}}>
+                      Galeriden seç
+                    </span>
+                    <input type="file" accept="image/*" style={{display:'none'}}
+                      onChange={e=>{
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setCeramicsImageFile(f);
+                        const reader = new FileReader();
+                        reader.onload = ev => setCeramicsImagePreview(ev.target.result);
+                        reader.readAsDataURL(f);
+                      }} />
+                  </label>
+                </div>
                 {ceramicsImagePreview && (
                   <img src={ceramicsImagePreview} alt="önizleme"
-                    style={{marginTop:8,width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8}} />
+                    style={{marginTop:0,width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8}} />
                 )}
               </div>
               <div style={{display:'flex',gap:8}}>
