@@ -470,6 +470,7 @@ export default function App() {
   const [ceramicsImageFile, setCeramicsImageFile] = useState(null);
   const [ceramicsImagePreview, setCeramicsImagePreview] = useState(null);
   const [ceramicsSaving, setCeramicsSaving]   = useState(false);
+  const [ceramicsLightbox, setCeramicsLightbox] = useState(null);
   const [ceramicsSessionForm, setCeramicsSessionForm] = useState({ date: new Date().toISOString().slice(0,10), category:'Seramik', participantCount:'', notes:'' });
   const [ceramicsStatusFilter, setCeramicsStatusFilter] = useState('all');
   const [salesData, setSalesData]           = useState(null);
@@ -4379,6 +4380,19 @@ export default function App() {
 
     return (
       <div style={S.page}>
+        {/* Lightbox */}
+        {ceramicsLightbox && (
+          <div onClick={() => setCeramicsLightbox(null)}
+            style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.92)',display:'flex',
+              alignItems:'center',justifyContent:'center',padding:16,cursor:'zoom-out'}}>
+            <img src={ceramicsLightbox} alt="tam görsel"
+              style={{maxWidth:'100%',maxHeight:'100%',borderRadius:12,objectFit:'contain',boxShadow:'0 0 60px #0008'}} />
+            <button onClick={() => setCeramicsLightbox(null)}
+              style={{position:'absolute',top:20,right:20,background:'#ffffff22',border:'none',
+                color:'#fff',fontSize:24,width:44,height:44,borderRadius:22,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          </div>
+        )}
         <div style={S.header}>
           <div style={S.headerLeft}>
             <button style={{...S.smallBtn, marginRight:4}} onClick={() => {
@@ -4438,33 +4452,14 @@ export default function App() {
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:11,color:'#475569',marginBottom:4}}>Ürün Görseli</div>
                 <div style={{display:'flex',gap:8,marginBottom:ceramicsImagePreview?8:0}}>
-                  {/* Kamera butonu */}
+                  {/* Fotoğraf yükleme butonu */}
                   <label style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8,
                     padding:'10px 12px',borderRadius:10,
                     border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
                     cursor:'pointer',background:'#07090f'}}>
-                    <span style={{fontSize:18}}>{ceramicsImagePreview ? '✅' : '📷'}</span>
+                    <span style={{fontSize:18}}>{ceramicsImagePreview ? '✅' : '🖼️'}</span>
                     <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569',whiteSpace:'nowrap'}}>
-                      Fotoğraf çek
-                    </span>
-                    <input type="file" accept="image/*" capture="environment" style={{display:'none'}}
-                      onChange={e=>{
-                        const f = e.target.files[0];
-                        if (!f) return;
-                        setCeramicsImageFile(f);
-                        const reader = new FileReader();
-                        reader.onload = ev => setCeramicsImagePreview(ev.target.result);
-                        reader.readAsDataURL(f);
-                      }} />
-                  </label>
-                  {/* Galeri butonu */}
-                  <label style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-                    padding:'10px 12px',borderRadius:10,
-                    border:'2px dashed ' + (ceramicsImagePreview ? '#22c55e' : '#1a2035'),
-                    cursor:'pointer',background:'#07090f'}}>
-                    <span style={{fontSize:18}}>🖼️</span>
-                    <span style={{fontSize:12,color: ceramicsImagePreview ? '#22c55e' : '#475569',whiteSpace:'nowrap'}}>
-                      Galeriden seç
+                      Fotoğraf yükle
                     </span>
                     <input type="file" accept="image/*" style={{display:'none'}}
                       onChange={e=>{
@@ -4479,7 +4474,8 @@ export default function App() {
                 </div>
                 {ceramicsImagePreview && (
                   <img src={ceramicsImagePreview} alt="önizleme"
-                    style={{marginTop:0,width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8}} />
+                    onClick={() => setCeramicsLightbox(ceramicsImagePreview)}
+                    style={{marginTop:0,width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8,cursor:'zoom-in'}} />
                 )}
               </div>
               <div style={{display:'flex',gap:8}}>
@@ -4511,7 +4507,8 @@ export default function App() {
               </div>
               {ceramicsSelected.imageUrl && (
                 <img src={ceramicsSelected.imageUrl} alt="ürün"
-                  style={{width:'100%',maxHeight:260,objectFit:'cover',borderRadius:12,marginBottom:14}} />
+                  onClick={() => setCeramicsLightbox(ceramicsSelected.imageUrl)}
+                  style={{width:'100%',maxHeight:260,objectFit:'cover',borderRadius:12,marginBottom:14,cursor:'zoom-in'}} />
               )}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
                 <div style={{background:'#07090f',borderRadius:10,padding:'10px 12px'}}>
