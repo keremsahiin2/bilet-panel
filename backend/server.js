@@ -147,7 +147,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {} },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
@@ -2339,25 +2339,26 @@ app.post('/api/quiz', async function(req, res) {
     }
 
     jsonbinCacheDirty = true;
-    await flushJsonbinCache();
-    res.json({ success: true, mergedScores: rec.quizData.scores });
+    var mergedScores = rec.quizData.scores;
+    // Once yanit ver, flush arka planda gitsin
+    res.json({ success: true, mergedScores: mergedScores });
+    flushJsonbinCache().catch(function(e) { console.error('Quiz POST flush hatasi:', e.message); });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
 
 // Quiz Night verilerini sil
-app.delete('/api/quiz', async function(req, res) {
-  try {
-    var rec = await getJsonbinRecord();
-    rec.quizData = null;
-    quizSlotLocks = {};
+app.delete('/api/quiz', function(req, res) {
+  // UI hemen yanit bekliyor — once yanit ver, sonra arka planda kaydet
+  if (jsonbinCache) {
+    jsonbinCache.quizData = null;
     jsonbinCacheDirty = true;
-    await flushJsonbinCache();
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
   }
+  quizSlotLocks = {};
+  res.json({ success: true });
+  // Arka planda JSONBin'e yaz (yanit beklenmez)
+  flushJsonbinCache().catch(function(e) { console.error('Quiz delete flush hatasi:', e.message); });
 });
 
 // Quiz Night — DOCX/TXT cevap dosyası parse et (sunucu tarafında mammoth kullanır)
