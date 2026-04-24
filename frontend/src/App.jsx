@@ -90,15 +90,15 @@ const EVENT_IDEASOFT_META = {
   // prices, specialInfo, sku → server tarafında parent'tan dinamik çekilir
   // Burada sadece parentId, fiyat ve stok bilgileri tutulur
   'Heykel':      { parentId:4247, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Resim':       { parentId:4241, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  '3D Figür':    { parentId:4234, price:650, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Plak Boyama': { parentId:4249, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Maske':       { parentId:4245, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Bez Çanta':   { parentId:4243, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Cupcake Mum': { parentId:4252, price:850, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Seramik':     { parentId:12671,price:900, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Resim':       { parentId:4241, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  '3D Figür':    { parentId:4234, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Plak Boyama': { parentId:4249, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Maske':       { parentId:4245, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Bez Çanta':   { parentId:4243, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Cupcake Mum': { parentId:4252, price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Seramik':     { parentId:12671,price:450, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  'Mekanda Seç': { parentId:5135, price:550, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Mekanda Seç': { parentId:5135, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
 };
 
 function generateSeansListForCat(cat, startDateStr, endDateStr) {
@@ -749,13 +749,10 @@ export default function App() {
           if (!d.quizData) return;
           const srv = d.quizData;
           // Grupları güncelle — ama kullanıcı input'a yazıyorsa grup isimlerini ezme
-          if (srv.groups && srv.groups.length > 0) {
+          if (srv.groups) {
             setQuizGroups(prev => {
               if (quizGroupEditingRef.current) {
-                // Sadece yeni grup eklendiyse (uzunluk farkı) yeni grupları ekle, mevcut isimleri koru
-                if (srv.groups.length > prev.length) {
-                  return [...prev, ...srv.groups.slice(prev.length)];
-                }
+                // Kullanıcı aktif olarak ekliyor/siliyor — polling'i tamamen durdur
                 return prev;
               }
               if (JSON.stringify(prev) !== JSON.stringify(srv.groups)) return srv.groups;
@@ -798,31 +795,40 @@ export default function App() {
     return () => clearInterval(poll);
   }, [mode, role]);
 
+  // Grup işlemleri için hafif, "fire and forget" kayıt — sunucudan önce GET yapmaz, yanıt beklemez
+  const saveGroupsFast = (groups) => {
+    const data = {
+      eventType: quizEventType,
+      groups,
+      scores: quizScoresRef.current,
+      myGroups: quizMyGroups,
+      questions: quizQuestions,
+      questionsFile: quizQFile || null,
+      answers: quizAnswers,
+      answersFile: quizAnswerFile || null,
+    };
+    fetch('/api/quiz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizData: data })
+    }).catch(() => {});
+  };
+
   const saveQuizData = async (newData, includeCurrentQ = false) => {
     setQuizSaving(true);
     try {
-      // Önce sunucudaki güncel veriyi çek — questions/answers/answers gibi alanları korumak için
-      let serverBase = {};
-      try {
-        const cur = await fetch('/api/quiz').then(r => r.json());
-        if (cur.quizData) serverBase = cur.quizData;
-      } catch {}
-
-      // Sunucu verisiyle merge et: sunucu önce, sonra yeni veri üzerine yaz
-      // questions/answers sunucuda varsa koru; local'da varsa local'ı kullan
+      // Local state'i doğrudan kullan — sunucudan GET yapmaya gerek yok
+      // questions/answers local'da varsa kullan, yoksa newData'dan al
       const merged = {
-        ...serverBase,
         ...newData,
-        // questions: local varsa local, yoksa sunucudan al
         questions: Object.keys(quizQuestions).length > 0
           ? quizQuestions
-          : (serverBase.questions || {}),
-        questionsFile: quizQFile || serverBase.questionsFile || null,
-        // answers: local varsa local, yoksa sunucudan al
+          : (newData.questions || {}),
+        questionsFile: quizQFile || newData.questionsFile || null,
         answers: Object.keys(quizAnswers).length > 0
           ? quizAnswers
-          : (serverBase.answers || {}),
-        answersFile: quizAnswerFile || serverBase.answersFile || null,
+          : (newData.answers || {}),
+        answersFile: quizAnswerFile || newData.answersFile || null,
       };
 
       const dataToSend = includeCurrentQ ? { ...merged, currentQ: quizCurrentQ } : merged;
@@ -3664,8 +3670,7 @@ export default function App() {
         setQuizGroups(updated);
       };
       const saveGroups = (updated) => {
-        const data = { eventType: quizEventType, groups: updated, scores: quizScores, myGroups: quizMyGroups };
-        saveQuizData(data);
+        saveGroupsFast(updated);
       };
       const toggleMyGroup = (no) => {
         setQuizMyGroups(prev => prev.includes(no) ? prev.filter(n=>n!==no) : [...prev, no]);
@@ -3797,10 +3802,12 @@ export default function App() {
                     {idx === quizGroups.length - 1 && quizGroups.length > 1 && (
                       <button
                         onClick={() => {
+                          quizGroupEditingRef.current = true;
                           const updated = quizGroups.slice(0, -1);
                           setQuizGroups(updated);
                           setQuizMyGroups(prev => prev.filter(n => n !== g.no));
                           saveGroups(updated);
+                          setTimeout(() => { quizGroupEditingRef.current = false; }, 2000);
                         }}
                         style={{width:36,height:36,borderRadius:8,border:'1px solid #374151',cursor:'pointer',
                           background:'#1f0f0f',color:'#f87171',fontSize:16,fontWeight:700,flexShrink:0}}>
@@ -3815,10 +3822,12 @@ export default function App() {
             {/* Ekstra Grup Ekle butonu */}
             <button
               onClick={() => {
+                quizGroupEditingRef.current = true;
                 const nextNo = String(quizGroups.length + 1);
                 const updated = [...quizGroups, {no: nextNo, name:''}];
                 setQuizGroups(updated);
                 saveGroups(updated);
+                setTimeout(() => { quizGroupEditingRef.current = false; }, 2000);
               }}
               style={{width:'100%',padding:'11px',borderRadius:10,border:'1px dashed #374151',cursor:'pointer',
                 background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:12,
