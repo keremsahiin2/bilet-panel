@@ -740,6 +740,7 @@ export default function App() {
   // Real-time polling — her 1.5 saniyede sunucudan güncel veriyi çek
   const quizGroupEditingRef = useRef(false); // input focus sırasında grup isimlerini ezme
   const quizUserWentBackRef = useRef(false); // kullanıcı manuel olarak 'select'e döndü mü
+  const quizLocalGroupsRef = useRef(null); // son local grup listesi — polling bunu ezmez
   useEffect(() => {
     if (mode !== 'quiz' && role !== 'quiznight') return;
     const poll = setInterval(() => {
@@ -751,11 +752,17 @@ export default function App() {
           // Grupları güncelle — ama kullanıcı input'a yazıyorsa grup isimlerini ezme
           if (srv.groups) {
             setQuizGroups(prev => {
-              if (quizGroupEditingRef.current) {
-                // Kullanıcı aktif olarak ekliyor/siliyor — polling'i tamamen durdur
-                return prev;
-              }
-              if (JSON.stringify(prev) !== JSON.stringify(srv.groups)) return srv.groups;
+              // Kullanıcının local grup listesi varsa — sunucudan gelen onunla aynıysa veya local daha güncel
+              if (quizGroupEditingRef.current) return prev;
+              // Local ref ile karşılaştır: kullanıcı henüz kaydettiği veriyi sunucuda göremediyse ezme
+              const localJson = quizLocalGroupsRef.current !== null
+                ? JSON.stringify(quizLocalGroupsRef.current)
+                : null;
+              const srvJson = JSON.stringify(srv.groups);
+              // Eğer local ref var ve sunucu henüz local'i yansıtmıyorsa — bekle
+              if (localJson !== null && localJson !== srvJson) return prev;
+              // Sunucu local'i yakaladı veya local ref yok — normal güncelle
+              if (JSON.stringify(prev) !== srvJson) return srv.groups;
               return prev;
             });
             setQuizGroupCountSet(true);
@@ -797,6 +804,8 @@ export default function App() {
 
   // Grup işlemleri için hafif, "fire and forget" kayıt — sunucudan önce GET yapmaz, yanıt beklemez
   const saveGroupsFast = (groups) => {
+    // Local ref'i hemen güncelle — polling bu değeri görene kadar ezmesin
+    quizLocalGroupsRef.current = groups;
     const data = {
       eventType: quizEventType,
       groups,
@@ -811,7 +820,14 @@ export default function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quizData: data })
-    }).catch(() => {});
+    })
+    .then(() => {
+      // Sunucu yazdı — ref'i temizle, artık polling güncelleyebilir
+      quizLocalGroupsRef.current = null;
+    })
+    .catch(() => {
+      quizLocalGroupsRef.current = null;
+    });
   };
 
   const saveQuizData = async (newData, includeCurrentQ = false) => {
@@ -3807,7 +3823,7 @@ export default function App() {
                           setQuizGroups(updated);
                           setQuizMyGroups(prev => prev.filter(n => n !== g.no));
                           saveGroups(updated);
-                          setTimeout(() => { quizGroupEditingRef.current = false; }, 2000);
+                          quizGroupEditingRef.current = false;
                         }}
                         style={{width:36,height:36,borderRadius:8,border:'1px solid #374151',cursor:'pointer',
                           background:'#1f0f0f',color:'#f87171',fontSize:16,fontWeight:700,flexShrink:0}}>
@@ -3827,7 +3843,7 @@ export default function App() {
                 const updated = [...quizGroups, {no: nextNo, name:''}];
                 setQuizGroups(updated);
                 saveGroups(updated);
-                setTimeout(() => { quizGroupEditingRef.current = false; }, 2000);
+                quizGroupEditingRef.current = false;
               }}
               style={{width:'100%',padding:'11px',borderRadius:10,border:'1px dashed #374151',cursor:'pointer',
                 background:'transparent',color:'#475569',fontSize:13,fontWeight:600,marginBottom:12,
