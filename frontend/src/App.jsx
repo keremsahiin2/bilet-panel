@@ -969,8 +969,8 @@ export default function App() {
     setQuizQLoading(false);
   };
 
-  const deleteQuizData = async () => {
-    await fetch('/api/quiz', { method: 'DELETE' });
+  const deleteQuizData = () => {
+    // UI'ı hemen sıfırla — sunucu yanıtını bekleme
     setQuizData(null);
     setQuizStep('select');
     setQuizEventType(null);
@@ -988,6 +988,9 @@ export default function App() {
     setQuizAnswerFile(null);
     setQuizQuestions({});
     setQuizQFile(null);
+    quizUserWentBackRef.current = false;
+    // Sunucuya arka planda gönder
+    fetch('/api/quiz', { method: 'DELETE' }).catch(() => {});
   };
 
   // SORU CEVAPLARI — etkinliğe göre
@@ -3622,7 +3625,7 @@ export default function App() {
                       onChange={e => { setQuizDeletePassword(e.target.value); setQuizDeletePasswordError(false); }}
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
-                          if (quizDeletePassword === '2580') { deleteQuizData(); }
+                          if (quizDeletePassword === 'qq') { deleteQuizData(); }
                           else { setQuizDeletePasswordError(true); }
                         }
                       }}
@@ -3637,7 +3640,7 @@ export default function App() {
                         style={{flex:1,padding:'8px',borderRadius:8,border:'1px solid #1a2035',cursor:'pointer',
                           background:'#0d1120',color:'#94a3b8',fontWeight:600,fontSize:12}}>İptal</button>
                       <button onClick={() => {
-                          if (quizDeletePassword === '2580') { deleteQuizData(); }
+                          if (quizDeletePassword === 'qq') { deleteQuizData(); }
                           else { setQuizDeletePasswordError(true); }
                         }}
                         style={{flex:1,padding:'8px',borderRadius:8,border:'none',cursor:'pointer',
