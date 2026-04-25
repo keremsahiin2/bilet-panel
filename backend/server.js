@@ -1704,6 +1704,10 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         var snBody = snRes.data;
         var snSeances = Array.isArray(snBody.data) ? snBody.data : Array.isArray(snBody) ? snBody : snBody.data ? [snBody.data] : [];
         snSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
+        if (snPage === 1 && snSeances.length > 0) {
+          var snSample = snSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name); });
+          console.log('Bulk (cache hit): existingSeanceNames örnek isimler:', snSample.join(', '));
+        }
         console.log('Bulk (cache hit): existingSeanceNames sayfa=' + snPage + ' ->', snSeances.length, 'seans');
         if (snSeances.length < 100) break;
         snPage++;
@@ -1757,6 +1761,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       // Tüm mevcut seans isimlerini duplicate Set'e ekle
       opSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
       console.log('Bulk: existingSeanceNames dolduruldu, tekil seans adi:', existingSeanceNames.size);
+      // İlk 3 ismi logla — payload.name formatıyla karşılaştır
+      var sampleNames = opSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name); });
+      console.log('Bulk: existingSeanceNames örnek isimler:', sampleNames.join(', '));
     } catch(e) {
       return res.status(500).json({ error: 'Parent optioned-products cekilemedi: ' + e.message });
     }
@@ -1803,6 +1810,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     }
 
     // ── Duplicate kontrolü — bu seans zaten İdeasoft'ta var mı? ─────────────
+    console.log('Bulk duplicate check [' + (si+1) + ']: aranan="' + payload.name.trim().toLowerCase() + '" | existingSeanceNames.size=' + existingSeanceNames.size + ' | has=' + existingSeanceNames.has(payload.name.trim().toLowerCase()));
     if (existingSeanceNames.has(payload.name.trim().toLowerCase())) {
       console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ATLANDI (zaten mevcut):', payload.name);
       results.push({ success: false, skipped: true, name: payload.name, error: 'Seans zaten mevcut, atlandı' });
