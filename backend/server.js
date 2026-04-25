@@ -19,10 +19,14 @@ let lastFetch      = null;
 let ideasoftCookies    = null;
 let ideasoftCsrfToken  = null;
 
-// Options cache — fetchAllOptions sonucunu memory'de tut, her bulk'ta tekrar çekme
+// Options cache — fetchAllOptions sonucunu memory'de tut, sadece session reset'te temizlenir
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
-const OPTIONS_CACHE_TTL  = 60 * 60 * 1000; // 60 dakika — options nadiren değişir, her bulk'ta yeniden çekilmesin
+const OPTIONS_CACHE_TTL  = 365 * 24 * 60 * 60 * 1000; // pratikte sonsuz — yeni option eklenince zaten push ile güncelleniyor
+
+// Parent ürün cache — parentId başına products+optionGroups verisi, hiç değişmiyor
+// { [parentId]: { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug } }
+let parentDataCache = {};
 
 // JSONBin in-memory cache — her /api/sales çağrısında JSONBin'e gitmeyi önler
 let jsonbinCache     = null; // { baseline:{}, monthlySales:{} }
@@ -867,7 +871,7 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
-    cachedAllOptions = []; cachedAllOptionsTime = 0;
+    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {};
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -1576,58 +1580,77 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     };
   };
 
-  // ── A) Parent veriyi bir kez çek ──────────────────────────────────────────
+  // ── A) Parent veriyi çek — cache'de varsa ağa gitme ─────────────────────────
   var parentData, existingGroups = [], mekanOption, realPrices, realSpecialInfo, realParentSlug;
-  try {
-    var pRes = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
-      { headers: hdrs(), timeout: 15000 }
-    );
-    var sc = (pRes.headers['set-cookie'] || []).join(' ');
-    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-    parentData = pRes.data;
-    existingGroups = parentData.optionGroups || [];
-  } catch(e) {
-    return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
-  }
 
-  // Optioned-products'tan optionGroups çek (products endpoint bazen boş döner)
-  if (existingGroups.length === 0) {
+  if (parentDataCache[parentId]) {
+    // Cache hit — hiç ağ isteği atmadan devam
+    console.log('Bulk: parentDataCache hit, parentId:', parentId);
+    var cached = parentDataCache[parentId];
+    parentData      = cached.parentData;
+    existingGroups  = cached.existingGroups;
+    mekanOption     = cached.mekanOption;
+    realPrices      = cached.realPrices;
+    realSpecialInfo = cached.realSpecialInfo;
+    realParentSlug  = cached.realParentSlug;
+  } else {
+    // Cache miss — İdeasoft'tan çek ve cache'e yaz
+    console.log('Bulk: parentDataCache miss, parentId:', parentId, '— İdeasoft'tan çekiliyor');
     try {
-      var opRes2 = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+      var pRes = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
         { headers: hdrs(), timeout: 15000 }
       );
-      var sc2 = (opRes2.headers['set-cookie'] || []).join(' ');
-      var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm2) { ideasoftCsrfToken = cm2[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-      var opBody2 = opRes2.data;
-      var opSeances2 = Array.isArray(opBody2.data) ? opBody2.data : Array.isArray(opBody2) ? opBody2 : opBody2.data ? [opBody2.data] : [];
-      if (opSeances2.length > 0 && opSeances2[0].optionGroups) {
-        existingGroups = opSeances2[0].optionGroups;
-        if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
-        if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
-        if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
-        if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
-        if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
-      }
-    } catch(e) { console.warn('Bulk: optioned-products fallback hatası:', e.message); }
+      var sc = (pRes.headers['set-cookie'] || []).join(' ');
+      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      parentData = pRes.data;
+      existingGroups = parentData.optionGroups || [];
+    } catch(e) {
+      return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
+    }
+
+    // Optioned-products'tan optionGroups çek (products endpoint bazen boş döner)
+    if (existingGroups.length === 0) {
+      try {
+        var opRes2 = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+          { headers: hdrs(), timeout: 15000 }
+        );
+        var sc2 = (opRes2.headers['set-cookie'] || []).join(' ');
+        var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+        if (cm2) { ideasoftCsrfToken = cm2[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+        var opBody2 = opRes2.data;
+        var opSeances2 = Array.isArray(opBody2.data) ? opBody2.data : Array.isArray(opBody2) ? opBody2 : opBody2.data ? [opBody2.data] : [];
+        if (opSeances2.length > 0 && opSeances2[0].optionGroups) {
+          existingGroups = opSeances2[0].optionGroups;
+          if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
+          if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
+          if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
+          if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
+          if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
+        }
+      } catch(e) { console.warn('Bulk: optioned-products fallback hatası:', e.message); }
+    }
+
+    var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
+    var mekanGrp       = existingGroups.find(function(g) { return g.id === 8; });
+    mekanOption        = (mekanGrp && mekanGrp.options && mekanGrp.options.length > 0)
+                           ? mekanGrp.options[0]
+                           : { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
+    realPrices         = (parentData.prices || []).map(function(p) { return { id: p.id, type: p.type, value: p.value || '0' }; });
+    realSpecialInfo    = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
+    realParentSlug     = parentData.slug || '';
+
+    // Cache'e yaz — bir sonraki bulk çağrısında bu parentId için ağa gitmeyecek
+    parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug };
+    console.log('Bulk: parentDataCache yazıldı, parentId:', parentId);
   }
 
-  var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
-  var mekanGrp       = existingGroups.find(function(g) { return g.id === 8; });
-  mekanOption        = (mekanGrp && mekanGrp.options && mekanGrp.options.length > 0)
-                         ? mekanGrp.options[0]
-                         : { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
-  realPrices         = (parentData.prices || []).map(function(p) { return { id: p.id, type: p.type, value: p.value || '0' }; });
-  realSpecialInfo    = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
-  realParentSlug     = parentData.slug || '';
-
   // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
-  // Cache hit ise beklemeden döner; ilk çekimde rate limit için kısa bekleme
-  await new Promise(r => setTimeout(r, 500));
-  var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
+  // Cache hit ise beklemeden döner
+  var _tsg = existingGroups.find(function(g) { return g.id === 9; });
+  var cachedOptions = (_tsg && _tsg.options) ? [..._tsg.options] : [];
   try {
     var fetched = await fetchAllOptions(hdrs());
     if (fetched.length > 0) cachedOptions = fetched;
