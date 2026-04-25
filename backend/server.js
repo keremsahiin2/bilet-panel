@@ -1679,46 +1679,14 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   // "zaten mevcut" diye atlama hatası oluşur. Diğer veriler (parentData, prices vb.)
   // değişmediği için cache'de tutulmaya devam eder.
   var existingSeanceNames = new Set();
+  // Her bulk'ta existingSeanceNames fresh çekilmeli — parentDataCache'den sil
+  // Böylece aşağıdaki cache miss dalı her zaman çalışır: tek istekle hem parent verisi
+  // hem aktif seans listesi gelir. İki ayrı istek atmak yerine tek seferde halleder.
   if (parentDataCache[parentId]) {
-    // Cache hit — ağa gitmeden devam, sadece existingSeanceNames fresh çek
-    console.log('Bulk: parentDataCache hit, parentId:', parentId);
-    var cached = parentDataCache[parentId];
-    parentData           = cached.parentData;
-    existingGroups       = cached.existingGroups;
-    mekanOption          = cached.mekanOption;
-    realPrices           = cached.realPrices;
-    realSpecialInfo      = cached.realSpecialInfo;
-    realParentSlug       = cached.realParentSlug;
-    // existingSeanceNames: her bulk'ta fresh çek (aşağıda ortak blok)
-    console.log('Bulk: existingSeanceNames fresh cekilecek (cache bypass)');
-    try {
-      var snPage = 1;
-      while (true) {
-        var snRes = await axios.get(
-          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId + '?page=' + snPage + '&limit=100&sort=-id&status=1',
-          { headers: hdrs(), timeout: 20000 }
-        );
-        var snSc = (snRes.headers['set-cookie'] || []).join(' ');
-        var snCm = snSc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (snCm) { ideasoftCsrfToken = snCm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-        var snBody = snRes.data;
-        var snSeances = Array.isArray(snBody.data) ? snBody.data : Array.isArray(snBody) ? snBody : snBody.data ? [snBody.data] : [];
-        // API ?status=1 ile sadece aktif seansları döndürür — hepsini ekle
-        snSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
-        if (snPage === 1 && snSeances.length > 0) {
-          var snSample = snSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name); });
-          console.log('Bulk (cache hit): existingSeanceNames örnek isimler:', snSample.join(', '));
-        }
-        console.log('Bulk (cache hit): existingSeanceNames sayfa=' + snPage + ' ->', snSeances.length, 'seans');
-        if (snSeances.length < 100) break;
-        snPage++;
-        await new Promise(r => setTimeout(r, 300));
-      }
-      console.log('Bulk (cache hit): existingSeanceNames toplam:', existingSeanceNames.size);
-    } catch(e) {
-      console.warn('Bulk (cache hit): existingSeanceNames cekilemedi, bos devam:', e.message);
-    }
-  } else {
+    console.log('Bulk: parentDataCache temizlendi (existingSeanceNames fresh cekilsin), parentId:', parentId);
+    delete parentDataCache[parentId];
+  }
+  {
     // Cache miss — TÜM sayfaları çek (duplicate tespiti için): optionGroups + fiyat + mevcut seanslar
     console.log('Bulk: parentDataCache miss, parentId:', parentId, '— optioned-products cekiliyor (tum sayfalar)');
     var t0bulk = Date.now();
