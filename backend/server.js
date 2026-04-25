@@ -1681,22 +1681,30 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realParentSlug       = cached.realParentSlug;
     var existingSeanceNames = cached.existingSeanceNames || new Set();
   } else {
-    // Cache miss — tek GET ile her şeyi al: optionGroups + fiyat + mevcut seanslar
-    // products/{parentId} ayrıca çekilmiyor — optioned-products her şeyi içeriyor
-    console.log('Bulk: parentDataCache miss, parentId:', parentId, '— optioned-products cekiliyor');
+    // Cache miss — TÜM sayfaları çek (duplicate tespiti için): optionGroups + fiyat + mevcut seanslar
+    console.log('Bulk: parentDataCache miss, parentId:', parentId, '— optioned-products cekiliyor (tum sayfalar)');
     var t0bulk = Date.now();
     var existingSeanceNames = new Set();
     try {
-      var opRes = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
-        { headers: hdrs(), timeout: 20000 }
-      );
-      var sc = (opRes.headers['set-cookie'] || []).join(' ');
-      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-      var opBody = opRes.data;
-      var opSeances = Array.isArray(opBody.data) ? opBody.data : Array.isArray(opBody) ? opBody : opBody.data ? [opBody.data] : [];
-      console.log('Bulk: optioned-products yaniti', opSeances.length, 'seans,', Date.now() - t0bulk, 'ms');
+      var opSeances = [];
+      var opPage = 1;
+      while (true) {
+        var opRes = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId + '?page=' + opPage + '&limit=100&sort=-id',
+          { headers: hdrs(), timeout: 20000 }
+        );
+        var sc = (opRes.headers['set-cookie'] || []).join(' ');
+        var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+        if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+        var opBody = opRes.data;
+        var pageSeances = Array.isArray(opBody.data) ? opBody.data : Array.isArray(opBody) ? opBody : opBody.data ? [opBody.data] : [];
+        opSeances = opSeances.concat(pageSeances);
+        console.log('Bulk: optioned-products sayfa=' + opPage + ' ->', pageSeances.length, 'seans (toplam:', opSeances.length + ')');
+        if (pageSeances.length < 100) break; // son sayfa
+        opPage++;
+        await new Promise(r => setTimeout(r, 300));
+      }
+      console.log('Bulk: optioned-products toplam', opSeances.length, 'seans,', Date.now() - t0bulk, 'ms');
 
       // İlk seanstan parent verisini ve optionGroups'u al
       var firstSeance = opSeances[0] || {};
@@ -1715,7 +1723,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
       // Tüm mevcut seans isimlerini duplicate Set'e ekle
       opSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
-      console.log('Bulk: mevcut seans sayisi (duplicate kontrol):', existingSeanceNames.size);
+      console.log('Bulk: existingSeanceNames dolduruldu, tekil seans adi:', existingSeanceNames.size);
     } catch(e) {
       return res.status(500).json({ error: 'Parent optioned-products cekilemedi: ' + e.message });
     }
@@ -1740,6 +1748,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
   // ── C) Her seans için sırayla işle ───────────────────────────────────────
   var results = [];
+  var consecutiveErrors = 0; // art arda 429 sayisi — adaptif bekleme
   for (var si = 0; si < payloads.length; si++) {
     var payload = payloads[si];
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
@@ -1748,8 +1757,11 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
-    // 400ms bekle — seanslar arası (hız/rate-limit dengesi)
-    if (si > 0) await new Promise(r => setTimeout(r, 400));
+    // Seanslar arası bekleme — art arda hata varsa adaptif olarak uzar (Cloudflare 429 önlemi)
+    if (si > 0) {
+      var interWaitMs = consecutiveErrors > 0 ? Math.min(3000 + consecutiveErrors * 1000, 8000) : 900;
+      await new Promise(r => setTimeout(r, interWaitMs));
+    }
 
     // Progress: bu seans ekleniyor
     if (jobId && bulkProgressMap[jobId]) {
@@ -1926,8 +1938,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
           );
           break;
         } catch(batchErr) {
-          if (batchErr.response && batchErr.response.status === 429 && batchRetries < 3) {
-            var bWait = 8000 * Math.pow(2, batchRetries);
+          if (batchErr.response && batchErr.response.status === 429 && batchRetries < 4) {
+            var bWait = 15000 * Math.pow(2, batchRetries); // 15s, 30s, 60s — Cloudflare 1015 için
             console.warn('Bulk [' + (si+1) + '] batch 429 — ' + (bWait/1000) + 's bekleniyor (deneme ' + (batchRetries+1) + '/3)');
             await new Promise(r => setTimeout(r, bWait));
             batchRetries++;
@@ -1947,6 +1959,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       }
 
       console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ✓ batch OK, status:', batchRes.status);
+      consecutiveErrors = 0; // başarı — adaptif beklemeyi sıfırla
       results.push({ success: true, name: payload.name, optionId: newOptionId });
       // Başarıyla yazıldı — aynı job içinde tekrar yazılmasın
       existingSeanceNames.add(payload.name.trim().toLowerCase());
@@ -1956,10 +1969,17 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       }
 
     } catch(e) {
+      var errStatus = e.response && e.response.status;
       console.error('Bulk [' + (si+1) + '/' + payloads.length + '] HATA:', e.message,
-        e.response && e.response.status, e.response && JSON.stringify(e.response.data).slice(0,200));
-      results.push({ success: false, name: payload.name, error: e.message,
-        status: e.response && e.response.status });
+        errStatus, e.response && JSON.stringify(e.response.data).slice(0,200));
+      // 429 alınca consecutiveErrors artar — bir sonraki seans daha uzun bekler
+      if (errStatus === 429) {
+        consecutiveErrors++;
+        console.warn('Bulk: 429 alindi, consecutiveErrors=' + consecutiveErrors + ' — sonraki seans bekleme uzayacak');
+      } else {
+        consecutiveErrors = 0;
+      }
+      results.push({ success: false, name: payload.name, error: e.message, status: errStatus });
       if (jobId && bulkProgressMap[jobId]) {
         bulkProgressMap[jobId].done++;
         bulkProgressMap[jobId].errors++;
@@ -1999,7 +2019,16 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   }
 
   var successCount = results.filter(function(r) { return r.success; }).length;
-  res.json({ total: payloads.length, success: successCount, errors: payloads.length - successCount, results });
+  var errorCount   = results.filter(function(r) { return !r.success && !r.skipped; }).length;
+
+  // Hata varsa parentDataCache'i temizle — bir sonraki retry fresh optioned-products ceksin
+  // 429 sonrasi bazi seanslar olusmus olabilir; eski cache'li Set bunlari bilmez
+  if (errorCount > 0) {
+    delete parentDataCache[parentId];
+    console.log('Bulk: hata oldugu icin parentDataCache[' + parentId + '] temizlendi — retry guvenli');
+  }
+
+  res.json({ total: payloads.length, success: successCount, errors: errorCount, results });
 });
 
 // Progress sorgulama — frontend polling ile takip eder
