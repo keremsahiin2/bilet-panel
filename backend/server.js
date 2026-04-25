@@ -1671,71 +1671,56 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realParentSlug       = cached.realParentSlug;
     var existingSeanceNames = cached.existingSeanceNames || new Set();
   } else {
-    // Cache miss — İdeasoft'tan çek ve cache'e yaz
-    console.log('Bulk: parentDataCache miss, parentId:', parentId, '-- Ideasoft tan cekiliyor');
-    try {
-      var pRes = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
-        { headers: hdrs(), timeout: 15000 }
-      );
-      var sc = (pRes.headers['set-cookie'] || []).join(' ');
-      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-      parentData = pRes.data;
-      existingGroups = parentData.optionGroups || [];
-    } catch(e) {
-      return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
-    }
-
-    // Optioned-products'tan optionGroups çek (products endpoint bazen boş döner)
-    if (existingGroups.length === 0) {
-      try {
-        var opRes2 = await axios.get(
-          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
-          { headers: hdrs(), timeout: 15000 }
-        );
-        var sc2 = (opRes2.headers['set-cookie'] || []).join(' ');
-        var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (cm2) { ideasoftCsrfToken = cm2[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-        var opBody2 = opRes2.data;
-        var opSeances2 = Array.isArray(opBody2.data) ? opBody2.data : Array.isArray(opBody2) ? opBody2 : opBody2.data ? [opBody2.data] : [];
-        if (opSeances2.length > 0 && opSeances2[0].optionGroups) {
-          existingGroups = opSeances2[0].optionGroups;
-          if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
-          if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
-          if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
-          if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
-          if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
-        }
-      } catch(e) { console.warn('Bulk: optioned-products fallback hatası:', e.message); }
-    }
-
-    var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
-    var mekanGrp       = existingGroups.find(function(g) { return g.id === 8; });
-    mekanOption        = (mekanGrp && mekanGrp.options && mekanGrp.options.length > 0)
-                           ? mekanGrp.options[0]
-                           : { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
-    realPrices         = (parentData.prices || []).map(function(p) { return { id: p.id, type: p.type, value: p.value || '0' }; });
-    realSpecialInfo    = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
-    realParentSlug     = parentData.slug || '';
-
-    // Mevcut varyant isimlerini topla — duplicate kontrolü için
-    // optioned-products/{parentId} listesindeki her varyantın name'ini Set'e ekle
+    // Cache miss — tek GET ile her şeyi al: optionGroups + fiyat + mevcut seanslar
+    // products/{parentId} ayrıca çekilmiyor — optioned-products her şeyi içeriyor
+    console.log('Bulk: parentDataCache miss, parentId:', parentId, '— optioned-products cekiliyor');
+    var t0bulk = Date.now();
     var existingSeanceNames = new Set();
     try {
-      var dupRes = await axios.get(
+      var opRes = await axios.get(
         'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
-        { headers: hdrs(), timeout: 15000 }
+        { headers: hdrs(), timeout: 20000 }
       );
-      var dupBody = dupRes.data;
-      var dupSeances = Array.isArray(dupBody.data) ? dupBody.data : Array.isArray(dupBody) ? dupBody : dupBody.data ? [dupBody.data] : [];
-      dupSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
+      var sc = (opRes.headers['set-cookie'] || []).join(' ');
+      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      var opBody = opRes.data;
+      var opSeances = Array.isArray(opBody.data) ? opBody.data : Array.isArray(opBody) ? opBody : opBody.data ? [opBody.data] : [];
+      console.log('Bulk: optioned-products yaniti', opSeances.length, 'seans,', Date.now() - t0bulk, 'ms');
+
+      // İlk seanstan parent verisini ve optionGroups'u al
+      var firstSeance = opSeances[0] || {};
+      parentData = {
+        id:          parentId,
+        name:        firstSeance.parent && firstSeance.parent.name || '',
+        sku:         firstSeance.sku ? firstSeance.sku.replace(/_\d+$/, '') : 'bilet',
+        slug:        firstSeance.slug ? firstSeance.slug.split('-').slice(0, -3).join('-') : '',
+        prices:      firstSeance.prices      || [],
+        currency:    firstSeance.currency    || 'TRY',
+        price1:      firstSeance.price1      || '450',
+        tax:         firstSeance.tax         || 20,
+        specialInfo: firstSeance.specialInfo || { id: null, title: '', content: '', status: 0 },
+      };
+      existingGroups = firstSeance.optionGroups || [];
+
+      // Tüm mevcut seans isimlerini duplicate Set'e ekle
+      opSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
       console.log('Bulk: mevcut seans sayisi (duplicate kontrol):', existingSeanceNames.size);
-    } catch(e) { console.warn('Bulk: duplicate kontrol GET hatasi:', e.message); }
+    } catch(e) {
+      return res.status(500).json({ error: 'Parent optioned-products cekilemedi: ' + e.message });
+    }
+
+    var mekanGrp   = existingGroups.find(function(g) { return g.id === 8; });
+    mekanOption    = (mekanGrp && mekanGrp.options && mekanGrp.options.length > 0)
+                       ? mekanGrp.options[0]
+                       : { id: 632, title: 'Farabi Sokak: Sosyal Sanathane' };
+    realPrices      = (parentData.prices || []).map(function(p) { return { id: p.id, type: p.type, value: p.value || '0' }; });
+    realSpecialInfo = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
+    realParentSlug  = parentData.slug || '';
 
     // Cache'e yaz — bir sonraki bulk çağrısında bu parentId için ağa gitmeyecek
     parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug, existingSeanceNames };
-    console.log('Bulk: parentDataCache yazıldı, parentId:', parentId);
+    console.log('Bulk: parentDataCache yazildi, parentId:', parentId, 'toplam sure:', Date.now() - t0bulk, 'ms');
   }
 
   // ── B) cachedOptions — global cachedAllOptions kullan (createOneSeance ile paylaşımlı)
