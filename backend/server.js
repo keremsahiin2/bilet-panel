@@ -23,6 +23,8 @@ let ideasoftCsrfToken  = null;
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
 const OPTIONS_CACHE_TTL  = 365 * 24 * 60 * 60 * 1000; // pratikte sonsuz — yeni option eklenince zaten push ile güncelleniyor
+// O(1) title lookup — Array.find() (O(n)) yerine Map kullanılır; push ile senkron tutulur
+let cachedAllOptionsMap  = new Map(); // key: title.trim().toLowerCase() → option object
 // warmOptionsCache kaldırıldı — &s= search parametresi ile title bazlı tek GET yeterli
 
 // &s= ile gün bazlı option arama — "1 Mayıs Cuma" gibi kısa anahtar kelimeyle ara.
@@ -41,12 +43,10 @@ function extractDayKey(title) {
 async function searchOptionByTitle(title, headersObj) {
   var titleLower = title.trim().toLowerCase();
 
-  // 1) Memory cache'de tam eşleşme var mı?
-  var cached = cachedAllOptions.find(function(o) {
-    return o.title && o.title.trim().toLowerCase() === titleLower;
-  });
+  // 1) Memory cache'de tam eşleşme var mı? — Map ile O(1) lookup (Array.find O(n) değil)
+  var cached = cachedAllOptionsMap.get(titleLower) || null;
   if (cached) {
-    console.log('searchOptionByTitle: cache hit —', cached.id, title);
+    console.log('searchOptionByTitle: cache hit (map) —', cached.id, title);
     return cached;
   }
 
@@ -70,8 +70,9 @@ async function searchOptionByTitle(title, headersObj) {
     var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
     // Tüm sonuçları cache'e doldur — aynı günün diğer saatleri de geldi
     items.forEach(function(o) {
-      if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) {
+      if (o.id && !cachedAllOptionsMap.has((o.title||'').trim().toLowerCase())) {
         cachedAllOptions.push(o);
+        if (o.title) cachedAllOptionsMap.set(o.title.trim().toLowerCase(), o);
       }
     });
     // Bu günü aramış olarak işaretle — bir daha API'ye gitme
@@ -1215,7 +1216,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
     retries = retries || 0;
     try {
       var res = await axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/options?page=' + p + '&limit=' + limit + '&optionGroup=9',
+        'https://berkayalabalik.myideasoft.com/admin-app/options?page=' + p + '&limit=' + limit + '&optionGroup=9&sort=-id',
         { headers: headersObj, timeout: 20000 }
       );
       var sc = (res.headers['set-cookie'] || []).join(' ');
@@ -1250,10 +1251,14 @@ async function fetchAllOptions(headersObj, forceRefresh) {
     }
   }
 
-  // Cache güncelle
+  // Cache güncelle — Map'i yeniden inşa et (sort=-id ile sayfa 1'de zaten en yeniler var)
   if (allOptions.length > 0) {
     cachedAllOptions = allOptions;
     cachedAllOptionsTime = Date.now();
+    cachedAllOptionsMap = new Map();
+    allOptions.forEach(function(o) {
+      if (o.title) cachedAllOptionsMap.set(o.title.trim().toLowerCase(), o);
+    });
   }
   console.log('fetchAllOptions: toplam', allOptions.length, 'option,', page, 'sayfa');
   return allOptions;
@@ -1361,7 +1366,9 @@ async function createOneSeance(payload) {
       if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       newOptionId = optionRes.data && optionRes.data.id;
       if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
-      cachedAllOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+      var _newOpt1 = { id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 };
+      cachedAllOptions.push(_newOpt1);
+      cachedAllOptionsMap.set(tarihSaatTitle.trim().toLowerCase(), _newOpt1);
       console.log('✓ Yeni option oluşturuldu, ID:', newOptionId, '→', tarihSaatTitle);
     } catch(optErr) {
       var optStatus = optErr.response && optErr.response.status;
@@ -1377,7 +1384,10 @@ async function createOneSeance(payload) {
         var searchBody = searchRes.data;
         var searchItems = Array.isArray(searchBody) ? searchBody : (Array.isArray(searchBody.data) ? searchBody.data : []);
         searchItems.forEach(function(o) {
-          if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) cachedAllOptions.push(o);
+          if (o.id && !cachedAllOptionsMap.has((o.title||'').trim().toLowerCase())) {
+            cachedAllOptions.push(o);
+            if (o.title) cachedAllOptionsMap.set(o.title.trim().toLowerCase(), o);
+          }
         });
         var foundOpt = searchItems.find(function(o) {
           return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
@@ -1804,7 +1814,10 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
               var searchBody = searchRes.data;
               var searchItems = Array.isArray(searchBody) ? searchBody : (Array.isArray(searchBody.data) ? searchBody.data : []);
               searchItems.forEach(function(o) {
-                if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) cachedAllOptions.push(o);
+                if (o.id && !cachedAllOptionsMap.has((o.title||'').trim().toLowerCase())) {
+                  cachedAllOptions.push(o);
+                  if (o.title) cachedAllOptionsMap.set(o.title.trim().toLowerCase(), o);
+                }
               });
               var foundOpt = searchItems.find(function(o) {
                 return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
@@ -1826,7 +1839,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
           if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
           newOptionId = optRes.data && optRes.data.id;
           if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
-          cachedAllOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+          var _newOptB = { id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 };
+          cachedAllOptions.push(_newOptB);
+          cachedAllOptionsMap.set(tarihSaatTitle.trim().toLowerCase(), _newOptB);
           console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
         }
       }
