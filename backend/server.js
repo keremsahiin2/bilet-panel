@@ -22,7 +22,7 @@ let ideasoftCsrfToken  = null;
 // Options cache — fetchAllOptions sonucunu memory'de tut, her bulk'ta tekrar çekme
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
-const OPTIONS_CACHE_TTL  = 30 * 60 * 1000; // 30 dakika — options nadiren değişir
+const OPTIONS_CACHE_TTL  = 60 * 60 * 1000; // 60 dakika — options nadiren değişir, her bulk'ta yeniden çekilmesin
 
 // JSONBin in-memory cache — her /api/sales çağrısında JSONBin'e gitmeyi önler
 let jsonbinCache     = null; // { baseline:{}, monthlySales:{} }
@@ -1174,7 +1174,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
       allOptions = allOptions.concat(items);
       if (items.length < limit) break;
       page++;
-      await new Promise(r => setTimeout(r, 400)); // sayfa arası bekleme
+      await new Promise(r => setTimeout(r, 700)); // 1500ms → 700ms
     } catch(e) {
       console.warn('fetchAllOptions sayfa=' + page + ' hata:', e.message, e.response && e.response.status);
       break;
@@ -1576,51 +1576,43 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     };
   };
 
-  // ── A) Parent veriyi çek — products ve optioned-products paralel ──────────
-  // İkisini aynı anda başlatarak bekleme süresini yarıya indiriyoruz
+  // ── A) Parent veriyi bir kez çek ──────────────────────────────────────────
   var parentData, existingGroups = [], mekanOption, realPrices, realSpecialInfo, realParentSlug;
   try {
-    var [pRes, opRes2] = await Promise.all([
-      axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
-        { headers: hdrs(), timeout: 12000 }
-      ).catch(function(e) { console.warn('Bulk: products GET hatası:', e.message); return null; }),
-      axios.get(
-        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
-        { headers: hdrs(), timeout: 12000 }
-      ).catch(function(e) { console.warn('Bulk: optioned-products GET hatası:', e.message); return null; }),
-    ]);
+    var pRes = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
+      { headers: hdrs(), timeout: 15000 }
+    );
+    var sc = (pRes.headers['set-cookie'] || []).join(' ');
+    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+    parentData = pRes.data;
+    existingGroups = parentData.optionGroups || [];
+  } catch(e) {
+    return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
+  }
 
-    // CSRF güncelle
-    if (pRes) {
-      var sc = (pRes.headers['set-cookie'] || []).join(' ');
-      var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-      parentData = pRes.data;
-      existingGroups = parentData.optionGroups || [];
-    }
-    if (opRes2) {
+  // Optioned-products'tan optionGroups çek (products endpoint bazen boş döner)
+  if (existingGroups.length === 0) {
+    try {
+      var opRes2 = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+        { headers: hdrs(), timeout: 15000 }
+      );
       var sc2 = (opRes2.headers['set-cookie'] || []).join(' ');
       var cm2 = sc2.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
       if (cm2) { ideasoftCsrfToken = cm2[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       var opBody2 = opRes2.data;
       var opSeances2 = Array.isArray(opBody2.data) ? opBody2.data : Array.isArray(opBody2) ? opBody2 : opBody2.data ? [opBody2.data] : [];
-      // optionGroups boşsa optioned-products'tan doldur
-      if (existingGroups.length === 0 && opSeances2.length > 0 && opSeances2[0].optionGroups) {
+      if (opSeances2.length > 0 && opSeances2[0].optionGroups) {
         existingGroups = opSeances2[0].optionGroups;
+        if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
+        if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
+        if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
+        if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
+        if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
       }
-      // parentData eksikse optioned-products'tan tamamla
-      if (!parentData) parentData = {};
-      if (!parentData.prices   && opSeances2[0]) parentData.prices   = opSeances2[0].prices;
-      if (!parentData.currency && opSeances2[0]) parentData.currency = opSeances2[0].currency;
-      if (!parentData.price1   && opSeances2[0]) parentData.price1   = opSeances2[0].price1;
-      if (!parentData.tax      && opSeances2[0]) parentData.tax      = opSeances2[0].tax;
-      if (!parentData.slug     && opSeances2[0]) parentData.slug     = opSeances2[0].slug ? opSeances2[0].slug.split('-').slice(0,-3).join('-') : '';
-      if (!parentData.name     && opSeances2[0]) parentData.name     = opSeances2[0].parent && opSeances2[0].parent.name;
-    }
-    if (!parentData) return res.status(500).json({ error: 'Parent ürün çekilemedi: her iki endpoint de başarısız' });
-  } catch(e) {
-    return res.status(500).json({ error: 'Parent ürün çekilemedi: ' + e.message });
+    } catch(e) { console.warn('Bulk: optioned-products fallback hatası:', e.message); }
   }
 
   var tarihSaatGroup = existingGroups.find(function(g) { return g.id === 9; });
@@ -1633,6 +1625,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   realParentSlug     = parentData.slug || '';
 
   // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
+  // Cache hit ise beklemeden döner; ilk çekimde rate limit için kısa bekleme
+  await new Promise(r => setTimeout(r, 500));
   var cachedOptions = (tarihSaatGroup && tarihSaatGroup.options) ? [...tarihSaatGroup.options] : [];
   try {
     var fetched = await fetchAllOptions(hdrs());
