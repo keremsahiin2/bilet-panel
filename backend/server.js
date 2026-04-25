@@ -1647,17 +1647,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     console.log('Bulk: parentDataCache yazıldı, parentId:', parentId);
   }
 
-  // ── B) Mevcut options listesini bir kez çek ───────────────────────────────
-  // Cache hit ise beklemeden döner
-  var _tsg = existingGroups.find(function(g) { return g.id === 9; });
-  var cachedOptions = (_tsg && _tsg.options) ? [..._tsg.options] : [];
-  try {
-    var fetched = await fetchAllOptions(hdrs());
-    if (fetched.length > 0) cachedOptions = fetched;
-    console.log('Bulk: options listesi çekildi, adet:', cachedOptions.length);
-  } catch(e) {
-    console.warn('Bulk: options listesi çekilemedi, optionGroups kullanılıyor:', e.message);
-  }
+  // ── B) cachedOptions — fetchAllOptions YOK, direkt POST ile başla ──────────
+  // Option zaten varsa POST 400 döner, o zaman tek seferlik GET ile ID bulunur
+  var cachedOptions = [];
 
   // ── C) Her seans için sırayla işle ───────────────────────────────────────
   var results = [];
@@ -1724,21 +1716,26 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
               var errBody = optErr.response && optErr.response.data;
               var errMsg = errBody && (errBody.errorMessage || JSON.stringify(errBody));
               if (errMsg && errMsg.includes('Tekrarlanan')) {
-                console.warn('Bulk [' + (si+1) + '] Tekrarlanan giriş — options listesi yenileniyor:', tarihSaatTitle);
-                await new Promise(r => setTimeout(r, 2000));
+                console.warn('Bulk [' + (si+1) + '] Tekrarlanan giris — tek sayfa GET ile ID araniyor:', tarihSaatTitle);
+                await new Promise(r => setTimeout(r, 800));
                 try {
-                  var refreshed = await fetchAllOptions(hdrs());
-                  if (refreshed.length > 0) cachedOptions = refreshed;
-                  var foundOpt = cachedOptions.find(function(o) {
+                  // Tüm listeyi çekmek yerine sadece 1 sayfa GET — genellikle yeterli
+                  var singleRes = await axios.get(
+                    'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=500&optionGroup=9',
+                    { headers: hdrs(), timeout: 15000 }
+                  );
+                  var singleBody = singleRes.data;
+                  var singleItems = Array.isArray(singleBody) ? singleBody : (Array.isArray(singleBody.data) ? singleBody.data : []);
+                  var foundOpt = singleItems.find(function(o) {
                     return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
                   });
                   if (foundOpt) {
                     newOptionId = foundOpt.id;
-                    optRes = null; // ID set edildi, while döngüsünden çık
-                    console.log('Bulk [' + (si+1) + '] Tekrarlanan → mevcut ID bulundu:', newOptionId);
+                    optRes = null;
+                    console.log('Bulk [' + (si+1) + '] Tekrarlanan -> mevcut ID bulundu:', newOptionId);
                     break;
                   }
-                } catch(re) { console.warn('Bulk options refresh hatası:', re.message); }
+                } catch(re) { console.warn('Bulk options single-GET hatasi:', re.message); }
               }
             }
             throw optErr; // beklenmeyen hata — catch(e)'ye düş
