@@ -1595,7 +1595,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realParentSlug  = cached.realParentSlug;
   } else {
     // Cache miss — İdeasoft'tan çek ve cache'e yaz
-    console.log('Bulk: parentDataCache miss, parentId:', parentId, '— İdeasoft'tan çekiliyor');
+    console.log('Bulk: parentDataCache miss, parentId:', parentId, '-- Ideasoft tan cekiliyor');
     try {
       var pRes = await axios.get(
         'https://berkayalabalik.myideasoft.com/admin-app/products/' + parentId,
