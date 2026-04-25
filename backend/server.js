@@ -1652,6 +1652,11 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   var parentId = payloads[0].parent && payloads[0].parent.id;
   if (!parentId) return res.status(400).json({ error:'parent.id gerekli' });
 
+
+  // Her bulk başında searchedDayKeys sıfırla — silinip tekrar yazdırılacak seanslar için
+  // option title'ları "bu günü aradık, yok" diye yanlış atlanmasın.
+  searchedDayKeys = new Set();
+  console.log('Bulk: searchedDayKeys sıfırlandı');
   var cStr = toCookieStr(ideasoftCookies);
   var hdrs = function() {
     return {
@@ -1669,8 +1674,13 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   // ── A) Parent veriyi çek — cache'de varsa ağa gitme ─────────────────────────
   var parentData, existingGroups = [], mekanOption, realPrices, realSpecialInfo, realParentSlug;
 
+  // existingSeanceNames HER ZAMAN fresh çekilir — cache'de tutulmaz.
+  // Seanslar silinip tekrar yazdırılmak istenince eski cache stale kalır ve
+  // "zaten mevcut" diye atlama hatası oluşur. Diğer veriler (parentData, prices vb.)
+  // değişmediği için cache'de tutulmaya devam eder.
+  var existingSeanceNames = new Set();
   if (parentDataCache[parentId]) {
-    // Cache hit — hiç ağ isteği atmadan devam
+    // Cache hit — ağa gitmeden devam, sadece existingSeanceNames fresh çek
     console.log('Bulk: parentDataCache hit, parentId:', parentId);
     var cached = parentDataCache[parentId];
     parentData           = cached.parentData;
@@ -1679,7 +1689,30 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realPrices           = cached.realPrices;
     realSpecialInfo      = cached.realSpecialInfo;
     realParentSlug       = cached.realParentSlug;
-    var existingSeanceNames = cached.existingSeanceNames || new Set();
+    // existingSeanceNames: her bulk'ta fresh çek (aşağıda ortak blok)
+    console.log('Bulk: existingSeanceNames fresh cekilecek (cache bypass)');
+    try {
+      var snPage = 1;
+      while (true) {
+        var snRes = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId + '?page=' + snPage + '&limit=100&sort=-id',
+          { headers: hdrs(), timeout: 20000 }
+        );
+        var snSc = (snRes.headers['set-cookie'] || []).join(' ');
+        var snCm = snSc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+        if (snCm) { ideasoftCsrfToken = snCm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+        var snBody = snRes.data;
+        var snSeances = Array.isArray(snBody.data) ? snBody.data : Array.isArray(snBody) ? snBody : snBody.data ? [snBody.data] : [];
+        snSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
+        console.log('Bulk (cache hit): existingSeanceNames sayfa=' + snPage + ' ->', snSeances.length, 'seans');
+        if (snSeances.length < 100) break;
+        snPage++;
+        await new Promise(r => setTimeout(r, 300));
+      }
+      console.log('Bulk (cache hit): existingSeanceNames toplam:', existingSeanceNames.size);
+    } catch(e) {
+      console.warn('Bulk (cache hit): existingSeanceNames cekilemedi, bos devam:', e.message);
+    }
   } else {
     // Cache miss — TÜM sayfaları çek (duplicate tespiti için): optionGroups + fiyat + mevcut seanslar
     console.log('Bulk: parentDataCache miss, parentId:', parentId, '— optioned-products cekiliyor (tum sayfalar)');
@@ -1737,7 +1770,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realParentSlug  = parentData.slug || '';
 
     // Cache'e yaz — bir sonraki bulk çağrısında bu parentId için ağa gitmeyecek
-    parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug, existingSeanceNames };
+    // NOT: existingSeanceNames cache'e yazılmıyor — her bulk başında fresh çekilir
+    parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug };
     console.log('Bulk: parentDataCache yazildi, parentId:', parentId, 'toplam sure:', Date.now() - t0bulk, 'ms');
   }
 
