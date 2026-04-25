@@ -1271,48 +1271,89 @@ async function createOneSeance(payload) {
     mekanOption = mekanGroup.options[0];
   }
 
-  // ── OPTION ID AL: önce mevcut listede ara, yoksa POST ────────────────────────
+  // ── OPTION ID AL: önce memory cache'de ara, yoksa POST-first stratejisi ──────
+  // fetchAllOptions ÇAĞRILMAZ — paginated GET çok yavaş.
+  // Önce cachedAllOptions'ta bak, yoksa direkt POST dene.
+  // POST 400 "Tekrarlanan" dönerse tek sayfa GET ile ID bul ve cache'e ekle.
   var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
-  try {
-    var allFetchedOptions = await fetchAllOptions(headers());
-    if (allFetchedOptions.length > 0) existingTarihOptions = allFetchedOptions;
-    console.log('✓ GET options başarılı, toplam:', existingTarihOptions.length);
-  } catch(e) {
-    console.warn('GET options başarısız, mevcut liste kullanılıyor:', e.message);
+
+  // Memory cache'deki options varsa onları da ekle (bulk çağrılardan birikmiş olabilir)
+  if (cachedAllOptions.length > 0) {
+    existingTarihOptions = cachedAllOptions;
   }
 
-  // Bu title daha önce oluşturulmuş mu? Varsa yeni POST atma, ID'yi kullan
-  var existingOption = existingTarihOptions.find(function(o) {
+  // Bu title memory cache'de var mı?
+  var existingOption = cachedAllOptions.find(function(o) {
     return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
   });
 
   var newOptionId;
   if (existingOption) {
     newOptionId = existingOption.id;
-    console.log('✓ Option zaten mevcut, ID kullanılıyor:', newOptionId, '→', tarihSaatTitle);
+    console.log('✓ Option cache\'de mevcut, ID kullanılıyor:', newOptionId, '→', tarihSaatTitle);
   } else {
-    var optionRes = await axios.post(
-      'https://berkayalabalik.myideasoft.com/admin-app/options',
-      {
-        title: tarihSaatTitle,
-        sortOrder: 9999,
-        size: '16',
-        optionGroup: {
-          id: 9,
-          title: 'Tarih & Saat',
-          options: existingTarihOptions.map(function(o) {
-            return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
-          })
+    // POST-first: direkt oluşturmayı dene
+    var optionRes;
+    try {
+      optionRes = await axios.post(
+        'https://berkayalabalik.myideasoft.com/admin-app/options',
+        {
+          title: tarihSaatTitle,
+          sortOrder: 9999,
+          size: '16',
+          optionGroup: {
+            id: 9,
+            title: 'Tarih & Saat',
+            options: existingTarihOptions.map(function(o) {
+              return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
+            })
+          }
+        },
+        { headers: headers(), timeout: 15000 }
+      );
+      var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
+      var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+      if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
+      newOptionId = optionRes.data && optionRes.data.id;
+      if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
+      // Cache'e ekle
+      cachedAllOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+      cachedAllOptionsTime = Date.now();
+      console.log('✓ Yeni option oluşturuldu, ID:', newOptionId, '→', tarihSaatTitle);
+    } catch(optErr) {
+      var optStatus = optErr.response && optErr.response.status;
+      var optErrBody = optErr.response && optErr.response.data;
+      var optErrMsg = optErrBody && (optErrBody.errorMessage || JSON.stringify(optErrBody));
+      // 400 "Tekrarlanan": option zaten var ama cache'de yok — tek sayfa GET ile ID bul
+      if (optStatus === 400 && optErrMsg && optErrMsg.includes('Tekrarlanan')) {
+        console.warn('Option zaten var (Tekrarlanan), tek sayfa GET ile aranıyor:', tarihSaatTitle);
+        await new Promise(function(r) { setTimeout(r, 500); });
+        var singleRes = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=500&optionGroup=9',
+          { headers: headers(), timeout: 15000 }
+        );
+        var singleBody = singleRes.data;
+        var singleItems = Array.isArray(singleBody) ? singleBody : (Array.isArray(singleBody.data) ? singleBody.data : []);
+        // Cache'e toplu ekle
+        singleItems.forEach(function(o) {
+          if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) {
+            cachedAllOptions.push(o);
+          }
+        });
+        cachedAllOptionsTime = Date.now();
+        var foundOpt = singleItems.find(function(o) {
+          return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
+        });
+        if (foundOpt) {
+          newOptionId = foundOpt.id;
+          console.log('✓ GET ile option bulundu, ID:', newOptionId, '→', tarihSaatTitle);
+        } else {
+          throw new Error('Option bulunamadı (Tekrarlanan ama GET de bulamadı): ' + tarihSaatTitle);
         }
-      },
-      { headers: headers(), timeout: 15000 }
-    );
-    var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
-    var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
-    newOptionId = optionRes.data && optionRes.data.id;
-    if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
-    console.log('✓ Yeni option oluşturuldu, ID:', newOptionId, '→', tarihSaatTitle);
+      } else {
+        throw optErr;
+      }
+    }
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1647,9 +1688,10 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     console.log('Bulk: parentDataCache yazıldı, parentId:', parentId);
   }
 
-  // ── B) cachedOptions — fetchAllOptions YOK, direkt POST ile başla ──────────
-  // Option zaten varsa POST 400 döner, o zaman tek seferlik GET ile ID bulunur
-  var cachedOptions = [];
+  // ── B) cachedOptions — global cachedAllOptions kullan (createOneSeance ile paylaşımlı)
+  // fetchAllOptions çağrılmaz — POST-first + 400 gelince tek sayfa GET stratejisi.
+  // Global cache sayesinde aynı session içindeki tekrar eden option aramaları anında bulunur.
+  var cachedOptions = cachedAllOptions; // global'e referans — push'lar global'i günceller
 
   // ── C) Her seans için sırayla işle ───────────────────────────────────────
   var results = [];
