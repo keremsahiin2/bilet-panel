@@ -25,13 +25,23 @@ let cachedAllOptionsTime = 0;
 const OPTIONS_CACHE_TTL  = 365 * 24 * 60 * 60 * 1000; // pratikte sonsuz — yeni option eklenince zaten push ile güncelleniyor
 // warmOptionsCache kaldırıldı — &s= search parametresi ile title bazlı tek GET yeterli
 
-// &s= ile title bazlı option arama — liste büyüklüğünden bağımsız, tek HTTP isteği.
-// Önce memory cache'e bak (push ile büyüyen liste), yoksa İdeasoft search API'sini çağır.
-// Bulunan sonuç cache'e eklenir → aynı session'da tekrar arama yapılmaz.
+// &s= ile gün bazlı option arama — "1 Mayıs Cuma" gibi kısa anahtar kelimeyle ara.
+// Aynı güne ait tüm saatler tek GET'te gelir ve cache'e dolar.
+// Sonraki seanslarda aynı gün tekrar aranmaz — cache'den bulunur.
+// Aranan günler bir Set'te tutulur: aynı güne ikinci kez API isteği atılmaz.
+var searchedDayKeys = new Set(); // "1 mayıs cuma" gibi normalize edilmiş günler
+
+// title'dan gün anahtarı çıkar: "1 Mayıs Cuma 19:00 - 21:00" → "1 mayıs cuma"
+function extractDayKey(title) {
+  // "GÜN AY HAFTAADI" formatı: ilk üç kelime (sayı + ay + gün adı)
+  var m = title.trim().match(/^(\d+\s+\w+\s+\w+)/u);
+  return m ? m[1].toLowerCase() : title.trim().toLowerCase();
+}
+
 async function searchOptionByTitle(title, headersObj) {
   var titleLower = title.trim().toLowerCase();
 
-  // 1) Memory cache'de var mı?
+  // 1) Memory cache'de tam eşleşme var mı?
   var cached = cachedAllOptions.find(function(o) {
     return o.title && o.title.trim().toLowerCase() === titleLower;
   });
@@ -40,10 +50,17 @@ async function searchOptionByTitle(title, headersObj) {
     return cached;
   }
 
-  // 2) &s= ile tek GET — İdeasoft sunucusunda arar, sayfa sayısından bağımsız
+  // 2) Bu günü daha önce aradık mı? Aradıysak ve cache'de yoksa zaten yok demektir.
+  var dayKey = extractDayKey(title);
+  if (searchedDayKeys.has(dayKey)) {
+    console.log('searchOptionByTitle: gün daha önce arandı, cache miss —', dayKey);
+    return null;
+  }
+
+  // 3) &s= ile GÜN bazlı GET — "1 Mayıs Cuma" → o güne ait tüm saatler gelir
   try {
     var res = await axios.get(
-      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9&s=' + encodeURIComponent(title) + '&sort=-id&fields=id,title,sortOrder',
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9&s=' + encodeURIComponent(dayKey) + '&sort=-id&fields=id,title,sortOrder',
       { headers: headersObj, timeout: 15000 }
     );
     var sc = (res.headers['set-cookie'] || []).join(' ');
@@ -51,25 +68,24 @@ async function searchOptionByTitle(title, headersObj) {
     if (cm) { ideasoftCsrfToken = cm[1]; }
     var body = res.data;
     var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
-    // Cache'e toplu ekle (arama sonuçları da ileride işe yarar)
+    // Tüm sonuçları cache'e doldur — aynı günün diğer saatleri de geldi
     items.forEach(function(o) {
       if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) {
         cachedAllOptions.push(o);
       }
     });
-    // Tam eşleşmeyi bul
+    // Bu günü aramış olarak işaretle — bir daha API'ye gitme
+    searchedDayKeys.add(dayKey);
+    console.log('searchOptionByTitle: API hit, dayKey="' + dayKey + '", ' + items.length + ' sonuc cache e eklendi');
+    // Tam eşleşmeyi döndür
     var found = items.find(function(o) {
       return o.title && o.title.trim().toLowerCase() === titleLower;
     });
-    if (found) {
-      console.log('searchOptionByTitle: API hit —', found.id, title);
-      return found;
-    }
+    return found || null;
   } catch(e) {
     console.warn('searchOptionByTitle GET hatası:', e.message);
+    return null;
   }
-
-  return null; // bulunamadı
 }
 
 // Parent ürün cache — parentId başına products+optionGroups verisi, hiç değişmiyor
@@ -920,7 +936,7 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
-    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; 
+    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; searchedDayKeys = new Set(); 
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -1647,12 +1663,13 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     // Cache hit — hiç ağ isteği atmadan devam
     console.log('Bulk: parentDataCache hit, parentId:', parentId);
     var cached = parentDataCache[parentId];
-    parentData      = cached.parentData;
-    existingGroups  = cached.existingGroups;
-    mekanOption     = cached.mekanOption;
-    realPrices      = cached.realPrices;
-    realSpecialInfo = cached.realSpecialInfo;
-    realParentSlug  = cached.realParentSlug;
+    parentData           = cached.parentData;
+    existingGroups       = cached.existingGroups;
+    mekanOption          = cached.mekanOption;
+    realPrices           = cached.realPrices;
+    realSpecialInfo      = cached.realSpecialInfo;
+    realParentSlug       = cached.realParentSlug;
+    var existingSeanceNames = cached.existingSeanceNames || new Set();
   } else {
     // Cache miss — İdeasoft'tan çek ve cache'e yaz
     console.log('Bulk: parentDataCache miss, parentId:', parentId, '-- Ideasoft tan cekiliyor');
@@ -1702,8 +1719,22 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     realSpecialInfo    = parentData.specialInfo || { id: null, title: '', content: '', status: 0 };
     realParentSlug     = parentData.slug || '';
 
+    // Mevcut varyant isimlerini topla — duplicate kontrolü için
+    // optioned-products/{parentId} listesindeki her varyantın name'ini Set'e ekle
+    var existingSeanceNames = new Set();
+    try {
+      var dupRes = await axios.get(
+        'https://berkayalabalik.myideasoft.com/admin-app/optioned-products/' + parentId,
+        { headers: hdrs(), timeout: 15000 }
+      );
+      var dupBody = dupRes.data;
+      var dupSeances = Array.isArray(dupBody.data) ? dupBody.data : Array.isArray(dupBody) ? dupBody : dupBody.data ? [dupBody.data] : [];
+      dupSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
+      console.log('Bulk: mevcut seans sayisi (duplicate kontrol):', existingSeanceNames.size);
+    } catch(e) { console.warn('Bulk: duplicate kontrol GET hatasi:', e.message); }
+
     // Cache'e yaz — bir sonraki bulk çağrısında bu parentId için ağa gitmeyecek
-    parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug };
+    parentDataCache[parentId] = { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug, existingSeanceNames };
     console.log('Bulk: parentDataCache yazıldı, parentId:', parentId);
   }
 
@@ -1728,6 +1759,17 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     // Progress: bu seans ekleniyor
     if (jobId && bulkProgressMap[jobId]) {
       bulkProgressMap[jobId].current = tarihSaatTitle;
+    }
+
+    // ── Duplicate kontrolü — bu seans zaten İdeasoft'ta var mı? ─────────────
+    if (existingSeanceNames.has(payload.name.trim().toLowerCase())) {
+      console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ATLANDI (zaten mevcut):', payload.name);
+      results.push({ success: false, skipped: true, name: payload.name, error: 'Seans zaten mevcut, atlandı' });
+      if (jobId && bulkProgressMap[jobId]) {
+        bulkProgressMap[jobId].done++;
+        bulkProgressMap[jobId].results.push({ success: false, skipped: true, name: tarihSaatTitle, error: 'Zaten mevcut' });
+      }
+      continue;
     }
 
     try {
@@ -1906,6 +1948,8 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
       console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ✓ batch OK, status:', batchRes.status);
       results.push({ success: true, name: payload.name, optionId: newOptionId });
+      // Başarıyla yazıldı — aynı job içinde tekrar yazılmasın
+      existingSeanceNames.add(payload.name.trim().toLowerCase());
       if (jobId && bulkProgressMap[jobId]) {
         bulkProgressMap[jobId].done++;
         bulkProgressMap[jobId].results.push({ success: true, name: tarihSaatTitle });
