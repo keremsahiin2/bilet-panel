@@ -1703,7 +1703,12 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         if (snCm) { ideasoftCsrfToken = snCm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
         var snBody = snRes.data;
         var snSeances = Array.isArray(snBody.data) ? snBody.data : Array.isArray(snBody) ? snBody : snBody.data ? [snBody.data] : [];
-        snSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
+        // Sadece AKTİF (status=1) seansları ekle — silinmişleri atlat
+        snSeances.forEach(function(s) {
+          if (s.name && (s.status === 1 || s.status === '1')) {
+            existingSeanceNames.add(s.name.trim().toLowerCase());
+          }
+        });
         if (snPage === 1 && snSeances.length > 0) {
           var snSample = snSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name); });
           console.log('Bulk (cache hit): existingSeanceNames örnek isimler:', snSample.join(', '));
@@ -1758,12 +1763,17 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       };
       existingGroups = firstSeance.optionGroups || [];
 
-      // Tüm mevcut seans isimlerini duplicate Set'e ekle
-      opSeances.forEach(function(s) { if (s.name) existingSeanceNames.add(s.name.trim().toLowerCase()); });
-      console.log('Bulk: existingSeanceNames dolduruldu, tekil seans adi:', existingSeanceNames.size);
-      // İlk 3 ismi logla — payload.name formatıyla karşılaştır
-      var sampleNames = opSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name); });
-      console.log('Bulk: existingSeanceNames örnek isimler:', sampleNames.join(', '));
+      // Sadece AKTİF (status=1) seansları duplicate Set'e ekle
+      // Silinmiş/pasif seanslar (status=0) hariç — silinip tekrar yazdırılabilsin
+      opSeances.forEach(function(s) {
+        if (s.name && (s.status === 1 || s.status === '1')) {
+          existingSeanceNames.add(s.name.trim().toLowerCase());
+        }
+      });
+      var totalInactive = opSeances.filter(function(s) { return s.status !== 1 && s.status !== '1'; }).length;
+      console.log('Bulk: existingSeanceNames dolduruldu, aktif:', existingSeanceNames.size, '| pasif/silindi:', totalInactive);
+      var sampleNames = opSeances.slice(0, 3).map(function(s) { return JSON.stringify(s.name) + '(status=' + s.status + ')'; });
+      console.log('Bulk: örnek isimler:', sampleNames.join(', '));
     } catch(e) {
       return res.status(500).json({ error: 'Parent optioned-products cekilemedi: ' + e.message });
     }
