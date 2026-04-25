@@ -23,6 +23,54 @@ let ideasoftCsrfToken  = null;
 let cachedAllOptions     = [];
 let cachedAllOptionsTime = 0;
 const OPTIONS_CACHE_TTL  = 365 * 24 * 60 * 60 * 1000; // pratikte sonsuz — yeni option eklenince zaten push ile güncelleniyor
+// warmOptionsCache kaldırıldı — &s= search parametresi ile title bazlı tek GET yeterli
+
+// &s= ile title bazlı option arama — liste büyüklüğünden bağımsız, tek HTTP isteği.
+// Önce memory cache'e bak (push ile büyüyen liste), yoksa İdeasoft search API'sini çağır.
+// Bulunan sonuç cache'e eklenir → aynı session'da tekrar arama yapılmaz.
+async function searchOptionByTitle(title, headersObj) {
+  var titleLower = title.trim().toLowerCase();
+
+  // 1) Memory cache'de var mı?
+  var cached = cachedAllOptions.find(function(o) {
+    return o.title && o.title.trim().toLowerCase() === titleLower;
+  });
+  if (cached) {
+    console.log('searchOptionByTitle: cache hit —', cached.id, title);
+    return cached;
+  }
+
+  // 2) &s= ile tek GET — İdeasoft sunucusunda arar, sayfa sayısından bağımsız
+  try {
+    var res = await axios.get(
+      'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9&s=' + encodeURIComponent(title) + '&sort=-id&fields=id,title,sortOrder',
+      { headers: headersObj, timeout: 15000 }
+    );
+    var sc = (res.headers['set-cookie'] || []).join(' ');
+    var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
+    if (cm) { ideasoftCsrfToken = cm[1]; }
+    var body = res.data;
+    var items = Array.isArray(body) ? body : (Array.isArray(body.data) ? body.data : []);
+    // Cache'e toplu ekle (arama sonuçları da ileride işe yarar)
+    items.forEach(function(o) {
+      if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) {
+        cachedAllOptions.push(o);
+      }
+    });
+    // Tam eşleşmeyi bul
+    var found = items.find(function(o) {
+      return o.title && o.title.trim().toLowerCase() === titleLower;
+    });
+    if (found) {
+      console.log('searchOptionByTitle: API hit —', found.id, title);
+      return found;
+    }
+  } catch(e) {
+    console.warn('searchOptionByTitle GET hatası:', e.message);
+  }
+
+  return null; // bulunamadı
+}
 
 // Parent ürün cache — parentId başına products+optionGroups verisi, hiç değişmiyor
 // { [parentId]: { parentData, existingGroups, mekanOption, realPrices, realSpecialInfo, realParentSlug } }
@@ -853,6 +901,7 @@ app.post('/api/login', function(req, res) {
         loginState = { status:'done', error:null };
         console.log('Login: tamamlandi');
         getJsonbinRecord().catch(function(e){ console.warn('Login: JSONBin cache ısıtma basarisiz:', e.message); });
+
       })
       .catch(function(err) {
         loginState = { status:'error', error:err.message };
@@ -871,7 +920,7 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
-    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {};
+    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; 
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -1271,43 +1320,23 @@ async function createOneSeance(payload) {
     mekanOption = mekanGroup.options[0];
   }
 
-  // ── OPTION ID AL: önce memory cache'de ara, yoksa POST-first stratejisi ──────
-  // fetchAllOptions ÇAĞRILMAZ — paginated GET çok yavaş.
-  // Önce cachedAllOptions'ta bak, yoksa direkt POST dene.
-  // POST 400 "Tekrarlanan" dönerse tek sayfa GET ile ID bul ve cache'e ekle.
-  var existingTarihOptions = (tarihSaatGroup && tarihSaatGroup.options) ? tarihSaatGroup.options : [];
-
-  // Memory cache'deki options varsa onları da ekle (bulk çağrılardan birikmiş olabilir)
-  if (cachedAllOptions.length > 0) {
-    existingTarihOptions = cachedAllOptions;
-  }
-
-  // Bu title memory cache'de var mı?
-  var existingOption = cachedAllOptions.find(function(o) {
-    return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
-  });
-
+  // ── OPTION ID AL: &s= search ile title bazlı tek GET — liste büyüklüğünden bağımsız ──
+  // Strateji: 1) cache'e bak  2) POST dene  3) 400 Tekrarlanan → &s= ile direkt ara
   var newOptionId;
+  var existingOption = await searchOptionByTitle(tarihSaatTitle, headers());
   if (existingOption) {
     newOptionId = existingOption.id;
-    console.log('✓ Option cache\'de mevcut, ID kullanılıyor:', newOptionId, '→', tarihSaatTitle);
+    console.log('✓ Option bulundu (search/cache), ID:', newOptionId, '→', tarihSaatTitle);
   } else {
-    // POST-first: direkt oluşturmayı dene
-    var optionRes;
+    // Option yok — POST ile oluştur
     try {
-      optionRes = await axios.post(
+      var optionRes = await axios.post(
         'https://berkayalabalik.myideasoft.com/admin-app/options',
         {
           title: tarihSaatTitle,
           sortOrder: 9999,
           size: '16',
-          optionGroup: {
-            id: 9,
-            title: 'Tarih & Saat',
-            options: existingTarihOptions.map(function(o) {
-              return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
-            })
-          }
+          optionGroup: { id: 9, title: 'Tarih & Saat', options: [] }
         },
         { headers: headers(), timeout: 15000 }
       );
@@ -1316,40 +1345,30 @@ async function createOneSeance(payload) {
       if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       newOptionId = optionRes.data && optionRes.data.id;
       if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
-      // Cache'e ekle
       cachedAllOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
-      cachedAllOptionsTime = Date.now();
       console.log('✓ Yeni option oluşturuldu, ID:', newOptionId, '→', tarihSaatTitle);
     } catch(optErr) {
       var optStatus = optErr.response && optErr.response.status;
       var optErrBody = optErr.response && optErr.response.data;
       var optErrMsg = optErrBody && (optErrBody.errorMessage || JSON.stringify(optErrBody));
-      // 400 "Tekrarlanan": option zaten var ama cache'de yok — tek sayfa GET ile ID bul
+      // 400 "Tekrarlanan": aynı title zaten var — &s= ile bul
       if (optStatus === 400 && optErrMsg && optErrMsg.includes('Tekrarlanan')) {
-        console.warn('Option zaten var (Tekrarlanan), tek sayfa GET ile aranıyor:', tarihSaatTitle);
-        await new Promise(function(r) { setTimeout(r, 500); });
-        var singleRes = await axios.get(
-          'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9',
+        console.warn('Option Tekrarlanan — &s= ile aranıyor:', tarihSaatTitle);
+        var searchRes = await axios.get(
+          'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9&s=' + encodeURIComponent(tarihSaatTitle) + '&sort=-id&fields=id,title,sortOrder',
           { headers: headers(), timeout: 15000 }
         );
-        var singleBody = singleRes.data;
-        var singleItems = Array.isArray(singleBody) ? singleBody : (Array.isArray(singleBody.data) ? singleBody.data : []);
-        // Cache'e toplu ekle
-        singleItems.forEach(function(o) {
-          if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) {
-            cachedAllOptions.push(o);
-          }
+        var searchBody = searchRes.data;
+        var searchItems = Array.isArray(searchBody) ? searchBody : (Array.isArray(searchBody.data) ? searchBody.data : []);
+        searchItems.forEach(function(o) {
+          if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) cachedAllOptions.push(o);
         });
-        cachedAllOptionsTime = Date.now();
-        var foundOpt = singleItems.find(function(o) {
+        var foundOpt = searchItems.find(function(o) {
           return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
         });
-        if (foundOpt) {
-          newOptionId = foundOpt.id;
-          console.log('✓ GET ile option bulundu, ID:', newOptionId, '→', tarihSaatTitle);
-        } else {
-          throw new Error('Option bulunamadı (Tekrarlanan ama GET de bulamadı): ' + tarihSaatTitle);
-        }
+        if (!foundOpt) throw new Error('Option Tekrarlanan ama &s= ile de bulunamadı: ' + tarihSaatTitle);
+        newOptionId = foundOpt.id;
+        console.log('✓ Tekrarlanan → &s= ile bulundu, ID:', newOptionId, '→', tarihSaatTitle);
       } else {
         throw optErr;
       }
@@ -1712,16 +1731,14 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     }
 
     try {
-      // C1) Option ID — mevcut listede ara, yoksa POST
-      var existingOpt = cachedOptions.find(function(o) {
-        return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
-      });
+      // C1) Option ID — searchOptionByTitle ile: cache → &s= API (liste büyüklüğünden bağımsız)
       var newOptionId;
+      var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs());
       if (existingOpt) {
         newOptionId = existingOpt.id;
-        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Mevcut option:', newOptionId, tarihSaatTitle);
+        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Option bulundu (search/cache):', newOptionId, tarihSaatTitle);
       } else {
-        // POST options — 429 gelirse exponential backoff, 400 "Tekrarlanan" gelirse listeyi yenile
+        // Option yok — POST ile oluştur
         var optRes;
         var optRetries = 0;
         while (true) {
@@ -1732,20 +1749,14 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
                 title: tarihSaatTitle,
                 sortOrder: 9999,
                 size: '16',
-                optionGroup: {
-                  id: 9,
-                  title: 'Tarih & Saat',
-                  options: cachedOptions.map(function(o) {
-                    return { id: o.id, title: o.title, sortOrder: o.sortOrder || 9999, optionGroup: { id: 9, title: 'Tarih & Saat' } };
-                  })
-                }
+                optionGroup: { id: 9, title: 'Tarih & Saat', options: [] }
               },
               { headers: hdrs(), timeout: 15000 }
             );
             break; // başarılı
           } catch(optErr) {
             var optStatus = optErr.response && optErr.response.status;
-            // 429: rate limit — exponential backoff (6s, 12s, 24s)
+            // 429: rate limit — bekle ve tekrar dene
             if (optStatus === 429 && optRetries < 3) {
               var waitMs = 4000 * Math.pow(2, optRetries);
               console.warn('Bulk [' + (si+1) + '] options POST 429 — ' + (waitMs/1000) + 's bekleniyor (deneme ' + (optRetries+1) + '/3)');
@@ -1753,34 +1764,33 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
               optRetries++;
               continue;
             }
-            // 400 "Tekrarlanan giriş": option zaten var ama cache'de yok — listeyi tazele
-            if (optStatus === 400) {
-              var errBody = optErr.response && optErr.response.data;
-              var errMsg = errBody && (errBody.errorMessage || JSON.stringify(errBody));
-              if (errMsg && errMsg.includes('Tekrarlanan')) {
-                console.warn('Bulk [' + (si+1) + '] Tekrarlanan giris — tek sayfa GET ile ID araniyor:', tarihSaatTitle);
-                await new Promise(r => setTimeout(r, 800));
-                try {
-                  // Tüm listeyi çekmek yerine sadece 1 sayfa GET — genellikle yeterli
-                  var singleRes = await axios.get(
-                    'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9',
-                    { headers: hdrs(), timeout: 15000 }
-                  );
-                  var singleBody = singleRes.data;
-                  var singleItems = Array.isArray(singleBody) ? singleBody : (Array.isArray(singleBody.data) ? singleBody.data : []);
-                  var foundOpt = singleItems.find(function(o) {
-                    return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
-                  });
-                  if (foundOpt) {
-                    newOptionId = foundOpt.id;
-                    optRes = null;
-                    console.log('Bulk [' + (si+1) + '] Tekrarlanan -> mevcut ID bulundu:', newOptionId);
-                    break;
-                  }
-                } catch(re) { console.warn('Bulk options single-GET hatasi:', re.message); }
+            // 400 "Tekrarlanan": aynı title zaten var — &s= ile bul
+            var errBody = optErr.response && optErr.response.data;
+            var errMsg = errBody && (errBody.errorMessage || JSON.stringify(errBody));
+            if (optStatus === 400 && errMsg && errMsg.includes('Tekrarlanan')) {
+              console.warn('Bulk [' + (si+1) + '] Tekrarlanan — &s= ile aranıyor:', tarihSaatTitle);
+              await new Promise(r => setTimeout(r, 500));
+              var searchRes = await axios.get(
+                'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9&s=' + encodeURIComponent(tarihSaatTitle) + '&sort=-id&fields=id,title,sortOrder',
+                { headers: hdrs(), timeout: 15000 }
+              );
+              var searchBody = searchRes.data;
+              var searchItems = Array.isArray(searchBody) ? searchBody : (Array.isArray(searchBody.data) ? searchBody.data : []);
+              searchItems.forEach(function(o) {
+                if (o.id && !cachedAllOptions.find(function(c) { return c.id === o.id; })) cachedAllOptions.push(o);
+              });
+              var foundOpt = searchItems.find(function(o) {
+                return o.title && o.title.trim().toLowerCase() === tarihSaatTitle.trim().toLowerCase();
+              });
+              if (foundOpt) {
+                newOptionId = foundOpt.id;
+                optRes = null;
+                console.log('Bulk [' + (si+1) + '] Tekrarlanan → &s= ile bulundu:', newOptionId);
+                break;
               }
+              throw new Error('Option Tekrarlanan ama &s= ile de bulunamadı: ' + tarihSaatTitle);
             }
-            throw optErr; // beklenmeyen hata — catch(e)'ye düş
+            throw optErr;
           }
         }
         if (optRes !== null) {
@@ -1789,7 +1799,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
           if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
           newOptionId = optRes.data && optRes.data.id;
           if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
-          cachedOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
+          cachedAllOptions.push({ id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 });
           console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
         }
       }
