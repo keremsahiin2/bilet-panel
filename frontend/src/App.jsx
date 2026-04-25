@@ -91,7 +91,7 @@ const EVENT_IDEASOFT_META = {
   // Burada sadece parentId, fiyat ve stok bilgileri tutulur
   'Heykel':      { parentId:4247, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Resim':       { parentId:4241, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  '3D Figür':    { parentId:4234, price:650, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  '3D Figür':    { parentId:4234, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Plak Boyama': { parentId:4249, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Maske':       { parentId:4245, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Bez Çanta':   { parentId:4243, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
@@ -1722,49 +1722,58 @@ export default function App() {
       catGroups[item.cat].push(item);
     });
 
+    // Paylaşılan sayaçlar — tüm kategoriler paralel çalışacağı için
+    // ref yerine closure üzerinden atomic-benzeri güncelleme yapıyoruz
     let totalDone = 0;
     let totalErrors = 0;
     const allErrorList = [];
 
-    for (const [cat, items] of Object.entries(catGroups)) {
-      const jobId = 'job_' + Date.now() + '_' + cat.replace(/\s/g, '_');
-      const seances = items.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
+    // Her kategoriyi aynı anda başlat, tamamlandıkça progress güncelle
+    await Promise.all(
+      Object.entries(catGroups).map(async ([cat, items]) => {
+        const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2,7) + '_' + cat.replace(/\s/g, '_');
+        const seances = items.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
 
-      const pollInterval = setInterval(async () => {
+        const pollInterval = setInterval(async () => {
+          try {
+            const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
+            if (pr.found) {
+              setSeansYazProgress(prev => ({
+                done: (prev?.done ?? 0) + (pr.done > 0 ? 1 : 0),
+                total: seansYazList.length,
+                errors: prev?.errors ?? 0,
+              }));
+              setSeansYazCurrentName(pr.current || '');
+            }
+          } catch {}
+        }, 800);
+
         try {
-          const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
-          if (pr.found) {
-            setSeansYazProgress({ done: totalDone + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors });
-            setSeansYazCurrentName(pr.current || '');
+          const res = await fetch('/api/ideasoft/create-seances-bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seances, jobId })
+          });
+          const json = await res.json();
+          clearInterval(pollInterval);
+          if (json.error) {
+            totalErrors += seances.length;
+            allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
+          } else {
+            totalDone += json.total || seances.length;
+            totalErrors += json.errors || 0;
+            (json.results || []).filter(r => !r.success).forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
           }
-        } catch {}
-      }, 1000);
-
-      try {
-        const res = await fetch('/api/ideasoft/create-seances-bulk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seances, jobId })
-        });
-        const json = await res.json();
-        clearInterval(pollInterval);
-        if (json.error) {
+          setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
+          setSeansYazCurrentName('');
+        } catch(e) {
+          clearInterval(pollInterval);
           totalErrors += seances.length;
-          allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
-        } else {
-          totalDone += json.total || seances.length;
-          totalErrors += json.errors || 0;
-          (json.results || []).filter(r => !r.success).forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
+          allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
+          setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
         }
-        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
-        setSeansYazCurrentName('');
-      } catch(e) {
-        clearInterval(pollInterval);
-        totalErrors += seances.length;
-        allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
-        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
-      }
-    }
+      })
+    );
 
     setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
     setSeansYazErrors(allErrorList);
