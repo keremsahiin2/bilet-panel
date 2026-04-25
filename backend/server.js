@@ -1329,7 +1329,7 @@ async function createOneSeance(payload) {
         console.warn('Option zaten var (Tekrarlanan), tek sayfa GET ile aranıyor:', tarihSaatTitle);
         await new Promise(function(r) { setTimeout(r, 500); });
         var singleRes = await axios.get(
-          'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=500&optionGroup=9',
+          'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9',
           { headers: headers(), timeout: 15000 }
         );
         var singleBody = singleRes.data;
@@ -1763,7 +1763,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
                 try {
                   // Tüm listeyi çekmek yerine sadece 1 sayfa GET — genellikle yeterli
                   var singleRes = await axios.get(
-                    'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=500&optionGroup=9',
+                    'https://berkayalabalik.myideasoft.com/admin-app/options?page=1&limit=100&optionGroup=9',
                     { headers: hdrs(), timeout: 15000 }
                   );
                   var singleBody = singleRes.data;
