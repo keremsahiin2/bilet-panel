@@ -1781,42 +1781,52 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   }
 
   // ── B) cachedOptions — global cachedAllOptions kullan (createOneSeance ile paylaşımlı)
-  // fetchAllOptions çağrılmaz — POST-first + 400 gelince tek sayfa GET stratejisi.
-  // Global cache sayesinde aynı session içindeki tekrar eden option aramaları anında bulunur.
-  var cachedOptions = cachedAllOptions; // global'e referans — push'lar global'i günceller
+  var cachedOptions = cachedAllOptions;
 
-  // ── C) Her seans için sırayla işle ───────────────────────────────────────
+  // ── B2) Yazmaya başlamadan önce duplicate'leri tespit et — kullanıcıya anında göster
   var results = [];
-  var consecutiveErrors = 0; // art arda 429 sayisi — adaptif bekleme
-  for (var si = 0; si < payloads.length; si++) {
-    var payload = payloads[si];
+  var toWrite = []; // gerçekten yazılacak seanslar
+  for (var pi = 0; pi < payloads.length; pi++) {
+    var pName = payloads[pi].name;
+    if (existingSeanceNames.has(pName.trim().toLowerCase())) {
+      var pTitle = pName.replace(/^[^-]*- /, '').trim();
+      console.log('Bulk pre-check: ATLANACAK (zaten mevcut):', pName);
+      results.push({ success: false, skipped: true, name: pName, error: 'Seans zaten mevcut, atlandı' });
+      if (jobId && bulkProgressMap[jobId]) {
+        bulkProgressMap[jobId].done++;
+        bulkProgressMap[jobId].results.push({ success: false, skipped: true, name: pTitle, error: 'Zaten mevcut' });
+      }
+    } else {
+      toWrite.push(payloads[pi]);
+    }
+  }
+  var skippedCount = payloads.length - toWrite.length;
+  if (skippedCount > 0) {
+    console.log('Bulk pre-check: ' + skippedCount + ' seans zaten mevcut, atlandı. Yazılacak: ' + toWrite.length);
+    if (jobId && bulkProgressMap[jobId]) {
+      // total'ı güncelle: sadece yazılacaklar + zaten atlananlar
+      bulkProgressMap[jobId].skipped = skippedCount;
+    }
+  }
+
+  // ── C) Sadece yeni seansları yaz ─────────────────────────────────────────
+  var consecutiveErrors = 0;
+  for (var si = 0; si < toWrite.length; si++) {
+    var payload = toWrite[si];
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
     var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
     var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
-    // Seanslar arası bekleme — art arda hata varsa adaptif olarak uzar (Cloudflare 429 önlemi)
+    // Seanslar arası bekleme
     if (si > 0) {
       var interWaitMs = consecutiveErrors > 0 ? Math.min(3000 + consecutiveErrors * 1000, 8000) : 900;
       await new Promise(r => setTimeout(r, interWaitMs));
     }
 
-    // Progress: bu seans ekleniyor
     if (jobId && bulkProgressMap[jobId]) {
       bulkProgressMap[jobId].current = tarihSaatTitle;
-    }
-
-    // ── Duplicate kontrolü — bu seans zaten İdeasoft'ta var mı? ─────────────
-    console.log('Bulk duplicate check [' + (si+1) + ']: aranan="' + payload.name.trim().toLowerCase() + '" | existingSeanceNames.size=' + existingSeanceNames.size + ' | has=' + existingSeanceNames.has(payload.name.trim().toLowerCase()));
-    if (existingSeanceNames.has(payload.name.trim().toLowerCase())) {
-      console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ATLANDI (zaten mevcut):', payload.name);
-      results.push({ success: false, skipped: true, name: payload.name, error: 'Seans zaten mevcut, atlandı' });
-      if (jobId && bulkProgressMap[jobId]) {
-        bulkProgressMap[jobId].done++;
-        bulkProgressMap[jobId].results.push({ success: false, skipped: true, name: tarihSaatTitle, error: 'Zaten mevcut' });
-      }
-      continue;
     }
 
     try {
@@ -1825,7 +1835,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
       var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs());
       if (existingOpt) {
         newOptionId = existingOpt.id;
-        console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Option bulundu (search/cache):', newOptionId, tarihSaatTitle);
+        console.log('Bulk [' + (si+1) + '/' + toWrite.length + '] Option bulundu (search/cache):', newOptionId, tarihSaatTitle);
       } else {
         // Option yok — POST ile oluştur
         var optRes;
@@ -1894,7 +1904,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
           var _newOptB = { id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 };
           cachedAllOptions.push(_newOptB);
           cachedAllOptionsMap.set(tarihSaatTitle.trim().toLowerCase(), _newOptB);
-          console.log('Bulk [' + (si+1) + '/' + payloads.length + '] Yeni option:', newOptionId, tarihSaatTitle);
+          console.log('Bulk [' + (si+1) + '/' + toWrite.length + '] Yeni option:', newOptionId, tarihSaatTitle);
         }
       }
 
@@ -1998,7 +2008,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         throw new Error('Batch içinde hata: ' + batchStr.slice(0, 300));
       }
 
-      console.log('Bulk [' + (si+1) + '/' + payloads.length + '] ✓ batch OK, status:', batchRes.status);
+      console.log('Bulk [' + (si+1) + '/' + toWrite.length + '] ✓ batch OK, status:', batchRes.status);
       consecutiveErrors = 0; // başarı — adaptif beklemeyi sıfırla
       results.push({ success: true, name: payload.name, optionId: newOptionId });
       // Başarıyla yazıldı — aynı job içinde tekrar yazılmasın
@@ -2010,7 +2020,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
     } catch(e) {
       var errStatus = e.response && e.response.status;
-      console.error('Bulk [' + (si+1) + '/' + payloads.length + '] HATA:', e.message,
+      console.error('Bulk [' + (si+1) + '/' + toWrite.length + '] HATA:', e.message,
         errStatus, e.response && JSON.stringify(e.response.data).slice(0,200));
       // 429 alınca consecutiveErrors artar — bir sonraki seans daha uzun bekler
       if (errStatus === 429) {
@@ -2068,7 +2078,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     console.log('Bulk: hata oldugu icin parentDataCache[' + parentId + '] temizlendi — retry guvenli');
   }
 
-  res.json({ total: payloads.length, success: successCount, errors: errorCount, results });
+  res.json({ total: payloads.length, written: toWrite.length, skipped: skippedCount, success: successCount, errors: errorCount, results });
 });
 
 // Progress sorgulama — frontend polling ile takip eder
