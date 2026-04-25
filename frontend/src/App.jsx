@@ -91,7 +91,7 @@ const EVENT_IDEASOFT_META = {
   // Burada sadece parentId, fiyat ve stok bilgileri tutulur
   'Heykel':      { parentId:4247, price:450, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Resim':       { parentId:4241, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
-  '3D Figür':    { parentId:4234, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  '3D Figür':    { parentId:4234, price:650, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Plak Boyama': { parentId:4249, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Maske':       { parentId:4245, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Bez Çanta':   { parentId:4243, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
@@ -1319,6 +1319,7 @@ export default function App() {
   const [seansYazList, setSeansYazList]         = useState([]);      // oluşturulacak seanslar
   const [seansYazProgress, setSeansYazProgress] = useState(null);    // { done, total, errors }
   const [seansYazDone, setSeansYazDone]         = useState(false);
+  const [seansYazSkipped, setSeansYazSkipped]   = useState(0);       // zaten İdeasoft'ta olan, atlanan seans sayısı
 
   // Tek bir seans sil — 429 gelirse kısa bekle ve tekrar dene
   const deleteOneSeance = async (seanceId) => {
@@ -1494,7 +1495,19 @@ export default function App() {
     );
     // Tarihe göre sırala
     allItems.sort((a,b) => a.date - b.date);
-    setSeansYazList(allItems);
+
+    // ── Duplicate koruması: İdeasoft'ta zaten var olan seansları filtrele ──
+    const existingNames = new Set(
+      (salesData?.ideasoft || []).map(s => s.fullName?.trim()).filter(Boolean)
+    );
+    const filtered = allItems.filter(item => {
+      const payload = buildIdeasoftPayload(item.cat, item.dateKey, item.slot);
+      if (!payload) return false;
+      return !existingNames.has(payload.name.trim());
+    });
+
+    setSeansYazSkipped(allItems.length - filtered.length);
+    setSeansYazList(filtered);
     setSeansYazStep(3);
   };
 
@@ -2197,15 +2210,21 @@ export default function App() {
             <div>
               {!seansYazProgress && !seansYazDone && (
                 <>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:seansYazSkipped>0?6:14,flexWrap:'wrap',gap:8}}>
                     <div style={{fontSize:13,color:'#e2e8f0',fontWeight:700}}>
-                      <span style={{color:'#4fc9ff'}}>{seansYazList.length} seans</span>
+                      <span style={{color:'#4fc9ff'}}>{seansYazList.length} yeni seans</span>
                       {' '}— {seansYazCats.length===0?'Tüm etkinlikler':seansYazCats.join(', ')}
                     </div>
                     <span style={{fontSize:11,color:'#374151'}}>{seansYazStart} → {seansYazEnd}</span>
                   </div>
+                  {seansYazSkipped > 0 && (
+                    <div style={{fontSize:12,color:'#f59e0b',marginBottom:14,padding:'7px 12px',
+                      background:'#1a1400',border:'1px solid #f59e0b44',borderRadius:8}}>
+                      ⚠️ {seansYazSkipped} seans zaten İdeasoft'ta mevcut — atlandı
+                    </div>
+                  )}
                   {seansYazList.length === 0 ? (
-                    <div style={S.empty}>Bu tarih aralığında seans bulunamadı.</div>
+                    <div style={S.empty}>Bu tarih aralığında yazılacak yeni seans bulunamadı.</div>
                   ) : (
                     <>
                       <div style={{background:'#0d1120',border:'1px solid #1a2035',borderRadius:12,overflow:'hidden',marginBottom:16,maxHeight:380,overflowY:'auto'}}>
@@ -2222,7 +2241,7 @@ export default function App() {
                         onClick={handleSeansYazCreate}
                         style={{width:'100%',padding:'15px',borderRadius:12,fontSize:15,fontWeight:700,border:'none',
                           cursor:'pointer',background:'linear-gradient(135deg,#22c55e,#16a34a)',color:'#fff'}}>
-                        ✅ {seansYazList.length} Seansı İdeasoft'a Yaz
+                        ✅ {seansYazList.length} Yeni Seansı İdeasoft'a Yaz
                       </button>
                     </>
                   )}
