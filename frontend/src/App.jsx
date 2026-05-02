@@ -72,16 +72,16 @@ function bubiletToCategory(name) {
 // ─── Seans Takvimi ─────────────────────────────────────────────────────────
 // 0=Pazar,1=Pzt,2=Salı,3=Çar,4=Per,5=Cuma,6=Cmt
 const EVENT_SCHEDULE = {
-  'Heykel':       { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Resim':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  '3D Figür':     { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Plak Boyama':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Maske':        { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Bez Çanta':    { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
-  'Cupcake Mum':  { weekday:[5], slots:['17:30 - 19:30'], weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
-  'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
-  'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
-  'Mekanda Seç':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Heykel':       { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  'Resim':        { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  '3D Figür':     { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  'Plak Boyama':  { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  'Maske':        { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  'Bez Çanta':    { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
+  'Cupcake Mum':  { weekday:[5], slots:['17:30 - 19:30'], weekend:[0,6], weekendSlots:['14:30','17:00'] },
+  'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30','17:00'] },
+  'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00','18:30'] },
+  'Mekanda Seç':  { weekday:[1,2,3,4,5], slots:['16:00','19:00'], weekend:[0,6], weekendSlots:['12:00','14:00','16:30','19:00'] },
 };
 
 // Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
