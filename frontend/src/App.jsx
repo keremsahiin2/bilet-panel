@@ -390,13 +390,13 @@ function buildSeanceMap(data) {
       const startMatch = s.timeSlot.match(/^(\d{2}):(\d{2})/);
       let hideAfter;
       if (startMatch) {
-        // Başlangıç saati + 30dk
+        // Başlangıç saati + 60dk
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
           parseInt(startMatch[1]),
-          parseInt(startMatch[2]) + 30,
+          parseInt(startMatch[2]) + 60,
           0
         );
       } else {
