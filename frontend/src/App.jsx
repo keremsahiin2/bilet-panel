@@ -10,13 +10,16 @@ const TR_DAYS   = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','
 // "Tunalı: Ara Sokak Pub - 5 Nisan Pazar 19:30 - Genel Kültür"
 // → { dateKey: "4 Nisan Cumartesi", timeSlot: "12:00 - 14:00" } veya { dateKey: "5 Nisan Pazar", timeSlot: "19:30" }
 function parseIdeasoftName(fullName) {
-  // \S+ yerine [^\d]+ kullanıyoruz — Türkçe karakterleri de kapsar
+  function normalizeDateKey(dateKey) {
+    // "06 Nisan Çarşamba" → "6 Nisan Çarşamba"
+    return dateKey.replace(/^0*(\d+)/, (_, n) => String(parseInt(n)));
+  }
   const m1 = fullName.match(/- (\d+ [\S]+ [\S]+) (\d{2}:\d{2} - \d{2}:\d{2})/u);
-  if (m1) return { dateKey: m1[1], timeSlot: m1[2] };
+  if (m1) return { dateKey: normalizeDateKey(m1[1]), timeSlot: m1[2] };
   const m2 = fullName.match(/- (\d+ [\S]+ [\S]+) (\d{2}:\d{2}) - /u);
-  if (m2) return { dateKey: m2[1], timeSlot: m2[2] };
+  if (m2) return { dateKey: normalizeDateKey(m2[1]), timeSlot: m2[2] };
   const m3 = fullName.match(/- (\d+ [\S]+ [\S]+) (\d{2}:\d{2})$/u);
-  if (m3) return { dateKey: m3[1], timeSlot: m3[2] };
+  if (m3) return { dateKey: normalizeDateKey(m3[1]), timeSlot: m3[2] };
   return null;
 }
 
@@ -116,7 +119,8 @@ function generateSeansListForCat(cat, startDateStr, endDateStr) {
     const day = cur.getDate();
     const monthName = TR_MONTHS[cur.getMonth()];
     const dayName   = TR_DAYS[dow];
-    const dateKey   = `${day} ${monthName} ${dayName}`;
+    const paddedDay = String(day).padStart(2, '0');
+    const dateKey = `${paddedDay} ${monthName} ${dayName}`;
 
     let slots = [];
     if (sched.weekend.includes(dow)) {
@@ -138,7 +142,11 @@ function buildIdeasoftPayload(cat, dateKey, slot) {
   const meta = EVENT_IDEASOFT_META[cat];
   if (!meta) return null;
   // Seans adı: "Farabi Sokak: Sosyal Sanathane - 12 Nisan Pazar 19:00 - 21:00"
-  const seansName = `${meta.mekan} - ${dateKey} ${slot}`;
+  function padDateKey(dateKey) {
+  // "3 Haziran Çarşamba" → "03 Haziran Çarşamba"
+  return dateKey.replace(/^(\d+)/, (_, n) => String(parseInt(n)).padStart(2, '0'));
+ }
+  const seansName = `${meta.mekan} - ${padDateKey(dateKey)} ${slot}`;
   return {
     id: null,
     name: seansName,
@@ -380,7 +388,7 @@ function buildSeanceMap(data) {
   });
 
   // Filtreleme kuralı:
-  // - Başlangıç saatinden 30 dakika sonra kaybolur.
+  // - Başlangıç saatinden 60 dakika sonra kaybolur.
   // - Başlangıç saati yoksa o günün 21:00'ında kaybolur.
   const _now = new Date();
 
@@ -390,13 +398,13 @@ function buildSeanceMap(data) {
       const startMatch = s.timeSlot.match(/^(\d{2}):(\d{2})/);
       let hideAfter;
       if (startMatch) {
-        // Başlangıç saati + 30dk
+        // Başlangıç saati + 60dk
         hideAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
           parseInt(startMatch[1]),
-          parseInt(startMatch[2]) + 30,
+          parseInt(startMatch[2]) + 60,
           0
         );
       } else {
