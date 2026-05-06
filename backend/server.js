@@ -2471,7 +2471,14 @@ app.post('/api/quiz', async function(req, res) {
     var rec = await getJsonbinRecord();
     var existing = rec.quizData;
 
-    if (existing && existing.eventType === quizData.eventType) {
+    // Aynı oturum (sessionId eşleşiyor) ise merge yap; farklı oturum veya yeni etkinlik ise direkt yaz
+    var sameSession = existing
+      && existing.eventType === quizData.eventType
+      && existing.sessionId
+      && quizData.sessionId
+      && existing.sessionId === quizData.sessionId;
+
+    if (sameSession) {
       // Mevcut scores ile gelen scores merge: her iki puantörün skorları korunur
       var mergedScores = Object.assign({}, existing.scores || {});
       Object.keys(quizData.scores || {}).forEach(function(groupNo) {
@@ -2487,6 +2494,7 @@ app.post('/api/quiz', async function(req, res) {
       }
       rec.quizData = Object.assign({}, existing, quizData, { scores: mergedScores, groups: mergedGroups });
     } else {
+      // Yeni oturum — eski veriyi tamamen sil, yenisini yaz
       rec.quizData = quizData;
     }
 
@@ -2501,16 +2509,15 @@ app.post('/api/quiz', async function(req, res) {
 });
 
 // Quiz Night verilerini sil
-app.delete('/api/quiz', function(req, res) {
-  // UI hemen yanit bekliyor — once yanit ver, sonra arka planda kaydet
+app.delete('/api/quiz', async function(req, res) {
   if (jsonbinCache) {
     jsonbinCache.quizData = null;
     jsonbinCacheDirty = true;
   }
   quizSlotLocks = {};
+  // JSONBin'e yazılmasını bekle — yanıt vermeden önce veri temizlensin
+  try { await flushJsonbinCache(); } catch(e) { console.error('Quiz delete flush hatasi:', e.message); }
   res.json({ success: true });
-  // Arka planda JSONBin'e yaz (yanit beklenmez)
-  flushJsonbinCache().catch(function(e) { console.error('Quiz delete flush hatasi:', e.message); });
 });
 
 // Quiz Night — DOCX/TXT cevap dosyası parse et (sunucu tarafında mammoth kullanır)

@@ -633,6 +633,7 @@ export default function App() {
   const [quizClientId]                          = useState(() => 'client_' + Math.random().toString(36).slice(2));
   const [quizGroupCount, setQuizGroupCount]     = useState(''); // kaç grup olacak (string input)
   const [quizGroupCountSet, setQuizGroupCountSet] = useState(false); // grup sayısı belirlendi mi
+  const [quizSessionId, setQuizSessionId]       = useState(() => 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2));
   // Polling interval ref
   const quizPollRef = useRef(null);
   const [quizLiveScores, setQuizLiveScores]     = useState({});
@@ -652,11 +653,12 @@ export default function App() {
     }
   };
 
-  const getQuizPoint = (eventType, qNo) => {
-    const ev = QUIZ_EVENTS[eventType];
-    if (!ev) return 0;
-    if (ev.pointPerQ) return ev.pointPerQ;
-    return ev.getPoints(qNo);
+  // Dinamik puanlama:
+  // Soru sayısı > 45 ise her soru 10 puan (sabit)
+  // Soru sayısı <= 45 ise her 10 soruda değer 10 artar (1-10→10pt, 11-20→20pt, 21-30→30pt, 31-40→40pt, 41-45→50pt)
+  const getQuizPoint = (totalQuestions, qNo) => {
+    if (totalQuestions > 45) return 10;
+    return Math.ceil(qNo / 10) * 10;
   };
 
   const calcGroupScore = (groupNo, eventType, scores, overrideTotalQ) => {
@@ -666,7 +668,7 @@ export default function App() {
     let total = 0;
     const qCount = overrideTotalQ || ev.totalQ;
     for (let q = 1; q <= qCount; q++) {
-      if (gs[q]) total += getQuizPoint(eventType, q);
+      if (gs[q]) total += getQuizPoint(qCount, q);
     }
     return total;
   };
@@ -707,6 +709,7 @@ export default function App() {
           setQuizGroups(d.quizData.groups || []);
           setQuizScores(d.quizData.scores || {});
           quizScoresRef.current = d.quizData.scores || {};
+          if (d.quizData.sessionId) setQuizSessionId(d.quizData.sessionId);
           // Kaldığı sorudan devam et
           if (d.quizData.currentQ) setQuizCurrentQ(d.quizData.currentQ);
           // Grup sayısı ayarlandıysa — grup ekranına al
@@ -756,7 +759,19 @@ export default function App() {
       fetch('/api/quiz')
         .then(r => r.json())
         .then(d => {
-          if (!d.quizData) return;
+          if (!d.quizData) {
+            // Etkinlik sunucuda silindi — local state'i de temizle
+            setQuizGroups([]);
+            setQuizGroupCountSet(false);
+            setQuizGroupCount('');
+            setQuizAnswers({});
+            setQuizAnswerFile(null);
+            setQuizQuestions({});
+            setQuizQFile(null);
+            setQuizScores({});
+            quizScoresRef.current = {};
+            return;
+          }
           const srv = d.quizData;
           // Grupları güncelle — ama kullanıcı input'a yazıyorsa grup isimlerini ezme
           if (srv.groups) {
@@ -811,6 +826,7 @@ export default function App() {
     // Local ref'i hemen güncelle — polling bu değeri görene kadar ezmesin
     quizLocalGroupsRef.current = groups;
     const data = {
+      sessionId: quizSessionId,
       eventType: quizEventType,
       groups,
       scores: quizScoresRef.current,
@@ -840,6 +856,7 @@ export default function App() {
       // Local state'i doğrudan kullan — sunucudan GET yapmaya gerek yok
       // questions/answers local'da varsa kullan, yoksa newData'dan al
       const merged = {
+        sessionId: quizSessionId,
         ...newData,
         questions: Object.keys(quizQuestions).length > 0
           ? quizQuestions
@@ -901,7 +918,7 @@ export default function App() {
       // Cevapları sunucudaki quizData'ya da kaydet — diğer kullanıcılar da görsün
       const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
       const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
-      const updated = {...base, answers: json.answers, answersFile: file.name};
+      const updated = {...base, sessionId: quizSessionId, answers: json.answers, answersFile: file.name};
       await fetch('/api/quiz', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({quizData: updated})
@@ -943,7 +960,7 @@ export default function App() {
         setQuizAnswerFile(file.name + ' (' + answersCount + ' cevap)');
         const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
         const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
-        const updated = {...base, answers: answersFromQuestions, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
+        const updated = {...base, sessionId: quizSessionId, answers: answersFromQuestions, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
         await fetch('/api/quiz', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({quizData: updated})
@@ -963,7 +980,7 @@ export default function App() {
         }
         const current = await fetch('/api/quiz').then(r=>r.json()).catch(()=>({quizData:null}));
         const base = current.quizData || { eventType: quizEventType, groups: quizGroups, scores: quizScores, myGroups: quizMyGroups };
-        const updated = {...base, answers, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
+        const updated = {...base, sessionId: quizSessionId, answers, answersFile: file.name, questions: qJson.questions, questionsFile: file.name};
         await fetch('/api/quiz', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({quizData: updated})
@@ -1014,7 +1031,12 @@ export default function App() {
     setQuizAnswerFile(null);
     setQuizQuestions({});
     setQuizQFile(null);
+    setQuizLiveScores({});
+    setQuizLiveGroups([]);
+    quizScoresRef.current = {};
     quizUserWentBackRef.current = false;
+    // Yeni oturum ID'si — sunucu bir sonraki POST'ta eski veriyle merge etmesin
+    setQuizSessionId('sess_' + Date.now() + '_' + Math.random().toString(36).slice(2));
     // Sunucuya arka planda gönder
     fetch('/api/quiz', { method: 'DELETE' }).catch(() => {});
   };
@@ -3803,7 +3825,7 @@ export default function App() {
     // Puanlama ekranı
     if (quizStep === 'scoring') {
       const myGroupObjs = quizGroups.filter(g => quizMyGroups.includes(g.no));
-      const qPoint = getQuizPoint(quizEventType, quizCurrentQ);
+      const qPoint = getQuizPoint(totalQ, quizCurrentQ);
 
       const toggleAnswer = async (groupNo) => {
         // State'i önce güncelle (hızlı UI feedback)
@@ -3872,9 +3894,17 @@ export default function App() {
               <span style={{fontSize:11,color:'#475569'}}>{ev?.label}</span>
               <span style={{fontSize:11,color:'#475569'}}>{quizCurrentQ} / {totalQ}</span>
             </div>
-            <div style={{background:'#1a2035',borderRadius:6,height:6,marginBottom:16,overflow:'hidden'}}>
+            <div style={{background:'#1a2035',borderRadius:6,height:6,marginBottom:10,overflow:'hidden'}}>
               <div style={{height:'100%',background:'linear-gradient(90deg,#fbbf24,#f59e0b)',
                 width:progressPct+'%',borderRadius:6,transition:'width 0.3s'}}/>
+            </div>
+            <div style={{background: totalQ > 45 ? '#071a07' : '#0a0e1a', border:'1px solid '+(totalQ > 45 ? '#22c55e33' : '#b47cff33'), borderRadius:8, padding:'5px 12px', marginBottom:14}}>
+              <span style={{fontSize:10, color: totalQ > 45 ? '#4ade80' : '#b47cff', fontWeight:700}}>
+                {totalQ > 45
+                  ? `📊 ${totalQ} soru · Sabit: Her soru 10 puan`
+                  : `📊 ${totalQ} soru · Kademeli: ${Array.from({length:Math.ceil(totalQ/10)},(_,i)=>`${i*10+1}-${Math.min((i+1)*10,totalQ)}→${(i+1)*10}p`).join(' / ')}`
+                }
+              </span>
             </div>
 
             {/* Soru kartı */}
