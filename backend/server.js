@@ -2450,17 +2450,72 @@ app.post('/api/whatsapp-phone', function(req, res) {
 
 // ─── Quiz Night API ────────────────────────────────────────────────────────────
 
-// In-memory slot locks: { groupNo: clientId }
+// In-memory slot locks: { groupNo: { clientId, timestamp } }
 var quizSlotLocks = {};
+var LOCK_TTL_MS = 30000; // 30 saniye heartbeat gelmezse kilit düşer
+
+function cleanExpiredLocks() {
+  var now = Date.now();
+  Object.keys(quizSlotLocks).forEach(function(gno) {
+    if (quizSlotLocks[gno] && (now - quizSlotLocks[gno].timestamp) > LOCK_TTL_MS) {
+      delete quizSlotLocks[gno];
+    }
+  });
+}
 
 // Quiz Night verilerini getir
 app.get('/api/quiz', async function(req, res) {
+  cleanExpiredLocks();
   try {
     var rec = await getJsonbinRecord();
     res.json({ quizData: rec.quizData || null, slotLocks: quizSlotLocks });
   } catch(e) {
     res.json({ quizData: null, slotLocks: {} });
   }
+});
+
+// Grup kilidi al
+app.post('/api/quiz/lock', function(req, res) {
+  cleanExpiredLocks();
+  var groupNo = String(req.body.groupNo);
+  var clientId = req.body.clientId;
+  if (!groupNo || !clientId) return res.status(400).json({ error: 'groupNo ve clientId gerekli' });
+  var existing = quizSlotLocks[groupNo];
+  if (existing && existing.clientId !== clientId) {
+    return res.json({ success: false, reason: 'locked' });
+  }
+  quizSlotLocks[groupNo] = { clientId: clientId, timestamp: Date.now() };
+  res.json({ success: true });
+});
+
+// Grup kilidini bırak
+app.post('/api/quiz/unlock', function(req, res) {
+  var groupNo = String(req.body.groupNo);
+  var clientId = req.body.clientId;
+  if (quizSlotLocks[groupNo] && quizSlotLocks[groupNo].clientId === clientId) {
+    delete quizSlotLocks[groupNo];
+  }
+  res.json({ success: true });
+});
+
+// Heartbeat — kilitleri canlı tut; süresi dolmuş kilitleri yeniden al
+app.post('/api/quiz/heartbeat', function(req, res) {
+  cleanExpiredLocks();
+  var clientId = req.body.clientId;
+  var groups = req.body.groups || [];
+  var failed = []; // bu arada başkası almış gruplar
+  groups.forEach(function(gno) {
+    gno = String(gno);
+    var existing = quizSlotLocks[gno];
+    if (!existing || existing.clientId === clientId) {
+      // Serbest ya da zaten bizim — yenile veya yeniden al
+      quizSlotLocks[gno] = { clientId: clientId, timestamp: Date.now() };
+    } else {
+      // Başkası almış
+      failed.push(gno);
+    }
+  });
+  res.json({ success: true, failed: failed });
 });
 
 // Quiz Night puanlarını kaydet — sunucudaki scores ile merge et (çoklu puantör desteği)
