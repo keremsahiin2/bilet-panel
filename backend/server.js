@@ -2629,7 +2629,7 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
     // Parse: "1- soru metni" + "Cevap: cevap" formatı
     // Bölüm başlıkları: soru/cevap olmayan kısa satırlar
     // Şık satırları (örn. "4- Arap Baharı"): soru numarası artan sırada değilse şık sayılır
-    var ANSWER_ONLY_SECTIONS = ['bluru netle', 'melodi avı', 'melodi avi'];
+    var ANSWER_ONLY_SECTIONS = ['bluru netle', 'melodi avı', 'melodi avi', 'devri alem'];
     function isAnswerOnlySection(section) {
       var s = section.toLowerCase().replace(/[^\w\sıİğĞüÜşŞöÖçÇ]/g, '').trim();
       return ANSWER_ONLY_SECTIONS.some(function(k) { return s.indexOf(k) !== -1; });
@@ -2648,11 +2648,11 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
     }
 
     for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
+      var line = lines[i].replace(/\*+/g, '').trim();
       if (!line) continue;
 
       // Cevap satırı?
-      var ansMatch = line.match(/^[Cc]evap\s*[:\-]\s*(.+)$/);
+      var ansMatch = line.match(/^[Cc]evap\s*[:\-\u2013\u2014]\s*(.+)$/);
       if (ansMatch) {
         if (currentNo !== null && !questions[currentNo]) {
           questions[currentNo] = { question: currentQuestion.trim(), answer: ansMatch[1].trim(), section: currentSection };
@@ -2684,7 +2684,7 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
 
       // Mevcut soruya append et veya bölüm başlığı
       if (currentNo !== null) {
-        var looksLikeHeading = line.length < 50 && !/[?.]$/.test(line) && !/^[A-Da-d]\)/.test(line);
+        var looksLikeHeading = line.length < 50 && !/[?.]$/.test(line) && !/^[A-Da-d]\)/.test(line) && !/^\d+[-.)]\s*/.test(line);
         var nextIsQuestion = false;
         for (var j = i + 1; j < lines.length; j++) {
           var nl = lines[j].trim();
