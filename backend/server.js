@@ -2450,72 +2450,17 @@ app.post('/api/whatsapp-phone', function(req, res) {
 
 // ─── Quiz Night API ────────────────────────────────────────────────────────────
 
-// In-memory slot locks: { groupNo: { clientId, timestamp } }
+// In-memory slot locks: { groupNo: clientId }
 var quizSlotLocks = {};
-var LOCK_TTL_MS = 30000; // 30 saniye heartbeat gelmezse kilit düşer
-
-function cleanExpiredLocks() {
-  var now = Date.now();
-  Object.keys(quizSlotLocks).forEach(function(gno) {
-    if (quizSlotLocks[gno] && (now - quizSlotLocks[gno].timestamp) > LOCK_TTL_MS) {
-      delete quizSlotLocks[gno];
-    }
-  });
-}
 
 // Quiz Night verilerini getir
 app.get('/api/quiz', async function(req, res) {
-  cleanExpiredLocks();
   try {
     var rec = await getJsonbinRecord();
     res.json({ quizData: rec.quizData || null, slotLocks: quizSlotLocks });
   } catch(e) {
     res.json({ quizData: null, slotLocks: {} });
   }
-});
-
-// Grup kilidi al
-app.post('/api/quiz/lock', function(req, res) {
-  cleanExpiredLocks();
-  var groupNo = String(req.body.groupNo);
-  var clientId = req.body.clientId;
-  if (!groupNo || !clientId) return res.status(400).json({ error: 'groupNo ve clientId gerekli' });
-  var existing = quizSlotLocks[groupNo];
-  if (existing && existing.clientId !== clientId) {
-    return res.json({ success: false, reason: 'locked' });
-  }
-  quizSlotLocks[groupNo] = { clientId: clientId, timestamp: Date.now() };
-  res.json({ success: true });
-});
-
-// Grup kilidini bırak
-app.post('/api/quiz/unlock', function(req, res) {
-  var groupNo = String(req.body.groupNo);
-  var clientId = req.body.clientId;
-  if (quizSlotLocks[groupNo] && quizSlotLocks[groupNo].clientId === clientId) {
-    delete quizSlotLocks[groupNo];
-  }
-  res.json({ success: true });
-});
-
-// Heartbeat — kilitleri canlı tut; süresi dolmuş kilitleri yeniden al
-app.post('/api/quiz/heartbeat', function(req, res) {
-  cleanExpiredLocks();
-  var clientId = req.body.clientId;
-  var groups = req.body.groups || [];
-  var failed = []; // bu arada başkası almış gruplar
-  groups.forEach(function(gno) {
-    gno = String(gno);
-    var existing = quizSlotLocks[gno];
-    if (!existing || existing.clientId === clientId) {
-      // Serbest ya da zaten bizim — yenile veya yeniden al
-      quizSlotLocks[gno] = { clientId: clientId, timestamp: Date.now() };
-    } else {
-      // Başkası almış
-      failed.push(gno);
-    }
-  });
-  res.json({ success: true, failed: failed });
 });
 
 // Quiz Night puanlarını kaydet — sunucudaki scores ile merge et (çoklu puantör desteği)
@@ -2526,14 +2471,7 @@ app.post('/api/quiz', async function(req, res) {
     var rec = await getJsonbinRecord();
     var existing = rec.quizData;
 
-    // Aynı oturum (sessionId eşleşiyor) ise merge yap; farklı oturum veya yeni etkinlik ise direkt yaz
-    var sameSession = existing
-      && existing.eventType === quizData.eventType
-      && existing.sessionId
-      && quizData.sessionId
-      && existing.sessionId === quizData.sessionId;
-
-    if (sameSession) {
+    if (existing && existing.eventType === quizData.eventType) {
       // Mevcut scores ile gelen scores merge: her iki puantörün skorları korunur
       var mergedScores = Object.assign({}, existing.scores || {});
       Object.keys(quizData.scores || {}).forEach(function(groupNo) {
@@ -2549,7 +2487,6 @@ app.post('/api/quiz', async function(req, res) {
       }
       rec.quizData = Object.assign({}, existing, quizData, { scores: mergedScores, groups: mergedGroups });
     } else {
-      // Yeni oturum — eski veriyi tamamen sil, yenisini yaz
       rec.quizData = quizData;
     }
 
@@ -2564,15 +2501,16 @@ app.post('/api/quiz', async function(req, res) {
 });
 
 // Quiz Night verilerini sil
-app.delete('/api/quiz', async function(req, res) {
+app.delete('/api/quiz', function(req, res) {
+  // UI hemen yanit bekliyor — once yanit ver, sonra arka planda kaydet
   if (jsonbinCache) {
     jsonbinCache.quizData = null;
     jsonbinCacheDirty = true;
   }
   quizSlotLocks = {};
-  // JSONBin'e yazılmasını bekle — yanıt vermeden önce veri temizlensin
-  try { await flushJsonbinCache(); } catch(e) { console.error('Quiz delete flush hatasi:', e.message); }
   res.json({ success: true });
+  // Arka planda JSONBin'e yaz (yanit beklenmez)
+  flushJsonbinCache().catch(function(e) { console.error('Quiz delete flush hatasi:', e.message); });
 });
 
 // Quiz Night — DOCX/TXT cevap dosyası parse et (sunucu tarafında mammoth kullanır)
@@ -2629,11 +2567,6 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
     // Parse: "1- soru metni" + "Cevap: cevap" formatı
     // Bölüm başlıkları: soru/cevap olmayan kısa satırlar
     // Şık satırları (örn. "4- Arap Baharı"): soru numarası artan sırada değilse şık sayılır
-    var ANSWER_ONLY_SECTIONS = ['bluru netle', 'melodi avı', 'melodi avi', 'devri alem'];
-    function isAnswerOnlySection(section) {
-      var s = section.toLowerCase().replace(/[^\w\sıİğĞüÜşŞöÖçÇ]/g, '').trim();
-      return ANSWER_ONLY_SECTIONS.some(function(k) { return s.indexOf(k) !== -1; });
-    }
     var lines = text.split(/\r?\n/);
     var questions = {};
     var currentNo = null;
@@ -2642,22 +2575,27 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
     var lastQuestionNo = 0;
 
     function isOptionLine(line) {
-      if (line.length > 100) return false;
+      // Tek satırda birden fazla "N- kelime" kalıbı varsa şık satırı
       var matches = line.match(/(?<!\d)\d+[-.)]\s*[^\d\s]/g);
       return matches && matches.length > 1;
     }
 
     for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].replace(/\*+/g, '').trim();
+      var line = lines[i].trim();
       if (!line) continue;
 
       // Cevap satırı?
-      var ansMatch = line.match(/^[Cc]evap\s*[:\-\u2013\u2014]\s*(.+)$/);
+      var ansMatch = line.match(/^[Cc]evap\s*:(.+)$/);
       if (ansMatch) {
-        if (currentNo !== null && !questions[currentNo]) {
-          questions[currentNo] = { question: currentQuestion.trim(), answer: ansMatch[1].trim(), section: currentSection };
+        if (currentNo !== null && currentQuestion.trim()) {
+          questions[currentNo] = {
+            question: currentQuestion.trim(),
+            answer: ansMatch[1].trim(),
+            section: currentSection
+          };
+          currentNo = null;
+          currentQuestion = '';
         }
-        currentNo = null; currentQuestion = '';
         continue;
       }
 
@@ -2665,46 +2603,31 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
       var qMatch = line.match(/^(\d+)[-.)]\s*(.+)$/);
       if (qMatch && !isOptionLine(line)) {
         var no = parseInt(qMatch[1]);
+        // Sadece son sorudan büyük numaraysa yeni soru, yoksa şık satırı gibi işle
         if (no > lastQuestionNo) {
-          // Önceki soruyu kaydet
-          if (currentNo !== null && !questions[currentNo]) {
-            questions[currentNo] = { question: currentQuestion.trim(), answer: '', section: currentSection };
+          // Önceki soruyu cevapsız kaydet
+          if (currentNo !== null && currentQuestion.trim() && !questions[currentNo]) {
+            questions[currentNo] = {
+              question: currentQuestion.trim(),
+              answer: '',
+              section: currentSection
+            };
           }
-          currentNo = null; currentQuestion = '';
+          currentNo = no;
           lastQuestionNo = no;
-          if (isAnswerOnlySection(currentSection)) {
-            questions[no] = { question: '', answer: qMatch[2].trim(), section: currentSection };
-          } else {
-            currentNo = no;
-            currentQuestion = qMatch[2];
-          }
+          currentQuestion = qMatch[2];
           continue;
         }
+        // Artan sırada değilse şık satırı — mevcut soruya ekle
       }
 
-      // Mevcut soruya append et veya bölüm başlığı
+      // Mevcut soruya append et
       if (currentNo !== null) {
-        var looksLikeHeading = line.length < 50 && !/[?.]$/.test(line) && !/^[A-Da-d]\)/.test(line) && !/^\d+[-.)]\s*/.test(line);
-        var nextIsQuestion = false;
-        for (var j = i + 1; j < lines.length; j++) {
-          var nl = lines[j].trim();
-          if (!nl) continue;
-          if (/^\d+[-.)]\s*/.test(nl)) nextIsQuestion = true;
-          break;
-        }
-        if (looksLikeHeading && nextIsQuestion) {
-          if (!questions[currentNo]) {
-            questions[currentNo] = { question: currentQuestion.trim(), answer: '', section: currentSection };
-          }
-          currentNo = null; currentQuestion = '';
-          currentSection = line;
-        } else {
-          currentQuestion += '\n' + line;
-        }
+        currentQuestion += '\n' + line;
         continue;
       }
 
-      // Bölüm başlığı
+      // Bölüm başlığı — kısa ve rakamla başlamayan satır
       if (line.length < 60 && !/^\d/.test(line)) {
         currentSection = line;
       }
@@ -2712,7 +2635,11 @@ app.post('/api/quiz/parse-questions', upload.single('file'), async function(req,
 
     // Son soruyu kaydet
     if (currentNo !== null && currentQuestion.trim() && !questions[currentNo]) {
-      questions[currentNo] = { question: currentQuestion.trim(), answer: '', section: currentSection };
+      questions[currentNo] = {
+        question: currentQuestion.trim(),
+        answer: '',
+        section: currentSection
+      };
     }
 
     res.json({ questions: questions, count: Object.keys(questions).length });
