@@ -3996,7 +3996,7 @@ export default function App() {
                 </button>
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
                   {/* Soruyu Göster butonu */}
-                  {currentQuestion && (
+                  {currentQuestion && currentQuestion.question && (
                     <button
                       onClick={() => setQuizShowQuestion(q => !q)}
                       style={{background:'#1a0a2e',border:'1px solid #b47cff44',borderRadius:8,padding:'4px 10px',
