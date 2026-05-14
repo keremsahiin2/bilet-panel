@@ -9,6 +9,19 @@ const mammoth  = require('mammoth');
 const multer   = require('multer');
 const upload   = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
+
+// ─── Global Proxy ──────────────────────────────────────────────────────────────
+if (process.env.BUBILET_PROXY_HOST) {
+  const { HttpsProxyAgent } = require('https-proxy-agent');
+  const globalAgent = new HttpsProxyAgent(
+    'http://' + process.env.BUBILET_PROXY_USER + ':' + process.env.BUBILET_PROXY_PASS +
+    '@' + process.env.BUBILET_PROXY_HOST + ':' + process.env.BUBILET_PROXY_PORT
+  );
+  axios.defaults.httpsAgent = globalAgent;
+  axios.defaults.proxy     = false;
+  console.log('Global proxy aktif:', process.env.BUBILET_PROXY_HOST);
+}
+// ───────────────────────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors());
 app.use(express.json());
