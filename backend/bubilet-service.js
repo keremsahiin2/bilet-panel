@@ -5,9 +5,8 @@
  * Veri 55 dakika cache'lenir — her istekte Puppeteer açılmaz.
  */
 
-const puppeteer = require("puppeteer-extra");
+const puppeteer = require("rebrowser-puppeteer");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-puppeteer.use(StealthPlugin());
 
 const API_BASE  = "https://oldpanel.api.bubilet.com.tr";
 const PANEL_URL = "https://panel.bubilet.com.tr/sign-in";
@@ -34,7 +33,17 @@ async function loginAndFetch(username, password) {
     "--no-sandbox",
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
-    "--disable-blink-features=AutomationControlled"
+    "--disable-blink-features=AutomationControlled",
+    "--disable-web-security",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--allow-running-insecure-content",
+    "--disable-infobars",
+    "--window-size=1366,768",
+    "--start-maximized",
+    "--ignore-certificate-errors",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-extensions"
   ];
 
   if (proxyHost && proxyPort) {
@@ -42,10 +51,14 @@ async function loginAndFetch(username, password) {
     console.log(`[Bubilet] Proxy kullaniliyor: ${proxyHost}:${proxyPort}`);
   }
 
-  const browser = await puppeteer.launch({
-    headless: isRender ? true : false,
-    args: args
-  });
+  const BRD_WS = process.env.BRIGHTDATA_WS || 'wss://brd-customer-hl_7d22acfc-zone-bubi21:a9ie89j11piv@brd.superproxy.io:9222';
+  const browser = BRD_WS
+    ? await puppeteer.connect({ browserWSEndpoint: BRD_WS })
+    : await puppeteer.launch({
+        headless: isRender ? "new" : false,
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        args: args
+      });
 
   try {
     const page = await browser.newPage();
@@ -57,6 +70,13 @@ async function loginAndFetch(username, password) {
       });
     }
 
+    await page.setViewport({ width: 1366, height: 768 });
+    await page.evaluateOnNewDocument(function() {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR','tr','en-US','en'] });
+      window.chrome = { runtime: {} };
+    });
     await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
     // Token'ı yakala
@@ -73,6 +93,16 @@ async function loginAndFetch(username, password) {
         } catch (e) {}
       }
     });
+
+    // API subdomain için CF clearance al
+    console.log("[Bubilet] API subdomain CF clearance aliniyor...");
+    try {
+      await page.goto("https://oldpanel.api.bubilet.com.tr", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await new Promise(r => setTimeout(r, 3000));
+      console.log("[Bubilet] API subdomain ziyaret edildi");
+    } catch(e) {
+      console.log("[Bubilet] API subdomain ziyaret hatasi (devam):", e.message);
+    }
 
     await page.goto(PANEL_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
 
