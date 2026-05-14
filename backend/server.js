@@ -1,4 +1,5 @@
 require('dotenv').config();
+const bubiletService = require('./bubilet-service');
 const express  = require('express');
 const cors     = require('cors');
 const axios    = require('axios');
@@ -2161,10 +2162,10 @@ app.post('/api/sales/refresh', async function(req, res) {
   try {
     // Bubilet ve Biletinial'ı paralel, taze token alarak çek
     const [newBubilet, newBiletinial] = await Promise.all([
-      fetchBubilet(creds.bubiletUser, creds.bubiletPass)
+      fetchBubilet(creds.bubiletUser, creds.bubiletPass).then(r => ({ data: r }))
         .then(d => { console.log('Refresh: Bubilet', d.length, 'kayit'); return d; })
         .catch(e => {
-          console.error('Refresh: Bubilet hatasi:', e.message);
+          console.error('Refresh: Bubilet hatasi:', e.message, e.response?.status, JSON.stringify(e.response?.data));
           return bubiletData || [];  // hata olursa eski veriyi koru
         }),
       fetchBiletinial(creds.biletinialToken || '')
