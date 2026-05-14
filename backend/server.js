@@ -2,6 +2,7 @@ require('dotenv').config();
 const express  = require('express');
 const cors     = require('cors');
 const axios    = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const fs       = require('fs');
 const path     = require('path');
 const mammoth  = require('mammoth');
@@ -355,6 +356,14 @@ function bubiletBiletAdiToCategory(biletAdi) {
 }
 
 async function fetchBubilet(username, password) {
+  const proxyAgent = process.env.BUBILET_PROXY_HOST
+    ? new HttpsProxyAgent(
+        'http://' + process.env.BUBILET_PROXY_USER + ':' + process.env.BUBILET_PROXY_PASS +
+        '@' + process.env.BUBILET_PROXY_HOST + ':' + process.env.BUBILET_PROXY_PORT
+      )
+    : null;
+  const proxyConfig = proxyAgent ? { httpsAgent: proxyAgent, proxy: false } : {};
+
   const BUBILET_HEADERS = {
     'Content-Type':    'application/json',
     'Origin':          'https://panel.bubilet.com.tr',
@@ -368,7 +377,7 @@ async function fetchBubilet(username, password) {
   const tokenRes = await axios.post(
     'https://oldpanel.api.bubilet.com.tr/token',
     { username, password },
-    { headers: BUBILET_HEADERS }
+    { headers: BUBILET_HEADERS, ...proxyConfig }
   );
   const token = tokenRes.data.access_token;
   if (!token) throw new Error('Bubilet token alinamadi');
@@ -379,7 +388,7 @@ async function fetchBubilet(username, password) {
     'https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars',
     { page:0, perPage:100000, order:'tarih', descending:false,
       filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
-    { headers: authHeaders }
+    { headers: authHeaders, ...proxyConfig }
   );
   const seanslar = result.data.data || [];
 
@@ -405,7 +414,7 @@ async function fetchBubilet(username, password) {
       const detayRes = await axios.get(
         'https://oldpanel.api.bubilet.com.tr/api/v2/ticket-list/' + s.seansId,
         { headers: { ...authHeaders, 'Content-Type': 'application/json; charset=utf-8' },
-          timeout: 8000 }
+          timeout: 8000, ...proxyConfig }
       );
       const detay = detayRes.data;
       if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
