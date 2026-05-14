@@ -46,19 +46,16 @@ async function loginAndFetch(username, password) {
     "--disable-extensions"
   ];
 
-  if (proxyHost && proxyPort) {
+  if (proxyHost && proxyPort && !process.env.BRIGHTDATA_WS) {
     args.push(`--proxy-server=http://${proxyHost}:${proxyPort}`);
     console.log(`[Bubilet] Proxy kullaniliyor: ${proxyHost}:${proxyPort}`);
   }
 
-  const BRD_WS = process.env.BRIGHTDATA_WS || 'wss://brd-customer-hl_7d22acfc-zone-bubi21:a9ie89j11piv@brd.superproxy.io:9222';
-  const browser = BRD_WS
-    ? await puppeteer.connect({ browserWSEndpoint: BRD_WS })
-    : await puppeteer.launch({
-        headless: isRender ? "new" : false,
-        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        args: args
-      });
+  const browser = await puppeteer.launch({
+    headless: isRender ? "new" : false,
+    executablePath: isRender ? (process.env.PUPPETEER_EXECUTABLE_PATH || undefined) : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    args: args
+  });
 
   try {
     const page = await browser.newPage();
@@ -128,6 +125,7 @@ async function loginAndFetch(username, password) {
       nativeInputValueSetter.call(el, p);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
     }, password);
     // Butonu bul ve tıkla
     await new Promise(r => setTimeout(r, 1500)); // Angular reactive form settle
