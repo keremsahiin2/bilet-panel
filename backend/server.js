@@ -2198,15 +2198,16 @@ app.post('/api/sales/refresh', async function(req, res) {
 
   try {
     // Bubilet ve Biletinial'ı paralel, taze token alarak çek
+    const _refreshT0 = Date.now();
     const [newBubilet, newBiletinial] = await Promise.all([
       bubiletService.fetchBubiletData(true, creds.bubiletUser, creds.bubiletPass)
-        .then(r => { console.log('Refresh: Bubilet', r.seanslar.length, 'kayit'); return r.seanslar; })
+        .then(r => { console.log('Refresh: Bubilet', r.seanslar.length, 'kayit,', Date.now()-_refreshT0, 'ms'); return r.seanslar; })
         .catch(e => {
           console.error('Refresh: Bubilet hatasi:', e.message, e.response?.status, JSON.stringify(e.response?.data));
           return bubiletData || [];  // hata olursa eski veriyi koru
         }),
       fetchBiletinial(creds.biletinialToken || '')
-        .then(d => { console.log('Refresh: Biletinial', d.length, 'kayit'); return d; })
+        .then(d => { console.log('Refresh: Biletinial', d.length, 'kayit,', Date.now()-_refreshT0, 'ms'); return d; })
         .catch(e => {
           console.error('Refresh: Biletinial hatasi:', e.message);
           return biletinialData || [];
@@ -2221,7 +2222,7 @@ app.post('/api/sales/refresh', async function(req, res) {
       try {
         const freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
         ideasoftData = freshIdeasoft;
-        console.log('Refresh: Ideasoft', ideasoftData.length, 'seans');
+        console.log('Refresh: Ideasoft', ideasoftData.length, 'seans,', Date.now()-_refreshT0, 'ms');
       } catch(e) {
         console.error('Refresh: Ideasoft hatasi:', e.message);
         // ideasoftCookies süresi dolmuşsa hata mesajını yolla
