@@ -775,8 +775,8 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
   }
 
   // Her kaynak biter bitmez global state'e yaz — polling anında görsün
-  const bubiletP = fetchBubilet(bubiletUser, bubiletPass)
-    .then(d => {
+  const bubiletP = bubiletService.fetchBubiletData(false, bubiletUser, bubiletPass)
+    .then(r => { const d = r.seanslar || [];
       bubiletData = d;
       lastFetch = new Date().toISOString();
       // Bubilet + Biletinial ikisi de geldiyse ready işaretle
