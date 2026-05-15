@@ -2226,8 +2226,6 @@ app.post('/api/sales/refresh', async function(req, res) {
     bubiletData    = newBubilet;
     biletinialData = newBiletinial;
     if (newIdeasoft) ideasoftData = newIdeasoft;
-      }
-    }
 
     lastFetch = new Date().toISOString();
   } catch(err) {
