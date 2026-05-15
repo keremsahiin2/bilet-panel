@@ -1,12 +1,12 @@
 /**
  * BUBILET SERVICE - Production (Render Uyumlu)
- * 1. İlk login: Puppeteer browser ile CF bypass + token al + cookie'leri sakla
- * 2. Sonraki istekler: Browser olmadan axios ile token + cookie kullan
- * 3. Token expire / 401 gelirse: Browser ile yeniden login
+ * 1. İlk açılış: JSONBin'den token oku → geçerliyse axios ile veri çek (~2sn)
+ * 2. Token yoksa / expire ise: Puppeteer browser ile CF bypass + token al
+ * 3. Token alınınca JSONBin'e kaydet — Render restart'larında da korunur
+ * 4. Refresh: önce mevcut token ile dene → 401/403 ise Puppeteer
  * Veri 55 dakika cache'lenir.
  */
 const puppeteer = require("rebrowser-puppeteer");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const axios = require("axios");
 const { HttpsProxyAgent } = require("https-proxy-agent");
 
@@ -19,10 +19,60 @@ let _cacheExpiry  = null;
 let _fetchPromise = null;
 const CACHE_TTL = 55 * 60 * 1000; // 55 dakika
 
-// ─── Token + Cookie Cache ──────────────────────────────────────────────────
-let _cachedToken      = null;
+// ─── Token + Cookie Cache (memory) ────────────────────────────────────────
+let _cachedToken       = null;
 let _cachedTokenExpiry = null;
-let _cachedCookies    = null; // CF clearance cookie'leri
+let _cachedCookies     = null;
+
+// ─── JSONBin config ────────────────────────────────────────────────────────
+const JSONBIN_BIN_ID  = process.env.JSONBIN_BIN_ID  || '69cef0d036566621a8740cdb';
+const JSONBIN_API_KEY = process.env.JSONBIN_API_KEY  || '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
+
+// ─── JSONBin'den token oku ─────────────────────────────────────────────────
+async function loadTokenFromJsonbin() {
+  try {
+    const res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY },
+      timeout: 10000
+    });
+    const record = res.data.record || {};
+    if (record.bubiletToken && record.bubiletTokenExpiry) {
+      console.log('[Bubilet] JSONBin token yuklendi, expire:', new Date(record.bubiletTokenExpiry).toISOString());
+      return {
+        token:       record.bubiletToken,
+        tokenExpiry: record.bubiletTokenExpiry,
+        cookies:     record.bubiletCookies || []
+      };
+    }
+  } catch(e) {
+    console.warn('[Bubilet] JSONBin token okuma hatasi:', e.message);
+  }
+  return null;
+}
+
+// ─── JSONBin'e token kaydet ────────────────────────────────────────────────
+async function saveTokenToJsonbin(token, tokenExpiry, cookies) {
+  try {
+    // Önce mevcut kaydı çek, üzerine yaz (baseline/monthlySales korunsun)
+    const res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY },
+      timeout: 10000
+    });
+    const record = res.data.record || {};
+    record.bubiletToken       = token;
+    record.bubiletTokenExpiry = tokenExpiry;
+    record.bubiletCookies     = cookies || [];
+
+    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, record, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' },
+      timeout: 10000
+    });
+    console.log('[Bubilet] Token JSONBin\'e kaydedildi, expire:', new Date(tokenExpiry).toISOString());
+  } catch(e) {
+    console.warn('[Bubilet] JSONBin token kaydetme hatasi:', e.message);
+    // Kritik değil — memory'de zaten var
+  }
+}
 
 // ─── Proxy Config ──────────────────────────────────────────────────────────
 function getProxyAgent() {
@@ -119,7 +169,6 @@ async function loginWithBrowser(username, password) {
     });
     await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
-    // Token'ı yakala
     let capturedToken = null;
     page.on("response", async function(res) {
       if (res.url().includes("/token") && res.status() === 200) {
@@ -134,7 +183,6 @@ async function loginWithBrowser(username, password) {
     });
 
     await page.goto(PANEL_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
-
     await page.waitForSelector("#email", { timeout: 30000 });
     await page.evaluate(function(u) {
       var el = document.querySelector("#email");
@@ -168,7 +216,6 @@ async function loginWithBrowser(username, password) {
       if (btn) btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
 
-    // Token bekle
     await new Promise(function(resolve, reject) {
       var t = setTimeout(function() { reject(new Error("Token bekleme suresi doldu.")); }, 60000);
       var i = setInterval(function() {
@@ -176,14 +223,12 @@ async function loginWithBrowser(username, password) {
       }, 300);
     });
 
-    // Cookie'leri al
     const cookies = await page.cookies();
     const cfCookies = cookies.filter(c =>
       c.name.includes('cf_') || c.name.includes('__cf') || c.domain.includes('bubilet')
     );
     console.log("[Bubilet] CF cookies alindi:", cfCookies.length);
 
-    // Token expire süresini hesapla
     let tokenExpiry = Date.now() + 60 * 60 * 1000; // default 1 saat
     try {
       const payload = JSON.parse(Buffer.from(capturedToken.split('.')[1], 'base64').toString());
@@ -200,42 +245,60 @@ async function loginWithBrowser(username, password) {
 
 // ─── Ana login + fetch fonksiyonu ─────────────────────────────────────────
 async function loginAndFetch(username, password) {
-  // 1. Token geçerliyse browser olmadan dene
+  // 1. Memory'de geçerli token var mı?
   if (isTokenValid() && _cachedCookies) {
-    console.log("[Bubilet] Token gecerli, browser olmadan deneniyor...");
+    console.log("[Bubilet] Memory token gecerli, axios ile deneniyor...");
     try {
       const raw = await fetchWithToken(_cachedToken, _cachedCookies);
-      console.log("[Bubilet] Browser olmadan basarili!");
+      console.log("[Bubilet] Axios basarili (memory token)!");
       return raw;
     } catch(e) {
-      console.log("[Bubilet] Browser olmadan basarisiz:", e.message, "- Browser ile yeniden login...");
+      const status = e.response && e.response.status;
+      console.log("[Bubilet] Axios basarisiz (" + (status||e.message) + "), token sifirlaniyor...");
       _cachedToken = null;
       _cachedTokenExpiry = null;
       _cachedCookies = null;
     }
   }
 
-  // 2. Browser ile login ol
+  // 2. JSONBin'den token yükle (Render restart sonrası)
+  if (!_cachedToken) {
+    console.log("[Bubilet] JSONBin'den token yukleniyor...");
+    const saved = await loadTokenFromJsonbin();
+    if (saved && saved.token && saved.tokenExpiry && Date.now() < saved.tokenExpiry - 60000) {
+      console.log("[Bubilet] JSONBin token gecerli, axios ile deneniyor...");
+      try {
+        const raw = await fetchWithToken(saved.token, saved.cookies);
+        // Başarılı — memory'e al
+        _cachedToken       = saved.token;
+        _cachedTokenExpiry = saved.tokenExpiry;
+        _cachedCookies     = saved.cookies;
+        console.log("[Bubilet] Axios basarili (JSONBin token)!");
+        return raw;
+      } catch(e) {
+        const status = e.response && e.response.status;
+        console.log("[Bubilet] JSONBin token basarisiz (" + (status||e.message) + "), browser login gerekli...");
+      }
+    } else {
+      console.log("[Bubilet] JSONBin'de gecerli token yok, browser login gerekli.");
+    }
+  }
+
+  // 3. Puppeteer ile taze login
   console.log("[Bubilet] Browser ile login olunuyor...");
   const { token, cookies, tokenExpiry } = await loginWithBrowser(username, password);
 
-  // Token + cookie'leri sakla
-  _cachedToken = token;
+  _cachedToken       = token;
   _cachedTokenExpiry = tokenExpiry;
-  _cachedCookies = cookies;
+  _cachedCookies     = cookies;
 
-  // 3. Browser session'dan veri çek (CF bypass garantili)
+  // JSONBin'e kaydet (async, bekleme yok)
+  saveTokenToJsonbin(token, tokenExpiry, cookies);
+
   console.log("[Bubilet] Token alindi, seans verisi cekiliyor...");
-  try {
-    // Önce axios ile dene (daha hızlı)
-    const raw = await fetchWithToken(token, cookies);
-    console.log("[Bubilet] Axios ile veri alindi");
-    return raw;
-  } catch(e) {
-    console.log("[Bubilet] Axios basarisiz, browser session kullaniliyor...");
-    // Bu noktaya gelmemeli ama fallback olarak burada browser yeniden açılabilir
-    throw e;
-  }
+  const raw = await fetchWithToken(token, cookies);
+  console.log("[Bubilet] Axios ile veri alindi (taze token)");
+  return raw;
 }
 
 // ─── Ana Fonksiyon ─────────────────────────────────────────────────────────
@@ -243,10 +306,8 @@ async function fetchBubiletData(forceRefresh, username, password) {
   if (forceRefresh) {
     _cachedData  = null;
     _cacheExpiry = null;
-    _cachedToken = null;
-    _cachedTokenExpiry = null;
-    _cachedCookies = null;
-    console.log("[Bubilet] Cache temizlendi, token sifirlandi.");
+    // Token'ı SILMIYORUZ — önce mevcut token ile deneyeceğiz
+    console.log("[Bubilet] Data cache temizlendi, token korunuyor.");
   }
   const now = Date.now();
   if (_cachedData && _cacheExpiry && now < _cacheExpiry) {
