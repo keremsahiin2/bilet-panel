@@ -622,7 +622,7 @@ async function fetchBiletinial(token) {
       console.error('Biletini Al GetTicketTypeSalesReport hatasi SeanceId=' + s.SeanceId + ':', err.message);
       return [s];
     }
-  }, 8);
+  }, 20);
 
   return [...normalSeances, ...workshopExpanded.flat()];
 }
