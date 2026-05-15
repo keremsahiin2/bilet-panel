@@ -2162,7 +2162,7 @@ app.post('/api/sales/refresh', async function(req, res) {
   try {
     // Bubilet ve Biletinial'ı paralel, taze token alarak çek
     const [newBubilet, newBiletinial] = await Promise.all([
-      fetchBubilet(creds.bubiletUser, creds.bubiletPass).then(r => ({ data: r }))
+      fetchBubilet(creds.bubiletUser, creds.bubiletPass)
         .then(d => { console.log('Refresh: Bubilet', d.length, 'kayit'); return d; })
         .catch(e => {
           console.error('Refresh: Bubilet hatasi:', e.message, e.response?.status, JSON.stringify(e.response?.data));
