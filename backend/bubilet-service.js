@@ -243,7 +243,10 @@ async function fetchBubiletData(forceRefresh, username, password) {
   if (forceRefresh) {
     _cachedData  = null;
     _cacheExpiry = null;
-    console.log("[Bubilet] Cache temizlendi.");
+    _cachedToken = null;
+    _cachedTokenExpiry = null;
+    _cachedCookies = null;
+    console.log("[Bubilet] Cache temizlendi, token sifirlandi.");
   }
   const now = Date.now();
   if (_cachedData && _cacheExpiry && now < _cacheExpiry) {
