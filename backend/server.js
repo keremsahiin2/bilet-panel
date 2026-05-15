@@ -725,7 +725,7 @@ async function fetchIdeasoftSeances(cookies, csrf) {
   // (Aynı anda 11 istek → İdeasoft'un pencere sayacı tek seferde dolabilir)
   // Bu yüzden 2'li gruplar halinde gönderiyoruz: hız + rate limit dengesi
   var allEntries = [];
-  var BATCH = 6; // 429 gelirse product cache devreye girer, 6 güvenli
+  var BATCH = 11; // tüm ürünler tek turda — product cache 429'u yakalar
   for (var i = 0; i < IDEASOFT_PRODUCTS.length; i += BATCH) {
     var batch = IDEASOFT_PRODUCTS.slice(i, i + BATCH);
     var results = await Promise.all(
@@ -2199,37 +2199,33 @@ app.post('/api/sales/refresh', async function(req, res) {
   try {
     // Bubilet ve Biletinial'ı paralel, taze token alarak çek
     const _refreshT0 = Date.now();
-    const [newBubilet, newBiletinial] = await Promise.all([
+    const [newBubilet, newBiletinial, newIdeasoft] = await Promise.all([
       bubiletService.fetchBubiletData(true, creds.bubiletUser, creds.bubiletPass)
-        .then(r => { console.log('Refresh: Bubilet', r.seanslar.length, 'kayit,', Date.now()-_refreshT0, 'ms'); return r.seanslar; })
+        .then(r => { console.log("Refresh: Bubilet", r.seanslar.length, "kayit,", Date.now()-_refreshT0, "ms"); return r.seanslar; })
         .catch(e => {
-          console.error('Refresh: Bubilet hatasi:', e.message, e.response?.status, JSON.stringify(e.response?.data));
-          return bubiletData || [];  // hata olursa eski veriyi koru
+          console.error("Refresh: Bubilet hatasi:", e.message, e.response?.status, JSON.stringify(e.response?.data));
+          return bubiletData || [];
         }),
-      fetchBiletinial(creds.biletinialToken || '')
-        .then(d => { console.log('Refresh: Biletinial', d.length, 'kayit,', Date.now()-_refreshT0, 'ms'); return d; })
+      fetchBiletinial(creds.biletinialToken || "")
+        .then(d => { console.log("Refresh: Biletinial", d.length, "kayit,", Date.now()-_refreshT0, "ms"); return d; })
         .catch(e => {
-          console.error('Refresh: Biletinial hatasi:', e.message);
+          console.error("Refresh: Biletinial hatasi:", e.message);
           return biletinialData || [];
-        })
+        }),
+      ideasoftCookies
+        ? fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken)
+            .then(d => { console.log("Refresh: Ideasoft", d.length, "seans,", Date.now()-_refreshT0, "ms"); return d; })
+            .catch(e => {
+              console.error("Refresh: Ideasoft hatasi:", e.message);
+              if (e.response && (e.response.status === 401 || e.response.status === 403))
+                throw new Error("Ideasoft oturumu sona erdi");
+              return ideasoftData || [];
+            })
+        : Promise.resolve(ideasoftData || [])
     ]);
-
     bubiletData    = newBubilet;
     biletinialData = newBiletinial;
-
-    // İdeasoft: mevcut cookie ile seansları yenile
-    if (ideasoftCookies) {
-      try {
-        const freshIdeasoft = await fetchIdeasoftSeances(ideasoftCookies, ideasoftCsrfToken);
-        ideasoftData = freshIdeasoft;
-        console.log('Refresh: Ideasoft', ideasoftData.length, 'seans,', Date.now()-_refreshT0, 'ms');
-      } catch(e) {
-        console.error('Refresh: Ideasoft hatasi:', e.message);
-        // ideasoftCookies süresi dolmuşsa hata mesajını yolla
-        if (e.response && (e.response.status === 401 || e.response.status === 403)) {
-          return res.status(401).json({ error: 'İdeasoft oturumu sona erdi — uygulamayı yeniden başlatın' });
-        }
-        // diğer hatada eski veri kalsın
+    if (newIdeasoft) ideasoftData = newIdeasoft;
       }
     }
 
