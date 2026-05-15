@@ -50,8 +50,6 @@ async function loadTokenFromJsonbin() {
   return null;
 }
 
-}
-
 // ─── Proxy Config ──────────────────────────────────────────────────────────
 function getProxyAgent() {
   const host = process.env.BUBILET_PROXY_HOST || process.env.PROXY_HOST;
