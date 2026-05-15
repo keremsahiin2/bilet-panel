@@ -50,28 +50,6 @@ async function loadTokenFromJsonbin() {
   return null;
 }
 
-// ─── JSONBin'e token kaydet ────────────────────────────────────────────────
-async function saveTokenToJsonbin(token, tokenExpiry, cookies) {
-  try {
-    // Önce mevcut kaydı çek, üzerine yaz (baseline/monthlySales korunsun)
-    const res = await axios.get('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest', {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY },
-      timeout: 10000
-    });
-    const record = res.data.record || {};
-    record.bubiletToken       = token;
-    record.bubiletTokenExpiry = tokenExpiry;
-    record.bubiletCookies     = cookies || [];
-
-    await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, record, {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' },
-      timeout: 10000
-    });
-    console.log('[Bubilet] Token JSONBin\'e kaydedildi, expire:', new Date(tokenExpiry).toISOString());
-  } catch(e) {
-    console.warn('[Bubilet] JSONBin token kaydetme hatasi:', e.message);
-    // Kritik değil — memory'de zaten var
-  }
 }
 
 // ─── Proxy Config ──────────────────────────────────────────────────────────
@@ -364,6 +342,19 @@ function clearBubiletCache() {
 
 async function getTokenAndCookies(username, password) {
   return { token: null };
+}
+
+let _saveTokenCallback = null;
+function setSaveTokenCallback(fn) { _saveTokenCallback = fn; }
+
+async function saveTokenToJsonbin(token, tokenExpiry, cookies) {
+  if (_saveTokenCallback) {
+    try {
+      await _saveTokenCallback(token, tokenExpiry, cookies);
+    } catch(e) {
+      console.warn('[Bubilet] Token kaydetme hatasi:', e.message);
+    }
+  }
 }
 
 module.exports = { fetchBubiletData, getTokenAndCookies, clearBubiletCache, setSaveTokenCallback };
