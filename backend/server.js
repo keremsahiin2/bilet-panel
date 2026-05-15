@@ -388,20 +388,57 @@ async function fetchBubilet(username, password) {
     'Accept-Encoding': 'gzip, deflate, br',
   };
 
-  const tokenRes = await axios.post(
-    'https://oldpanel.api.bubilet.com.tr/token',
-    { username, password },
-    { headers: BUBILET_HEADERS, ...proxyConfig }
-  );
-  const token = tokenRes.data.access_token;
-  if (!token) throw new Error('Bubilet token alinamadi');
+  // ── Token cache — her açılışta login yapma ────────────────────────────────
+  async function getBubiletToken() {
+    // 1) saved_credentials.json'da geçerli token var mı?
+    const saved = loadJson(SAVED_CREDS_FILE) || {};
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (saved.bubiletToken && saved.bubiletTokenExpires && saved.bubiletTokenExpires > nowSec + 300) {
+      console.log('Bubilet: cached token kullaniliyor, kalan sure:', Math.round((saved.bubiletTokenExpires - nowSec) / 3600), 'saat');
+      return saved.bubiletToken;
+    }
+    // 2) Token yok veya süresi dolmuş — yeniden login
+    console.log('Bubilet: token yok veya suresi doldu, yeniden login...');
+    const tokenRes = await axios.post(
+      'https://oldpanel.api.bubilet.com.tr/token',
+      { username, password },
+      { headers: BUBILET_HEADERS, ...proxyConfig }
+    );
+    const newToken = tokenRes.data.access_token;
+    const expiresIn = tokenRes.data.expires_in; // Unix timestamp veya saniye
+    if (!newToken) throw new Error('Bubilet token alinamadi');
+    // expires_in büyük sayıysa Unix timestamp, küçükse saniye cinsinden TTL
+    const expiresSec = expiresIn > 1000000000 ? expiresIn : Math.floor(Date.now() / 1000) + expiresIn;
+    // Token'ı kaydet
+    saveJson(SAVED_CREDS_FILE, { ...saved, bubiletToken: newToken, bubiletTokenExpires: expiresSec });
+    console.log('Bubilet: yeni token alindi, gecerlilik:', new Date(expiresSec * 1000).toLocaleString('tr-TR'));
+    return newToken;
+  }
+
+  let token;
+  try {
+    token = await getBubiletToken();
+  } catch(e) {
+    // Token alma başarısız — direkt login dene
+    console.warn('Bubilet token cache hatasi, direkt login:', e.message);
+    const tokenRes = await axios.post(
+      'https://oldpanel.api.bubilet.com.tr/token',
+      { username, password },
+      { headers: BUBILET_HEADERS, ...proxyConfig }
+    );
+    token = tokenRes.data.access_token;
+    if (!token) throw new Error('Bubilet token alinamadi');
+  }
 
   const authHeaders = { ...BUBILET_HEADERS, 'Authorization': 'Bearer ' + token };
 
+  const _yesterday = new Date(); _yesterday.setDate(_yesterday.getDate() - 1); _yesterday.setHours(0,0,0,0);
+  const _tenDaysLater = new Date(); _tenDaysLater.setDate(_tenDaysLater.getDate() + 10); _tenDaysLater.setHours(23,59,59,999);
+  const _fmt = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   const result = await axios.post(
     'https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars',
     { page:0, perPage:100000, order:'tarih', descending:false,
-      filter:{ etkinlikAdi:'', tarih_BasTarih:null, tarih_BitTarih:null, seansAktif:null, koltukSecimi:null }},
+      filter:{ etkinlikAdi:'', tarih_BasTarih: _fmt(_yesterday) + 'T00:00:00', tarih_BitTarih: _fmt(_tenDaysLater) + 'T23:59:59', seansAktif:null, koltukSecimi:null }},
     { headers: authHeaders, ...proxyConfig }
   );
   const seanslar = result.data.data || [];
@@ -2162,8 +2199,8 @@ app.post('/api/sales/refresh', async function(req, res) {
   try {
     // Bubilet ve Biletinial'ı paralel, taze token alarak çek
     const [newBubilet, newBiletinial] = await Promise.all([
-      fetchBubilet(creds.bubiletUser, creds.bubiletPass)
-        .then(d => { console.log('Refresh: Bubilet', d.length, 'kayit'); return d; })
+      bubiletService.fetchBubiletData(true, creds.bubiletUser, creds.bubiletPass)
+        .then(r => { console.log('Refresh: Bubilet', r.seanslar.length, 'kayit'); return r.seanslar; })
         .catch(e => {
           console.error('Refresh: Bubilet hatasi:', e.message, e.response?.status, JSON.stringify(e.response?.data));
           return bubiletData || [];  // hata olursa eski veriyi koru

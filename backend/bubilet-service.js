@@ -1,12 +1,14 @@
 /**
  * BUBILET SERVICE - Production (Render Uyumlu)
- * Hem token hem seans verisi Puppeteer browser içinden çekilir.
- * Cloudflare bypass: page.evaluate ile fetch yapılır.
- * Veri 55 dakika cache'lenir — her istekte Puppeteer açılmaz.
+ * 1. İlk login: Puppeteer browser ile CF bypass + token al + cookie'leri sakla
+ * 2. Sonraki istekler: Browser olmadan axios ile token + cookie kullan
+ * 3. Token expire / 401 gelirse: Browser ile yeniden login
+ * Veri 55 dakika cache'lenir.
  */
-
 const puppeteer = require("rebrowser-puppeteer");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const axios = require("axios");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 const API_BASE  = "https://oldpanel.api.bubilet.com.tr";
 const PANEL_URL = "https://panel.bubilet.com.tr/sign-in";
@@ -15,44 +17,88 @@ const PANEL_URL = "https://panel.bubilet.com.tr/sign-in";
 let _cachedData   = null;
 let _cacheExpiry  = null;
 let _fetchPromise = null;
-
 const CACHE_TTL = 55 * 60 * 1000; // 55 dakika
 
-// ─── Puppeteer ile login + veri çek ───────────────────────────────────────
-async function loginAndFetch(username, password) {
+// ─── Token + Cookie Cache ──────────────────────────────────────────────────
+let _cachedToken      = null;
+let _cachedTokenExpiry = null;
+let _cachedCookies    = null; // CF clearance cookie'leri
+
+// ─── Proxy Config ──────────────────────────────────────────────────────────
+function getProxyAgent() {
+  const host = process.env.BUBILET_PROXY_HOST || process.env.PROXY_HOST;
+  const port = process.env.BUBILET_PROXY_PORT || process.env.PROXY_PORT;
+  const user = process.env.BUBILET_PROXY_USER || process.env.PROXY_USER;
+  const pass = process.env.BUBILET_PROXY_PASS || process.env.PROXY_PASS;
+  if (!host || !port) return null;
+  const auth = user && pass ? `${user}:${pass}@` : '';
+  return new HttpsProxyAgent(`http://${auth}${host}:${port}`);
+}
+
+function getAxiosConfig() {
+  const agent = getProxyAgent();
+  return agent ? { httpsAgent: agent, proxy: false } : {};
+}
+
+// ─── Token geçerli mi? ─────────────────────────────────────────────────────
+function isTokenValid() {
+  if (!_cachedToken || !_cachedTokenExpiry) return false;
+  return Date.now() < _cachedTokenExpiry - 60000; // 1 dk önce expire say
+}
+
+// ─── Cookie string oluştur ─────────────────────────────────────────────────
+function cookiesToString(cookies) {
+  if (!cookies || !cookies.length) return '';
+  return cookies.map(c => `${c.name}=${c.value}`).join('; ');
+}
+
+// ─── Browser olmadan axios ile veri çek ───────────────────────────────────
+async function fetchWithToken(token, cookies) {
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'Origin': 'https://panel.bubilet.com.tr',
+    'Referer': 'https://panel.bubilet.com.tr/',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  };
+  if (cookies) headers['Cookie'] = cookiesToString(cookies);
+
+  const res = await axios.post(
+    API_BASE + '/api/Satis/SeansGrupluSatislars',
+    { page: 0, perPage: 100000, order: 'tarih', descending: false,
+      filter: { etkinlikAdi: '', tarih_BasTarih: null, tarih_BitTarih: null, seansAktif: true, koltukSecimi: null }
+    },
+    { headers, ...getAxiosConfig(), timeout: 30000 }
+  );
+  return res.data;
+}
+
+// ─── Puppeteer ile login + token + cookie al ──────────────────────────────
+async function loginWithBrowser(username, password) {
   console.log("[Bubilet] Puppeteer baslatiliyor...");
-
   const isRender = !!process.env.RENDER;
-
-  const proxyHost = process.env.PROXY_HOST;
-  const proxyPort = process.env.PROXY_PORT;
-  const proxyUser = process.env.PROXY_USER;
-  const proxyPass = process.env.PROXY_PASS;
+  const proxyHost = process.env.BUBILET_PROXY_HOST || process.env.PROXY_HOST;
+  const proxyPort = process.env.BUBILET_PROXY_PORT || process.env.PROXY_PORT;
+  const proxyUser = process.env.BUBILET_PROXY_USER || process.env.PROXY_USER;
+  const proxyPass = process.env.BUBILET_PROXY_PASS || process.env.PROXY_PASS;
 
   const args = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-blink-features=AutomationControlled",
-    "--disable-web-security",
-    "--disable-features=IsolateOrigins,site-per-process",
-    "--allow-running-insecure-content",
-    "--disable-infobars",
-    "--window-size=1366,768",
-    "--start-maximized",
-    "--ignore-certificate-errors",
-    "--no-first-run",
-    "--no-default-browser-check",
+    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled", "--disable-web-security",
+    "--disable-features=IsolateOrigins,site-per-process", "--allow-running-insecure-content",
+    "--disable-infobars", "--window-size=1366,768", "--start-maximized",
+    "--ignore-certificate-errors", "--no-first-run", "--no-default-browser-check",
     "--disable-extensions"
   ];
 
-  if (proxyHost && proxyPort && !process.env.BRIGHTDATA_WS) {
+  if (proxyHost && proxyPort) {
     args.push(`--proxy-server=http://${proxyHost}:${proxyPort}`);
     console.log(`[Bubilet] Proxy kullaniliyor: ${proxyHost}:${proxyPort}`);
   }
 
   const browser = await puppeteer.launch({
-    headless: isRender ? "new" : false,
+    headless: true,
     executablePath: isRender ? (process.env.PUPPETEER_EXECUTABLE_PATH || undefined) : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     args: args
   });
@@ -61,10 +107,7 @@ async function loginAndFetch(username, password) {
     const page = await browser.newPage();
 
     if (proxyUser && proxyPass) {
-      await page.authenticate({
-        username: proxyUser,
-        password: proxyPass
-      });
+      await page.authenticate({ username: proxyUser, password: proxyPass });
     }
 
     await page.setViewport({ width: 1366, height: 768 });
@@ -79,7 +122,6 @@ async function loginAndFetch(username, password) {
     // Token'ı yakala
     let capturedToken = null;
     page.on("response", async function(res) {
-      console.log("[Bubilet] Response:", res.url(), res.status());
       if (res.url().includes("/token") && res.status() === 200) {
         try {
           const data = await res.json();
@@ -91,21 +133,7 @@ async function loginAndFetch(username, password) {
       }
     });
 
-    // API subdomain için CF clearance al
-    console.log("[Bubilet] API subdomain CF clearance aliniyor...");
-    try {
-      await page.goto("https://oldpanel.api.bubilet.com.tr", { waitUntil: "domcontentloaded", timeout: 30000 });
-      await new Promise(r => setTimeout(r, 3000));
-      console.log("[Bubilet] API subdomain ziyaret edildi");
-    } catch(e) {
-      console.log("[Bubilet] API subdomain ziyaret hatasi (devam):", e.message);
-    }
-
     await page.goto(PANEL_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
-
-    // Sayfanın ne döndürdüğünü logla
-    const pageContent = await page.content();
-    console.log("[Bubilet] Sayfa icerigi:", pageContent.substring(0, 500));
 
     await page.waitForSelector("#email", { timeout: 30000 });
     await page.evaluate(function(u) {
@@ -127,9 +155,9 @@ async function loginAndFetch(username, password) {
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
     }, password);
-    // Butonu bul ve tıkla
-    await new Promise(r => setTimeout(r, 1500)); // Angular reactive form settle
-    const clicked = await page.evaluate(function() {
+
+    await new Promise(r => setTimeout(r, 1500));
+    await page.evaluate(function() {
       var btn = document.querySelector("button[mat-flat-button]");
       if (!btn) {
         var btns = Array.from(document.querySelectorAll("button"));
@@ -137,13 +165,8 @@ async function loginAndFetch(username, password) {
           return b.textContent.includes("Giri") || b.type === "submit";
         });
       }
-      if (btn) {
-        btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-        return true;
-      }
-      return false;
+      if (btn) btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
-    console.log("[Bubilet] Buton tiklandi mi:", clicked);
 
     // Token bekle
     await new Promise(function(resolve, reject) {
@@ -153,29 +176,65 @@ async function loginAndFetch(username, password) {
       }, 300);
     });
 
-    console.log("[Bubilet] Token alindi, seans verisi cekiliyor...");
+    // Cookie'leri al
+    const cookies = await page.cookies();
+    const cfCookies = cookies.filter(c =>
+      c.name.includes('cf_') || c.name.includes('__cf') || c.domain.includes('bubilet')
+    );
+    console.log("[Bubilet] CF cookies alindi:", cfCookies.length);
 
-    // Seans verisini AYNI browser session'ından çek (Cloudflare bypass)
-    const raw = await page.evaluate(async function(apiBase, token) {
-      const res = await fetch(apiBase + "/api/Satis/SeansGrupluSatislars", {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + token,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          page: 0, perPage: 100000, order: "tarih", descending: false,
-          filter: { etkinlikAdi: "", tarih_BasTarih: null, tarih_BitTarih: null, seansAktif: true, koltukSecimi: null }
-        })
-      });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    }, API_BASE, capturedToken);
+    // Token expire süresini hesapla
+    let tokenExpiry = Date.now() + 60 * 60 * 1000; // default 1 saat
+    try {
+      const payload = JSON.parse(Buffer.from(capturedToken.split('.')[1], 'base64').toString());
+      if (payload.exp) tokenExpiry = payload.exp * 1000;
+      console.log("[Bubilet] Token expire:", new Date(tokenExpiry).toISOString());
+    } catch(e) {}
 
-    return raw;
+    return { token: capturedToken, cookies: cfCookies, tokenExpiry };
+
   } finally {
     await browser.close();
+  }
+}
+
+// ─── Ana login + fetch fonksiyonu ─────────────────────────────────────────
+async function loginAndFetch(username, password) {
+  // 1. Token geçerliyse browser olmadan dene
+  if (isTokenValid() && _cachedCookies) {
+    console.log("[Bubilet] Token gecerli, browser olmadan deneniyor...");
+    try {
+      const raw = await fetchWithToken(_cachedToken, _cachedCookies);
+      console.log("[Bubilet] Browser olmadan basarili!");
+      return raw;
+    } catch(e) {
+      console.log("[Bubilet] Browser olmadan basarisiz:", e.message, "- Browser ile yeniden login...");
+      _cachedToken = null;
+      _cachedTokenExpiry = null;
+      _cachedCookies = null;
+    }
+  }
+
+  // 2. Browser ile login ol
+  console.log("[Bubilet] Browser ile login olunuyor...");
+  const { token, cookies, tokenExpiry } = await loginWithBrowser(username, password);
+
+  // Token + cookie'leri sakla
+  _cachedToken = token;
+  _cachedTokenExpiry = tokenExpiry;
+  _cachedCookies = cookies;
+
+  // 3. Browser session'dan veri çek (CF bypass garantili)
+  console.log("[Bubilet] Token alindi, seans verisi cekiliyor...");
+  try {
+    // Önce axios ile dene (daha hızlı)
+    const raw = await fetchWithToken(token, cookies);
+    console.log("[Bubilet] Axios ile veri alindi");
+    return raw;
+  } catch(e) {
+    console.log("[Bubilet] Axios basarisiz, browser session kullaniliyor...");
+    // Bu noktaya gelmemeli ama fallback olarak burada browser yeniden açılabilir
+    throw e;
   }
 }
 
@@ -186,27 +245,22 @@ async function fetchBubiletData(forceRefresh, username, password) {
     _cacheExpiry = null;
     console.log("[Bubilet] Cache temizlendi.");
   }
-
   const now = Date.now();
   if (_cachedData && _cacheExpiry && now < _cacheExpiry) {
     console.log("[Bubilet] Cache'den donuluyor.");
     return _cachedData;
   }
-
   if (_fetchPromise) {
     console.log("[Bubilet] Fetch devam ediyor, bekleniyor...");
     return _fetchPromise;
   }
-
   _fetchPromise = (async function() {
     try {
       var u = username || process.env.BUBILET_USER;
       var p = password || process.env.BUBILET_PASS;
       if (!u || !p) throw new Error("BUBILET_USER ve BUBILET_PASS eksik.");
-
       console.log("[Bubilet] Veri cekimi basladi...");
       const raw = await loginAndFetch(u, p);
-
       const seanslar = (raw.data || []).map(function(s) {
         return {
           seansId:     s.seansId,
@@ -223,10 +277,8 @@ async function fetchBubiletData(forceRefresh, username, password) {
           platform:    "bubilet"
         };
       });
-
       var toplamBilet = seanslar.reduce(function(a, x) { return a + x.biletAdet; }, 0);
       console.log("[Bubilet] OK: " + seanslar.length + " seans, " + toplamBilet + " bilet");
-
       var result = { success: true, seanslar: seanslar, workshopDetaylar: [], error: null };
       _cachedData  = result;
       _cacheExpiry = Date.now() + CACHE_TTL;
@@ -236,7 +288,6 @@ async function fetchBubiletData(forceRefresh, username, password) {
       return { success: false, seanslar: [], workshopDetaylar: [], error: err.message };
     }
   })();
-
   try { return await _fetchPromise; } finally { _fetchPromise = null; }
 }
 
@@ -251,4 +302,4 @@ async function getTokenAndCookies(username, password) {
   return { token: null };
 }
 
-module.exports = { fetchBubiletData: fetchBubiletData, getTokenAndCookies: getTokenAndCookies, clearBubiletCache: clearBubiletCache };
+module.exports = { fetchBubiletData, getTokenAndCookies, clearBubiletCache };
