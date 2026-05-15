@@ -231,7 +231,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
@@ -2956,6 +2956,16 @@ app.get('/{*path}', function(req, res) {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
   }
+});
+
+// Bubilet token'ı jsonbinCache'e kaydet — flush sırasında JSONBin'e yazılır
+bubiletService.setSaveTokenCallback(async function(token, tokenExpiry, cookies) {
+  var rec = await getJsonbinRecord();
+  rec.bubiletToken       = token;
+  rec.bubiletTokenExpiry = tokenExpiry;
+  rec.bubiletCookies     = cookies || [];
+  jsonbinCacheDirty = true;
+  flushJsonbinCache().catch(function(e){ console.error('JSONBin token flush hatasi:', e.message); });
 });
 
 app.listen(3001, '0.0.0.0', function() { console.log('Server 3001 portunda calisiyor'); });

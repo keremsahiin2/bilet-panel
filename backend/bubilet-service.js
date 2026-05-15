@@ -366,4 +366,4 @@ async function getTokenAndCookies(username, password) {
   return { token: null };
 }
 
-module.exports = { fetchBubiletData, getTokenAndCookies, clearBubiletCache };
+module.exports = { fetchBubiletData, getTokenAndCookies, clearBubiletCache, setSaveTokenCallback };
