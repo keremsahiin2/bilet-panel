@@ -584,7 +584,7 @@ async function fetchBiletinial(token) {
 
   // ── 4) Workshop kırılımı — her iki listede de aynı mantık ────────────────
   const workshopSeances = mergedSeances.filter(s =>
-    s.EventName && s.EventName.startsWith('Workshop: Etkinlik Takvimi')
+    s.EventName && s.EventName.startsWith('Workshop: Etkinlik Takvimi') && (s.SalesTicketTotalCount > 0 || s.TotalSoldTicketCount > 0)
   );
   const normalSeances = mergedSeances.filter(s =>
     !s.EventName || !s.EventName.startsWith('Workshop: Etkinlik Takvimi')
