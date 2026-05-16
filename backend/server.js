@@ -451,7 +451,6 @@ async function fetchBubilet(username, password) {
   const workshopSeanslar = seanslar.filter(s => {
     if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
     if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
-    if (s.tarih && new Date(s.tarih) < todayStart) return false;
     return true;
   });
 

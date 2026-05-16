@@ -327,69 +327,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
       });
       var toplamBilet = seanslar.reduce(function(a, x) { return a + x.biletAdet; }, 0);
       console.log("[Bubilet] OK: " + seanslar.length + " seans, " + toplamBilet + " bilet");
-
-      function bubiletBiletAdiToCategory(biletAdi) {
-        if (!biletAdi) return null;
-        if (biletAdi.includes('3D')) return '3D Figür';
-        if (biletAdi.includes('Punch')) return 'Punch';
-        if (biletAdi.includes('Seramik')) return 'Seramik';
-        if (biletAdi.includes('Cupcake') || biletAdi.includes('Mum')) return 'Cupcake Mum';
-        if (biletAdi.includes('Quiz')) return 'Quiz Night';
-        if (biletAdi.includes('Plak')) return 'Plak Boyama';
-        if (biletAdi.includes('Maske')) return 'Maske';
-        if (biletAdi.includes('Heykel')) return 'Heykel';
-        if (biletAdi.includes('Bez')) return 'Bez Çanta';
-        if (biletAdi.includes('Resim')) return 'Resim';
-        if (biletAdi.includes('Mekanda')) return 'Mekanda Seç';
-        return biletAdi;
-      }
-
-      const workshopSeanslar = seanslar.filter(function(s) {
-        if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
-        if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
-        return true;
-      });
-      console.log('[Bubilet] Workshop detay cekilecek:', workshopSeanslar.length, 'seans');
-
-      const authHeaders = {
-        'Authorization': 'Bearer ' + _cachedToken,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Origin': 'https://panel.bubilet.com.tr',
-        'Referer': 'https://panel.bubilet.com.tr/',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      };
-      if (_cachedCookies) authHeaders['Cookie'] = cookiesToString(_cachedCookies);
-
-      async function fetchWorkshopDetail(s) {
-        try {
-          const detayRes = await axios.get(
-            API_BASE + '/api/v2/ticket-list/' + s.seansId,
-            { headers: authHeaders, timeout: 8000, ...getAxiosConfig() }
-          );
-          const detay = detayRes.data;
-          if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
-            const rows = [];
-            for (const bilet of detay.data.detaySatisRaporlar) {
-              if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
-              const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
-              rows.push(Object.assign({}, s, { _workshopCat: cat, _workshopBiletAdi: bilet.biletAdi, biletAdet: bilet.biletAdet, etkinlikAdi: cat }));
-            }
-            console.log('[Bubilet] Workshop OK:', s.seansId, rows.length, 'tur');
-            return rows.length > 0 ? rows : [s];
-          }
-          return [s];
-        } catch (err) {
-          console.error('[Bubilet] Workshop ticket-list hatasi seansId=' + s.seansId + ':', err.message);
-          return [s];
-        }
-      }
-
-      const normalSeanslar = seanslar.filter(function(s) { return !workshopSeanslar.includes(s); });
-      const workshopDetaylar = await Promise.all(workshopSeanslar.map(fetchWorkshopDetail));
-      const sonSeanslar = normalSeanslar.concat(workshopDetaylar.reduce(function(a, r) { return a.concat(r); }, []));
-
-      var result = { success: true, seanslar: sonSeanslar, workshopDetaylar: [], error: null };
+      var result = { success: true, seanslar: seanslar, workshopDetaylar: [], error: null };
       _cachedData  = result;
       _cacheExpiry = Date.now() + CACHE_TTL;
       return result;
