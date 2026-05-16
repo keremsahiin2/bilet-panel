@@ -380,37 +380,45 @@ function buildSeanceMap(data) {
   });
 
   // Filtreleme kuralı:
-  // - Başlangıç saatinden 30 dakika sonra kaybolur.
-  // - Başlangıç saati yoksa o günün 21:00'ında kaybolur.
+  // - Başlangıç saatinden 1 saat sonra listenin en altına iner
+  // - O günün 23:59'unda listeden tamamen kalkar
   const _now = new Date();
-
   return Object.values(map)
     .filter(s => {
-      // timeSlot örnek: "14:00 - 16:00" → başlangıç 14:00
+      const endOfDay = new Date(
+        s.sortDate.getFullYear(),
+        s.sortDate.getMonth(),
+        s.sortDate.getDate(),
+        23, 59, 0
+      );
+      return _now < endOfDay;
+    })
+    .map(s => {
       const startMatch = s.timeSlot.match(/^(\d{2}):(\d{2})/);
-      let hideAfter;
+      let sinkAfter;
       if (startMatch) {
-        // Başlangıç saati + 30dk
-        hideAfter = new Date(
+        sinkAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
           parseInt(startMatch[1]),
-          parseInt(startMatch[2]) + 30,
+          parseInt(startMatch[2]) + 60,
           0
         );
       } else {
-        // Başlangıç saati yoksa o günün 21:00'ı
-        hideAfter = new Date(
+        sinkAfter = new Date(
           s.sortDate.getFullYear(),
           s.sortDate.getMonth(),
           s.sortDate.getDate(),
           21, 0, 0
         );
       }
-      return _now < hideAfter;
+      return { ...s, _started: _now >= sinkAfter };
     })
-    .sort((a,b) => a.sortDate - b.sortDate);
+    .sort((a, b) => {
+      if (a._started !== b._started) return a._started ? 1 : -1;
+      return a.sortDate - b.sortDate;
+    });
 }
 
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
@@ -2423,7 +2431,7 @@ export default function App() {
   }
 
   if (loggedIn && roleScreen && !role) {
-    const PINS = { admin: '2580', staff: '1225' };
+    const PINS = { admin: '5124', staff: '1456' };
     const handleRolePin = () => {
       if (rolePin === PINS[rolePinTarget]) {
         setRole(rolePinTarget);

@@ -93,7 +93,14 @@ async function fetchWithToken(token, cookies) {
   const res = await axios.post(
     API_BASE + '/api/Satis/SeansGrupluSatislars',
     { page: 0, perPage: 100000, order: 'tarih', descending: false,
-      filter: { etkinlikAdi: '', tarih_BasTarih: null, tarih_BitTarih: null, seansAktif: true, koltukSecimi: null }
+      filter: (function() {
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var future = new Date();
+        future.setDate(future.getDate() + 30);
+        future.setHours(23, 59, 59, 999);
+        return { etkinlikAdi: '', tarih_BasTarih: today.toISOString(), tarih_BitTarih: future.toISOString(), seansAktif: null, koltukSecimi: null };
+      })()
     },
     { headers, ...getAxiosConfig(), timeout: 30000 }
   );
