@@ -2658,7 +2658,7 @@ export default function App() {
       <div style={S.page}>
         <div style={S.header}>
           <button style={{...S.smallBtn,marginRight:4}} onClick={()=>{setMode(null);setShowIdeasoftReport(false);}}>← Geri</button>
-          <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>📈 Satış Raporu</span>
+          <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>📈 sosyalsanathane.com Satış Raporu</span>
           <button style={S.smallBtn} onClick={()=>fetchSales()}>⟳ Yenile</button>
         </div>
         <div style={{padding:'16px 18px',maxWidth:720,margin:'0 auto',paddingBottom:60}}>
