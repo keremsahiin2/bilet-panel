@@ -218,6 +218,7 @@ async function getJsonbinRecord() {
     jsonbinCache = res.data.record || {};
     if (!jsonbinCache.baseline)     jsonbinCache.baseline     = {};
     if (!jsonbinCache.monthlySales) jsonbinCache.monthlySales = {};
+    if (!jsonbinCache.dailySales)   jsonbinCache.dailySales   = {};
     console.log('JSONBin: cache yuklendi (baseline kayit sayisi:', Object.keys(jsonbinCache.baseline).length, ')');
   } catch(e) {
     console.error('JSONBin okuma hatasi:', e.message);
@@ -231,7 +232,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, dailySales: jsonbinCache.dailySales || {}, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
@@ -266,68 +267,83 @@ async function saveMonthlySalesAndBaseline(baseline, monthlySales) {
   await flushJsonbinCache();
 }
 
-// İdeasoft seanslarından aylık satış verisini çıkarıp mevcut arşivle birleştir
-// KURAL: Sadece başlangıç saati geçmiş seanslar aylık toplama yansır.
-// Seans başlamadan bilet iptali olabilir → seans başlayana kadar aylık raporlara ekleme.
-function mergeIdeasoftIntoMonthlySales(existing, ideasoftSeances, baseline) {
-  var TR_MONTHS_SRV = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-  var merged = JSON.parse(JSON.stringify(existing)); // derin kopya
+// Günlük satış arşivi — seans başladıktan sonra kaydedilir, silinse bile korunur
+// KURAL: Sadece başlangıç saati geçmiş seanslar kaydedilir.
+function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
+  var merged = JSON.parse(JSON.stringify(existing));
   var now = new Date();
 
   ideasoftSeances.forEach(function(s) {
-    if (!s.fullName || !s.seanceId) return;
-    // fullName'den ay ve saat bilgisini çıkar
-    var m = s.fullName.match(/- (\d+) (\w+) (\w+) (\d{2}:\d{2})/u);
-    if (!m) return;
-    var dayNum   = parseInt(m[1]);
-    var monthKey = m[2]; // "Nisan"
-    var startTimeStr = m[4]; // "17:00"
-    if (!TR_MONTHS_SRV.includes(monthKey)) return;
+    if (!s.seanceId || !s.category) return;
 
-    // Başlangıç saatini hesapla
-    var monIdx = TR_MONTHS_SRV.indexOf(monthKey);
-    var timeParts = startTimeStr.split(':');
-    var startH = parseInt(timeParts[0]);
-    var startMin = parseInt(timeParts[1]);
-    // Yıl tahmini: geçen yıl mı bu yıl mı? Basit yaklaşım: şu an ile karşılaştır
-    var candidateYear = now.getFullYear();
-    var seanceStart = new Date(candidateYear, monIdx, dayNum, startH, startMin, 0);
-    // Eğer seans bu yılda geleceğe ait görünüyorsa (ama ay geçmişse) → geçen yıl olabilir
-    // En basit: eğer seans başlamamışsa atla
-    if (now < seanceStart) {
-      // Seans henüz başlamadı — aylık toplama ekleme
-      return;
+    var seanceStart = null;
+    if (s.startDate) {
+      seanceStart = new Date(s.startDate);
+    } else if (s.fullName) {
+      var _TR_M = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+      var _mFB  = s.fullName.match(/- (\d+) ([\wÀ-ɏ]+) [\wÀ-ɏ]+ (\d{2}:\d{2})/);
+      if (_mFB) {
+        var _mi = _TR_M.indexOf(_mFB[2]);
+        if (_mi >= 0) {
+          var _t  = _mFB[3].split(':');
+          var _yr = now.getFullYear();
+          seanceStart = new Date(_yr, _mi, parseInt(_mFB[1]), parseInt(_t[0]), parseInt(_t[1]));
+          if (seanceStart > new Date(now.getTime() + 30*24*3600*1000)) {
+            seanceStart = new Date(_yr - 1, _mi, parseInt(_mFB[1]), parseInt(_t[0]), parseInt(_t[1]));
+          }
+        }
+      }
     }
+    if (!seanceStart) return;
+    if (now < seanceStart) return; // Seans henüz başlamadı
 
-    var cat = s.category;
+    var cat  = s.category;
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
     var sold = Math.max(0, base - (s.stockAmount !== null ? s.stockAmount : base));
     if (sold === 0) return;
 
-    if (!merged[monthKey]) merged[monthKey] = {};
-    // Seansa özel key — her seans bir kez sayılır, üzerine yazılır (mevcut sold ile max alınır)
+    // "YYYY-MM-DD" formatında günlük key
+    var dateKey = seanceStart.getFullYear() + '-' +
+      String(seanceStart.getMonth() + 1).padStart(2, '0') + '-' +
+      String(seanceStart.getDate()).padStart(2, '0');
+
+    if (!merged[dateKey]) merged[dateKey] = {};
+
     var seanceKey = '_s_' + s.seanceId;
-    var prevSold = (merged[monthKey][seanceKey] && merged[monthKey][seanceKey]._sold) || 0;
-    // Daha fazla satış varsa güncelle (azalmaz — seans silinse bile önceki değer korunur)
-    if (sold >= prevSold) {
-      if (!merged[monthKey][seanceKey]) merged[monthKey][seanceKey] = { cat, _sold: 0 };
-      merged[monthKey][seanceKey]._sold = sold;
+    var prev = merged[dateKey][seanceKey] || { cat: cat, _sold: 0 };
+
+    // Satış sayısı asla azalmaz — seans silinse bile önceki değer korunur
+    if (sold >= prev._sold) {
+      merged[dateKey][seanceKey] = { cat: cat, _sold: sold };
     }
   });
 
   return merged;
 }
 
-// monthlySales'i UI için düz { ay: { kategori: toplam } } formatına çevir
-function flattenMonthlySales(monthlySales) {
+// dailySales → düz { "YYYY-MM-DD": { kategori: toplam } }
+function flattenDailySales(dailySales) {
   var result = {};
-  Object.keys(monthlySales).forEach(function(month) {
-    result[month] = {};
-    Object.keys(monthlySales[month]).forEach(function(seanceKey) {
-      var entry = monthlySales[month][seanceKey];
-      var cat  = entry.cat;
-      var sold = entry._sold || 0;
-      result[month][cat] = (result[month][cat] || 0) + sold;
+  Object.keys(dailySales).sort().forEach(function(dateKey) {
+    result[dateKey] = {};
+    Object.keys(dailySales[dateKey]).forEach(function(seanceKey) {
+      var entry = dailySales[dateKey][seanceKey];
+      if (entry._sold > 0) result[dateKey][entry.cat] = (result[dateKey][entry.cat] || 0) + entry._sold;
+    });
+    if (Object.keys(result[dateKey]).length === 0) delete result[dateKey];
+  });
+  return result;
+}
+
+// dailySales → aylık toplam { "2025-05": { kategori: toplam } }
+function computeMonthlySalesFromDaily(dailySales) {
+  var result = {};
+  Object.keys(dailySales).forEach(function(dateKey) {
+    var monthKey = dateKey.slice(0, 7); // "2025-05"
+    if (!result[monthKey]) result[monthKey] = {};
+    Object.keys(dailySales[dateKey]).forEach(function(seanceKey) {
+      var entry = dailySales[dateKey][seanceKey];
+      if (entry._sold > 0) result[monthKey][entry.cat] = (result[monthKey][entry.cat] || 0) + entry._sold;
     });
   });
   return result;
@@ -651,9 +667,11 @@ function ideasoftSeanceToEntry(seance, categoryName, productId) {
       fname = categoryName + ' #' + seance.id;
     }
   }
+  var rawStart = seance.startDate || seance.beginDate || seance.start_date || seance.begin_date || null;
   return { seanceId: seance.id, productId: parseInt(productId), category: categoryName,
     fullName: fname, stockAmount: seance.stockAmount,
-    price: seance.price1 || '0', status: seance.status };
+    price: seance.price1 || '0', status: seance.status,
+    startDate: rawStart };
 }
 
 // Ürün başına son başarılı veriyi tutan cache
@@ -2232,13 +2250,14 @@ app.post('/api/sales/refresh', async function(req, res) {
     return res.status(500).json({ error: err.message });
   }
 
-  // Aynı /api/sales formatında yanıt dön — baseline + monthlySales hesapla
+  // Aynı /api/sales formatında yanıt dön — dailySales + monthlySales hesapla
   var ideasoftSales = null;
+  var dailySalesFlat = {};
   var monthlySalesFlat = {};
   if (ideasoftData) {
     var rec2r = await getJsonbinRecord();
-    var baseline2r     = rec2r.baseline;
-    var monthlySales2r = rec2r.monthlySales;
+    var baseline2r   = rec2r.baseline;
+    var dailySales2r = rec2r.dailySales || {};
     var changed2r = false;
 
     ideasoftSales = ideasoftData.map(function(s) {
@@ -2254,17 +2273,18 @@ app.post('/api/sales/refresh', async function(req, res) {
       });
     });
 
-    var updatedMonthly2r = mergeIdeasoftIntoMonthlySales(monthlySales2r, ideasoftSales, baseline2r);
-    var monthlyChanged2r = JSON.stringify(updatedMonthly2r) !== JSON.stringify(monthlySales2r);
+    var updatedDaily2r  = mergeIdeasoftIntoDailySales(dailySales2r, ideasoftSales, baseline2r);
+    var dailyChanged2r  = JSON.stringify(updatedDaily2r) !== JSON.stringify(dailySales2r);
 
-    if (changed2r || monthlyChanged2r) {
-      rec2r.baseline     = baseline2r;
-      rec2r.monthlySales = updatedMonthly2r;
+    if (changed2r || dailyChanged2r) {
+      rec2r.baseline   = baseline2r;
+      rec2r.dailySales = updatedDaily2r;
       jsonbinCacheDirty = true;
       flushJsonbinCache().catch(function(e){ console.error('JSONBin flush hatasi (refresh):', e.message); });
     }
 
-    monthlySalesFlat = flattenMonthlySales(updatedMonthly2r);
+    dailySalesFlat   = flattenDailySales(updatedDaily2r);
+    monthlySalesFlat = computeMonthlySalesFromDaily(updatedDaily2r);
   }
 
   res.json({
@@ -2272,6 +2292,7 @@ app.post('/api/sales/refresh', async function(req, res) {
     biletinial: biletinialData,
     ideasoft: ideasoftSales,
     lastFetch,
+    dailySales: dailySalesFlat,
     monthlySales: monthlySalesFlat
   });
 });
@@ -2281,11 +2302,12 @@ app.get('/api/sales', async function(req, res) {
   if (!bubiletData) return res.status(401).json({ error:'Giris yapilmadi' });
 
   var ideasoftSales = null;
+  var dailySalesFlat = {};
   var monthlySalesFlat = {};
   if (ideasoftData) {
     var rec = await getJsonbinRecord();
-    var baseline     = rec.baseline;
-    var monthlySales = rec.monthlySales;
+    var baseline   = rec.baseline;
+    var dailySales = rec.dailySales || {};
     var changed = false;
 
     ideasoftSales = ideasoftData.map(function(s) {
@@ -2298,21 +2320,22 @@ app.get('/api/sales', async function(req, res) {
       });
     });
 
-    // Aylık satış arşivini güncelle — seanslar sonradan silinse bile korunur
-    var updatedMonthlySales = mergeIdeasoftIntoMonthlySales(monthlySales, ideasoftSales, baseline);
-    var monthlyChanged = JSON.stringify(updatedMonthlySales) !== JSON.stringify(monthlySales);
+    // Günlük satış arşivini güncelle — seanslar sonradan silinse bile korunur
+    var updatedDaily = mergeIdeasoftIntoDailySales(dailySales, ideasoftSales, baseline);
+    var dailyChanged = JSON.stringify(updatedDaily) !== JSON.stringify(dailySales);
 
-    if (changed || monthlyChanged) {
-      rec.baseline     = baseline;
-      rec.monthlySales = updatedMonthlySales;
+    if (changed || dailyChanged) {
+      rec.baseline   = baseline;
+      rec.dailySales = updatedDaily;
       jsonbinCacheDirty = true;
       flushJsonbinCache().catch(function(e){ console.error('JSONBin flush hatasi:', e.message); });
     }
 
-    monthlySalesFlat = flattenMonthlySales(updatedMonthlySales);
+    dailySalesFlat   = flattenDailySales(updatedDaily);
+    monthlySalesFlat = computeMonthlySalesFromDaily(updatedDaily);
   }
 
-  res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, monthlySales: monthlySalesFlat });
+  res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, dailySales: dailySalesFlat, monthlySales: monthlySalesFlat });
 });
 
 // ─── Mail Etiketleri (kalıcı) ──────────────────────────────────────────────────
