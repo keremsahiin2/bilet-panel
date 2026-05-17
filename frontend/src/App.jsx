@@ -5398,20 +5398,6 @@ export default function App() {
             </div>
             <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
           </button>
-          <button
-            onClick={()=>{if(!salesData&&!salesLoading)fetchSales();setMode('report');}}
-            style={{width:'100%',display:'flex',alignItems:'center',gap:14,padding:'15px 22px',
-              borderRadius:14,border:'1px solid #1a2035',cursor:'pointer',textAlign:'left',
-              background:'#0d1120',transition:'all 0.2s'}}
-            onMouseOver={e=>{e.currentTarget.style.borderColor='#b47cff';e.currentTarget.style.background='#0f1525';}}
-            onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
-            <span style={{fontSize:26}}>📈</span>
-            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>SS.com Satış Raporu</span>
-              <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>İdeasoft günlük ve aylık satış arşivi</span>
-            </div>
-            <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
-          </button>
         </div>
       ) : (
         /* Yönetici: iki kart yan yana + Seans Yazdır bar */
