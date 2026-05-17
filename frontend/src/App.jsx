@@ -2646,6 +2646,8 @@ export default function App() {
     const TR_DAYS_R=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
     const fmtDate=(dk)=>{const d=new Date(dk+'T12:00:00');return d.getDate()+' '+TR_MONTHS_R[d.getMonth()]+' '+TR_DAYS_R[d.getDay()];};
     const fmtMonth=(mk)=>{const[y,m]=mk.split('-');return TR_MONTHS_R[parseInt(m)-1]+' '+y;};
+    const fmtTL=(n)=>n.toLocaleString('tr-TR')+'₺';
+    const getPrice=(cat)=>(EVENT_IDEASOFT_META[cat]&&EVENT_IDEASOFT_META[cat].price)||0;
     const dailyMap  =salesData?(salesData.dailySales||{}):{};
     const monthlyMap=salesData?(salesData.monthlySales||{}):{};
     const sortedDays=Object.keys(dailyMap).sort().reverse();
@@ -2653,12 +2655,48 @@ export default function App() {
     const curMK=nowR.getFullYear()+'-'+String(nowR.getMonth()+1).padStart(2,'0');
     const doneMo=Object.keys(monthlyMap).filter(m=>m<curMK).sort().reverse();
     const hasSalesR=sortedDays.length>0||doneMo.length>0;
-    const showDaily=showIdeasoftReport; // mevcut state'i toggle olarak kullan
+    const showDaily=showIdeasoftReport;
+
+    const MonthBlock=({mk,accentColor})=>{
+      const cats=Object.entries(monthlyMap[mk]).sort((a,b)=>b[1]-a[1]);
+      const totalBilet=cats.reduce((s,[,v])=>s+v,0);
+      const totalCiro=cats.reduce((s,[cat,v])=>s+v*getPrice(cat),0);
+      return(
+        <div style={{...S.reportPanel,marginBottom:12}}>
+          <div style={{padding:'12px 16px',borderBottom:'1px solid #1e293b',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:11,fontWeight:800,color:accentColor,letterSpacing:1.5,textTransform:'uppercase'}}>
+              {accentColor==='#60a5fa'?'📊':'📅'} {fmtMonth(mk)} {accentColor==='#60a5fa'?'— Güncel Toplam':'Toplamı'}
+            </span>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:18,fontWeight:800,color:accentColor}}>{totalBilet} bilet</div>
+              <div style={{fontSize:12,fontWeight:700,color:'#22c55e'}}>{fmtTL(totalCiro)}</div>
+            </div>
+          </div>
+          {cats.map(([cat,count])=>{
+            const ciro=count*getPrice(cat);
+            return(
+              <div key={cat} style={{...S.reportMonthRow,padding:'7px 16px'}}>
+                <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
+                <div style={{textAlign:'right'}}>
+                  <span style={{...S.reportCount,color:accentColor}}>{count}</span>
+                  {getPrice(cat)>0&&<div style={{fontSize:11,color:'#22c55e',fontWeight:600}}>{fmtTL(ciro)}</div>}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{padding:'8px 16px',borderTop:'1px solid #1e293b',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(0,0,0,0.2)'}}>
+            <span style={{fontSize:12,fontWeight:700,color:'#fff'}}>Toplam Ciro</span>
+            <span style={{fontSize:15,fontWeight:800,color:'#22c55e'}}>{fmtTL(totalCiro)}</span>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div style={S.page}>
         <div style={S.header}>
           <button style={{...S.smallBtn,marginRight:4}} onClick={()=>{setMode(null);setShowIdeasoftReport(false);}}>← Geri</button>
-          <span style={{fontSize:14,fontWeight:700,color:'#e2e8f0'}}>📈 sosyalsanathane.com Satış Raporu</span>
+          <span style={{fontSize:13,fontWeight:700,color:'#e2e8f0'}}>📈 SS.com Satış Raporu</span>
           <button style={S.smallBtn} onClick={()=>fetchSales()}>⟳ Yenile</button>
         </div>
         <div style={{padding:'16px 18px',maxWidth:720,margin:'0 auto',paddingBottom:60}}>
@@ -2680,75 +2718,41 @@ export default function App() {
                   <div style={{color:'#374151',fontSize:11}}>Geçmiş seanslar veri yüklendikten sonra otomatik kaydedilir.</div>
                 </div>
               )}
-
-              {/* Bu ayın güncel toplamı */}
-              {monthlyMap[curMK]&&(()=>{
-                const cats=Object.entries(monthlyMap[curMK]).sort((a,b)=>b[1]-a[1]);
-                const total=cats.reduce((s,[,v])=>s+v,0);
-                return(
-                  <div style={{...S.reportPanel,marginBottom:12}}>
-                    <div style={{padding:'12px 16px',borderBottom:'1px solid #1e293b',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <span style={{fontSize:11,fontWeight:800,color:'#60a5fa',letterSpacing:2,textTransform:'uppercase'}}>📊 {fmtMonth(curMK)} — Güncel Toplam</span>
-                      <span style={{fontSize:18,fontWeight:800,color:'#60a5fa'}}>{total}</span>
-                    </div>
-                    {cats.map(([cat,count])=>(
-                      <div key={cat} style={S.reportMonthRow}>
-                        <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
-                        <span style={{...S.reportCount,color:'#60a5fa'}}>{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-
-              {/* Geçmiş aylar */}
-              {doneMo.map(mk=>{
-                const cats=Object.entries(monthlyMap[mk]).sort((a,b)=>b[1]-a[1]);
-                const total=cats.reduce((s,[,v])=>s+v,0);
-                return(
-                  <div key={mk} style={{...S.reportPanel,marginBottom:12}}>
-                    <div style={{padding:'12px 16px',borderBottom:'1px solid #1e293b',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <span style={{fontSize:11,fontWeight:800,color:'#b47cff',letterSpacing:2,textTransform:'uppercase'}}>📅 {fmtMonth(mk)} Toplamı</span>
-                      <span style={{fontSize:18,fontWeight:800,color:'#b47cff'}}>{total}</span>
-                    </div>
-                    {cats.map(([cat,count])=>(
-                      <div key={cat} style={S.reportMonthRow}>
-                        <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
-                        <span style={{...S.reportCount,color:'#b47cff'}}>{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-
-              {/* Gün bazlı toggle butonu */}
+              {monthlyMap[curMK]&&<MonthBlock mk={curMK} accentColor='#60a5fa'/>}
+              {doneMo.map(mk=><MonthBlock key={mk} mk={mk} accentColor='#b47cff'/>)}
               {hasSalesR&&(
                 <button
                   onClick={()=>setShowIdeasoftReport(p=>!p)}
                   style={{...S.smallBtn,width:'100%',padding:'11px',fontSize:13,marginTop:4,marginBottom:showDaily?12:0,
-                    color:showDaily?'#94a3b8':'#4fc9ff',
-                    borderColor:showDaily?'#1a2035':'#4fc9ff44',
-                    textAlign:'center'}}>
+                    color:showDaily?'#94a3b8':'#4fc9ff',borderColor:showDaily?'#1a2035':'#4fc9ff44',textAlign:'center'}}>
                   {showDaily?'▲ Gün Bazlı Gizle':'▼ Gün Bazlı Göster'}
                 </button>
               )}
-
-              {/* Günlük detay */}
               {showDaily&&sortedDays.map(dk=>{
                 const cats=Object.entries(dailyMap[dk]).sort((a,b)=>b[1]-a[1]);
-                const total=cats.reduce((s,[,v])=>s+v,0);
+                const totalBilet=cats.reduce((s,[,v])=>s+v,0);
+                const totalCiro=cats.reduce((s,[cat,v])=>s+v*getPrice(cat),0);
                 return(
                   <div key={dk} style={S.reportDayBlock}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                       <span style={S.reportDayTitle}>{fmtDate(dk)}</span>
-                      <span style={{fontSize:12,fontWeight:700,color:'#475569'}}>{total} bilet</span>
-                    </div>
-                    {cats.map(([cat,count])=>(
-                      <div key={cat} style={S.reportRow}>
-                        <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
-                        <span style={S.reportCount}>{count}</span>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:12,fontWeight:700,color:'#475569'}}>{totalBilet} bilet</div>
+                        <div style={{fontSize:11,fontWeight:700,color:'#22c55e'}}>{fmtTL(totalCiro)}</div>
                       </div>
-                    ))}
+                    </div>
+                    {cats.map(([cat,count])=>{
+                      const ciro=count*getPrice(cat);
+                      return(
+                        <div key={cat} style={S.reportRow}>
+                          <span style={S.reportCat}>{getCatIcon(cat)} {cat}</span>
+                          <div style={{textAlign:'right'}}>
+                            <span style={S.reportCount}>{count}</span>
+                            {getPrice(cat)>0&&<div style={{fontSize:11,color:'#22c55e',fontWeight:600}}>{fmtTL(ciro)}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -5403,7 +5407,7 @@ export default function App() {
             onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.background='#0d1120';}}>
             <span style={{fontSize:26}}>📈</span>
             <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Satış Raporu</span>
+              <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>SS.com Satış Raporu</span>
               <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>İdeasoft günlük ve aylık satış arşivi</span>
             </div>
             <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
@@ -5503,7 +5507,7 @@ export default function App() {
               onMouseOut={e=>{e.currentTarget.style.borderColor='#1a2035';e.currentTarget.style.boxShadow='none';e.currentTarget.style.background='#0d1120';}}>
               <span style={{fontSize:26}}>📈</span>
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>Satış Raporu</span>
+                <span style={{fontSize:14,fontWeight:700,color:'#94a3b8',marginBottom:4}}>SS.com Satış Raporu</span>
                 <span style={{fontSize:11,color:'#374151',lineHeight:1.5}}>İdeasoft günlük ve aylık satış arşivi</span>
               </div>
               <span style={{marginLeft:'auto',fontSize:18,color:'#374151'}}>›</span>
