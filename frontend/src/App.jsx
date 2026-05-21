@@ -5170,7 +5170,7 @@ export default function App() {
                 'Labubu': 2, 'Labubu Kalpli': 2, 'Garfield': 3, 'Minion': 5, 'Goku': 1,
                 'Chucky': 1, 'Garen': 1, 'Eşşek': 3, 'Dobby': 2, 'Dumbledore': 1,
                 'Hagrid': 1, 'Harry Potter Bust': 2, 'Harry Potter Kuşlu': 2, 'Hulk': 2,
-                'Vecna': 1, 'Şirine': 2, 'Hello Kitty': 2, 'Buzz': 2,
+                'Vecna': 1, 'Şirine': 2, 'Hello Kitty': 2, 'Buzz': 1,
                 'Rick & Morty': 2, 'Sullivan': 1, 'Batman+Joker': 3,
               };
 
