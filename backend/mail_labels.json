@@ -1,0 +1,13 @@
+{
+  "Seramik|22 Mayıs Cuma 18:00 - 20:00": [
+    {
+      "islem": "kontenjan",
+      "kontenjan": "3",
+      "platforms": [
+        "bubilet",
+        "biletinial"
+      ],
+      "ts": "19.05.2026 12:00:52"
+    }
+  ]
+}

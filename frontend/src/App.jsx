@@ -99,6 +99,7 @@ const EVENT_IDEASOFT_META = {
   'Seramik':     { parentId:12671,price:900, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Mekanda Seç': { parentId:5135, price:550, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Quiz Night':  { parentId:4251, price:250, stock:50, tax:10, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Tunalı: Ara Sokak Pub' },
 };
 
 function generateSeansListForCat(cat, startDateStr, endDateStr) {
@@ -241,12 +242,9 @@ function buildSeanceMap(data) {
       const [startH, startM] = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2])] : [0, 0];
       const _n = new Date();
       const nowYear = _n.getFullYear();
-      // Önce bu yıl için tarihi dene; o günün 21:00'ı geçmişse gelecek yıla at
+      // sortDate: her zaman bu yılın tarihi — yil atlama yok
       let year = nowYear;
-      const candidateDay21 = new Date(nowYear, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, 21, 0, 0);
-      if (_n >= candidateDay21) {
-        year = nowYear + 1;
-      }
+      // Yil atlama yok — Ideasoft zaten guncel seans listesi donduruyor
       map[key].sortDate = new Date(year, monIdx >= 0 ? monIdx : _n.getMonth(), dayNum || 1, startH, startM || 0);
       map[key]._sorted = true;
     }
@@ -2729,7 +2727,7 @@ export default function App() {
                 </button>
               )}
               {showDaily&&sortedDays.map(dk=>{
-                const cats=Object.entries(dailyMap[dk]).sort((a,b)=>b[1]-a[1]);
+                const cats=Object.entries(dailyMap[dk]).filter(([k])=>k!=='_revenue').sort((a,b)=>b[1]-a[1]);
                 const totalBilet=cats.reduce((s,[,v])=>s+v,0);
                 const totalCiro=cats.reduce((s,[cat,v])=>s+v*getPrice(cat),0);
                 return(

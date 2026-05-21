@@ -129,6 +129,9 @@ const STOCK_BASELINE_FILE = path.join(__dirname, 'stock_baseline.json');
 const SAVED_CREDS_FILE    = path.join(__dirname, 'saved_credentials.json');
 const COOKIES_FILE        = path.join(__dirname, 'ideasoft_cookies.json');
 const DEFAULT_BASELINE    = 8;
+const CATEGORY_PRICES = {
+  'Quiz Night': 250
+};
 const CATEGORY_BASELINE = {
   'Heykel': 10, 'Bez Çanta': 10, 'Resim': 10, '3D Figür': 10,
   'Maske': 10, 'Plak Boyama': 10, 'Seramik': 8, 'Cupcake Mum': 8,
@@ -279,6 +282,9 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
     var seanceStart = null;
     if (s.startDate) {
       seanceStart = new Date(s.startDate);
+      if (!/[+\-]\d{2}:\d{2}$|Z$/.test(s.startDate)) {
+        seanceStart = new Date(s.startDate.replace(' ', 'T') + '+03:00');
+      }
     } else if (s.fullName) {
       var _TR_M = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
       var _mFB  = s.fullName.match(/- (\d+) ([\wÀ-ɏ]+) [\wÀ-ɏ]+ (\d{2}:\d{2})/);
@@ -321,7 +327,8 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
 
     // Satış sayısı asla azalmaz — seans silinse bile önceki değer korunur
     if (sold >= prev._sold) {
-      merged[dateKey][seanceKey] = { cat: cat, _sold: sold };
+      var price = parseFloat(s.price) || CATEGORY_PRICES[cat] || 0;
+      merged[dateKey][seanceKey] = { cat: cat, _sold: sold, _revenue: sold * price };
     }
   });
 
@@ -335,7 +342,11 @@ function flattenDailySales(dailySales) {
     result[dateKey] = {};
     Object.keys(dailySales[dateKey]).forEach(function(seanceKey) {
       var entry = dailySales[dateKey][seanceKey];
-      if (entry._sold > 0) result[dateKey][entry.cat] = (result[dateKey][entry.cat] || 0) + entry._sold;
+      if (entry._sold > 0) {
+        result[dateKey][entry.cat] = (result[dateKey][entry.cat] || 0) + entry._sold;
+        if (!result[dateKey]._revenue) result[dateKey]._revenue = {};
+        result[dateKey]._revenue[entry.cat] = (result[dateKey]._revenue[entry.cat] || 0) + (entry._revenue || 0);
+      }
     });
     if (Object.keys(result[dateKey]).length === 0) delete result[dateKey];
   });
