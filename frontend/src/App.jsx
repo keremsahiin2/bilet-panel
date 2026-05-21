@@ -5162,21 +5162,21 @@ export default function App() {
 
               // 3D Figürler için hedef stok sayıları
               const FIGUR_HEDEF = {
-                'Spiderman': 3, 'Spiderman Çocuk': 3, 'Winnie the Pooh': 4, 'Stitch': 4,
-                'Yoda': 4, 'Pikaçu': 4, 'Bart': 2, 'Mickey Mouse': 4, 'Ironman': 2,
-                'Groot': 3, 'Superman': 3, 'Batman Yeni': 0, 'Batman': 2, 'Mike': 2,
+                'Spiderman': 2, 'Spiderman Çocuk': 2, 'Winnie the Pooh': 5, 'Stitch': 5,
+                'Yoda': 5, 'Pikaçu': 3, 'Bart': 2, 'Mickey Mouse': 5, 'Ironman': 2,
+                'Groot': 2, 'Superman': 2, 'Batman': 2, 'Mike': 3,
                 'Donald': 2, 'Minnie': 5, 'Bugs Bunny': 2, 'Shrek': 3, 'Shrek Gözlük': 3,
-                'Fiona': 3, 'Süngerbob': 4, 'Tom': 3, 'Jerry': 3, 'Ninja Kaplumbağa': 4,
-                'Labubu': 3, 'Labubu Kalpli': 3, 'Garfield': 3, 'Minion': 4, 'Goku': 2,
-                'Chucky': 2, 'Garen': 1, 'Eşşek': 3, 'Dobby': 3, 'Dumbledore': 1,
+                'Fiona': 3, 'Süngerbob': 5, 'Tom': 4, 'Jerry': 4, 'Ninja Kaplumbağa': 3,
+                'Labubu': 2, 'Labubu Kalpli': 2, 'Garfield': 3, 'Minion': 5, 'Goku': 1,
+                'Chucky': 1, 'Garen': 1, 'Eşşek': 3, 'Dobby': 2, 'Dumbledore': 1,
                 'Hagrid': 1, 'Harry Potter Bust': 2, 'Harry Potter Kuşlu': 2, 'Hulk': 2,
-                'Vecna': 1, 'Şirine': 2, 'Hello Kitty': 2, 'Buzz': 0,
-                'Rick & Morty': 2, 'Sullivan': 2,
+                'Vecna': 1, 'Şirine': 2, 'Hello Kitty': 2, 'Buzz': 2,
+                'Rick & Morty': 2, 'Sullivan': 1, 'Batman+Joker': 3,
               };
 
               // Kategoriye göre WhatsApp numarası
               const CAT_WA_NUMBER = {
-                '3D Figürler': '905050523801',
+                '3D Figürler': '905453964756',
                 'Mum Malzemeleri': '905050523801',
                 'Resim Malzemeleri': '905453964756',
                 'Punch Malzemeleri': '905453964756',
