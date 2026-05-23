@@ -293,9 +293,12 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
         if (_mi >= 0) {
           var _t  = _mFB[3].split(':');
           var _yr = now.getFullYear();
-          seanceStart = new Date(_yr, _mi, parseInt(_mFB[1]), parseInt(_t[0]), parseInt(_t[1]));
+          var _pad = function(n){ return String(n).padStart(2,'0'); };
+          var _isoStr = _yr + '-' + _pad(_mi+1) + '-' + _pad(parseInt(_mFB[1])) + 'T' + _pad(parseInt(_t[0])) + ':' + _pad(parseInt(_t[1])) + ':00+03:00';
+          seanceStart = new Date(_isoStr);
           if (seanceStart > new Date(now.getTime() + 30*24*3600*1000)) {
-            seanceStart = new Date(_yr - 1, _mi, parseInt(_mFB[1]), parseInt(_t[0]), parseInt(_t[1]));
+            var _isoStrPrev = (_yr-1) + '-' + _pad(_mi+1) + '-' + _pad(parseInt(_mFB[1])) + 'T' + _pad(parseInt(_t[0])) + ':' + _pad(parseInt(_t[1])) + ':00+03:00';
+            seanceStart = new Date(_isoStrPrev);
           }
         }
       }
