@@ -28,6 +28,7 @@ app.use(cors());
 app.use(express.json());
 
 let bubiletData    = null;
+let bubiletConnected = false;
 let biletinialData = null;
 let ideasoftData   = null;
 let lastFetch      = null;
@@ -815,6 +816,7 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
   // Her kaynak biter bitmez global state'e yaz — polling anında görsün
   const bubiletP = bubiletService.fetchBubiletData(false, bubiletUser, bubiletPass)
     .then(r => { const d = r.seanslar || [];
+      bubiletConnected = r.success === true;
       bubiletData = d;
       lastFetch = new Date().toISOString();
       // Bubilet + Biletinial ikisi de geldiyse ready işaretle
@@ -2239,10 +2241,10 @@ app.post('/api/sales/refresh', async function(req, res) {
     const _refreshT0 = Date.now();
     const [newBubilet, newBiletinial, newIdeasoft] = await Promise.all([
       bubiletService.fetchBubiletData(true, creds.bubiletUser, creds.bubiletPass)
-        .then(r => { console.log("Refresh: Bubilet", r.seanslar.length, "kayit,", Date.now()-_refreshT0, "ms"); return r.seanslar; })
+        .then(r => { bubiletConnected = r.success === true; console.log("Refresh: Bubilet", r.seanslar.length, "kayit,", Date.now()-_refreshT0, "ms"); return r.seanslar; })
         .catch(e => {
           console.error("Refresh: Bubilet hatasi:", e.message, e.response?.status, JSON.stringify(e.response?.data));
-          return bubiletData || [];
+          bubiletConnected = false; return bubiletData || [];
         }),
       fetchBiletinial(creds.biletinialToken || "")
         .then(d => { console.log("Refresh: Biletinial", d.length, "kayit,", Date.now()-_refreshT0, "ms"); return d; })
@@ -2356,7 +2358,7 @@ app.get('/api/sales', async function(req, res) {
     monthlySalesFlat = computeMonthlySalesFromDaily(updatedDaily);
   }
 
-  res.json({ bubilet:bubiletData, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, dailySales: dailySalesFlat, monthlySales: monthlySalesFlat });
+  res.json({ bubilet:bubiletData, bubiletConnected:bubiletConnected, biletinial:biletinialData, ideasoft:ideasoftSales, lastFetch, dailySales: dailySalesFlat, monthlySales: monthlySalesFlat });
 });
 
 // ─── Mail Etiketleri (kalıcı) ──────────────────────────────────────────────────

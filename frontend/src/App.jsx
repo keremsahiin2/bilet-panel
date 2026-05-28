@@ -2780,7 +2780,7 @@ export default function App() {
         </div>
         <div style={S.panel}>
           {salesData && (() => {
-            const bubiletOk  = (salesData.bubilet  || []).length > 0;
+            const bubiletOk = salesData.bubiletConnected === true || (salesData.bubilet || []).length > 0;
             const bialOk     = (salesData.biletinial|| []).length > 0;
             const ideasoftOk = (salesData.ideasoft  || []).length > 0;
             return (
