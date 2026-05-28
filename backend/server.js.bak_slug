@@ -1514,12 +1514,9 @@ async function createOneSeance(payload) {
   var realParentSlug = parentData.slug || '';
 
   // Slug oluştur
-  var seansSlugSuffix = payload.name.toLowerCase()
+  var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
     .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
     .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-  var seansSlugBase = (realParentSlug || '').slice(0, 80).replace(/-+$/,'');
-  var seansSlug = (seansSlugBase ? seansSlugBase + '-' : '') + seansSlugSuffix;
-  if (seansSlug.length > 220) seansSlug = seansSlug.slice(0, 220).replace(/-+$/,'');
 
   // optionIds: mevcut tüm tarih&saat ID'leri + mekan ID kombinasyonu
   // İdeasoft formatı: "tarihId_mekanId" — her yeni seans için ayrı kombinasyon
@@ -1887,12 +1884,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     var payload = toWrite[oi];
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
     var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
-    var seansSlugSuffix = payload.name.toLowerCase()
+    var seansSlug = realParentSlug + '-' + payload.name.toLowerCase()
       .replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ç/g,'c')
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-    var seansSlugBase = (realParentSlug || '').slice(0, 80).replace(/-+$/,'');
-    var seansSlug = (seansSlugBase ? seansSlugBase + '-' : '') + seansSlugSuffix;
-    if (seansSlug.length > 220) seansSlug = seansSlug.slice(0, 220).replace(/-+$/,'');
 
     if (jobId && bulkProgressMap[jobId]) {
       bulkProgressMap[jobId].current = 'Option hazırlanıyor: ' + tarihSaatTitle;
@@ -2074,59 +2068,36 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     var batchStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
     console.log('Bulk: batch yaniti (ilk 1000 karakter):', batchStr.slice(0, 1000));
 
-    // Per-seans batch yanit parse — sıra bazlı (İdeasoft Content-ID'yi değiştiriyor)
-    // Her --boundary bloğunu ayır, sırasıyla seansItems ile eşleştir
-    var batchBlocks = [];
-    var boundaryMarker = '--' + boundary;
-    var rawBlocks = batchStr.split(boundaryMarker);
-    // İlk eleman boş, son eleman '--' ile biter — ikisini atla
-    for (var bi = 1; bi < rawBlocks.length; bi++) {
-      var block = rawBlocks[bi];
-      if (block.trim() === '--' || block.trim() === '') continue;
-      // HTTP status kodunu bul
-      var httpM = block.match(/HTTP\/1\.\d (\d{3})/);
-      var blockStatus = httpM ? parseInt(httpM[1]) : 0;
-      // JSON body bul
-      var jsonStart = block.indexOf('{');
-      var blockJson = null;
-      if (jsonStart !== -1) {
-        try { blockJson = JSON.parse(block.slice(jsonStart)); } catch(e) {}
-      }
-      batchBlocks.push({ status: blockStatus, json: blockJson, raw: block });
-    }
-    console.log('Bulk: batch parse — toplam blok:', batchBlocks.length, 'beklenen:', seansItems.length);
-
-    seansItems.forEach(function(item, idx) {
-      var block = batchBlocks[idx];
+    // Per-seans batch yanit parse — her Content-ID blogunu ayri kontrol et
+    seansItems.forEach(function(item) {
+      var cidMarker = 'Content-ID: <create-seance-' + item.newOptionId + '>';
+      var cidIdx = batchStr.indexOf(cidMarker);
       var succeeded = false;
       var errDetail = 'Batch yanitinda bulunamadi';
-
-      if (block) {
-        var statusCode = block.status;
-        if (statusCode >= 200 && statusCode < 300) {
-          succeeded = true;
-        } else if (statusCode === 400) {
-          var rawSnippet = block.raw.slice(0, 400);
-          if (rawSnippet.includes('Tekrarlanan') || rawSnippet.includes('tekrarlanan')) {
-            results.push({ success: false, skipped: true, name: item.payload.name, error: 'Zaten mevcut (atlandi)' });
-            if (jobId && bulkProgressMap[jobId]) {
-              bulkProgressMap[jobId].done++;
-              bulkProgressMap[jobId].results.push({ success: false, skipped: true, name: item.tarihSaatTitle, error: 'Zaten mevcut' });
+      if (cidIdx !== -1) {
+        var afterCid = batchStr.slice(cidIdx);
+        var httpMatch = afterCid.match(/HTTP\/1\.1 (\d{3})/);
+        if (httpMatch) {
+          var statusCode = parseInt(httpMatch[1]);
+          if (statusCode >= 200 && statusCode < 300) {
+            succeeded = true;
+          } else if (statusCode === 400) {
+            var snippet = afterCid.slice(0, 300);
+            if (snippet.includes('Tekrarlanan') || snippet.includes('tekrarlanan')) {
+              results.push({ success: false, skipped: true, name: item.payload.name, error: 'Zaten mevcut (atlandi)' });
+              if (jobId && bulkProgressMap[jobId]) {
+                bulkProgressMap[jobId].done++;
+                bulkProgressMap[jobId].results.push({ success: false, skipped: true, name: item.tarihSaatTitle, error: 'Zaten mevcut' });
+              }
+              console.log('Bulk per-seans: ATLANDI (Tekrarlanan):', item.tarihSaatTitle);
+              return;
             }
-            console.log('Bulk per-seans: ATLANDI (Tekrarlanan):', item.tarihSaatTitle);
-            return;
-          }
-          // Hata mesajını JSON'dan al
-          if (block.json && block.json.errors) {
-            errDetail = 'HTTP 400: ' + JSON.stringify(block.json.errors).slice(0, 120);
+            errDetail = 'HTTP ' + statusCode;
           } else {
-            errDetail = 'HTTP 400';
+            errDetail = 'HTTP ' + statusCode;
           }
-        } else if (statusCode > 0) {
-          errDetail = 'HTTP ' + statusCode;
         }
       }
-
       if (succeeded) {
         results.push({ success: true, name: item.payload.name, optionId: item.newOptionId });
         existingSeanceNames.add(item.payload.name.trim().toLowerCase());

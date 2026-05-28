@@ -1492,39 +1492,21 @@ export default function App() {
     setSeansYazCats(prev => prev.includes(cat) ? prev.filter(c=>c!==cat) : [...prev, cat]);
   };
 
-    const handleSeansYazPreview = async () => {
+  const handleSeansYazPreview = () => {
+    // Seçili tüm kategoriler için seansları birleştir
     const SEANS_CATS_ALL = Object.keys(EVENT_SCHEDULE);
     const activeCats = seansYazCats.length === 0 ? SEANS_CATS_ALL : seansYazCats;
-    const allItems = activeCats.flatMap(cat =>
+    const allItems = activeCats.flatMap(cat => 
       generateSeansListForCat(cat, seansYazStart, seansYazEnd).map(item => ({...item, cat}))
     );
+    // Tarihe göre sırala
     allItems.sort((a,b) => a.date - b.date);
+
+    // Duplicate kontrolü backend'e bırakıldı — salesData sadece satışlı seansları
+    // içerdiğinden frontend kontrolü hatalı "zaten mevcut" sonucu veriyordu.
     const filtered = allItems.filter(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot) !== null);
-
-    // Backend'e sor: hangileri zaten mevcut?
-    const parentIds = [...new Set(activeCats.map(cat => EVENT_IDEASOFT_META[cat]?.parentId).filter(Boolean))];
-    let existingSet = new Set();
-    try {
-      const checkRes = await fetch('/api/ideasoft/check-existing-seances', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parentIds })
-      });
-      const checkJson = await checkRes.json();
-      existingSet = new Set((checkJson.existingNames || []).map(n => n.trim().toLowerCase()));
-    } catch(e) {
-      console.warn('check-existing-seances hatası, atlanıyor:', e.message);
-    }
-
-    // Yeni olanlar vs zaten mevcutlar
-    const toWrite = filtered.filter(item => {
-      const payload = buildIdeasoftPayload(item.cat, item.dateKey, item.slot);
-      return payload && !existingSet.has(payload.name.trim().toLowerCase());
-    });
-    const skipped = filtered.length - toWrite.length;
-
-    setSeansYazSkipped(skipped);
-    setSeansYazList(toWrite);
+    setSeansYazSkipped(0);
+    setSeansYazList(filtered);
     setSeansYazStep(3);
   };
 
@@ -1728,8 +1710,8 @@ export default function App() {
     setStockMailSending(false);
   };
 
-    const handleSeansYazCreate = async () => {
-    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0, written: 0, skipped: 0 });
+  const handleSeansYazCreate = async () => {
+    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
     setSeansYazErrors([]);
     setSeansYazCurrentName('');
 
@@ -1739,9 +1721,8 @@ export default function App() {
       catGroups[item.cat].push(item);
     });
 
-    let totalWritten = 0;
-    let totalSkipped = 0;
-    let totalErrors  = 0;
+    let totalDone = 0;
+    let totalErrors = 0;
     const allErrorList = [];
 
     for (const [cat, items] of Object.entries(catGroups)) {
@@ -1752,7 +1733,7 @@ export default function App() {
         try {
           const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
           if (pr.found) {
-            setSeansYazProgress({ done: totalWritten + totalSkipped + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors, written: totalWritten, skipped: totalSkipped });
+            setSeansYazProgress({ done: totalDone + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors });
             setSeansYazCurrentName(pr.current || '');
           }
         } catch {}
@@ -1766,30 +1747,25 @@ export default function App() {
         });
         const json = await res.json();
         clearInterval(pollInterval);
-
         if (json.error) {
           totalErrors += seances.length;
           allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
         } else {
-          totalWritten += json.success  || 0;
-          totalSkipped += json.skipped  || 0;
-          totalErrors  += json.errors   || 0;
-          // Sadece gerçek hataları göster — skipped olanları değil
-          (json.results || [])
-            .filter(r => !r.success && !r.skipped)
-            .forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
+          totalDone += json.total || seances.length;
+          totalErrors += json.errors || 0;
+          (json.results || []).filter(r => !r.success).forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
         }
-        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
+        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
         setSeansYazCurrentName('');
       } catch(e) {
         clearInterval(pollInterval);
         totalErrors += seances.length;
         allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
-        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
+        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
       }
     }
 
-    setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
+    setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
     setSeansYazErrors(allErrorList);
     setSeansYazCurrentName('');
     setSeansYazDone(true);
@@ -2318,13 +2294,8 @@ export default function App() {
                     {seansYazProgress.errors===0?'Tüm seanslar oluşturuldu!':'İşlem tamamlandı'}
                   </div>
                   <div style={{fontSize:14,color:'#22c55e',marginBottom:4}}>
-                    ✓ {seansYazProgress.written ?? (seansYazProgress.done - seansYazProgress.errors)} seans başarıyla oluşturuldu
+                    ✓ {seansYazProgress.done - seansYazProgress.errors} seans başarıyla oluşturuldu
                   </div>
-                  {(seansYazProgress.skipped ?? 0) > 0 && (
-                    <div style={{fontSize:13,color:'#f59e0b',marginBottom:4}}>
-                      ⚠️ {seansYazProgress.skipped} seans zaten mevcuttu — atlandı
-                    </div>
-                  )}
                   {seansYazProgress.errors > 0 && (
                     <div style={{fontSize:13,color:'#f87171',marginBottom:12}}>
                       ✗ {seansYazProgress.errors} seans oluşturulamadı
