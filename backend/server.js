@@ -2312,6 +2312,7 @@ app.post('/api/sales/refresh', async function(req, res) {
 
   res.json({
     bubilet: bubiletData,
+    bubiletConnected: bubiletConnected,
     biletinial: biletinialData,
     ideasoft: ideasoftSales,
     lastFetch,
