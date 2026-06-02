@@ -367,7 +367,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
           const detayRes = await axios.get(
             API_BASE + '/api/v2/ticket-list/' + s.seansId,
             { headers: authHeaders, timeout: 8000, ...getAxiosConfig() }
-          //);
+          );
           const detay = detayRes.data;
           if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
             const rows = [];
