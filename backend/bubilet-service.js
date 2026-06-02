@@ -86,7 +86,7 @@ async function fetchWithToken(token, cookies) {
     'Accept': 'application/json',
     'Origin': 'https://panel.bubilet.com.tr',
     'Referer': 'https://panel.bubilet.com.tr/',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
   };
   if (cookies) headers['Cookie'] = cookiesToString(cookies);
 
@@ -151,7 +151,7 @@ async function loginWithBrowser(username, password) {
       Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR','tr','en-US','en'] });
       window.chrome = { runtime: {} };
     });
-    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36");
 
     let capturedToken = null;
     page.on("response", async function(res) {
@@ -357,7 +357,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
         'Accept': 'application/json',
         'Origin': 'https://panel.bubilet.com.tr',
         'Referer': 'https://panel.bubilet.com.tr/',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
       };
       if (_cachedCookies) authHeaders['Cookie'] = cookiesToString(_cachedCookies);
 
