@@ -208,9 +208,10 @@ async function loginWithBrowser(username, password) {
     });
 
     const cookies = await page.cookies();
-    const cfCookies = cookies.filter(c =>
-      c.name.includes('cf_') || c.name.includes('__cf') || c.domain.includes('bubilet')
-    );
+    const cfCookies = cookies; // tum cookieler
+    // const cfCookies = cookies.filter(c =>
+      // c.name.includes("cf_") || c.name.includes("__cf") || c.domain.includes("bubilet")
+    //);
     console.log("[Bubilet] CF cookies alindi:", cfCookies.length);
 
     let tokenExpiry = Date.now() + 60 * 60 * 1000; // default 1 saat
@@ -366,7 +367,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
           const detayRes = await axios.get(
             API_BASE + '/api/v2/ticket-list/' + s.seansId,
             { headers: authHeaders, timeout: 8000, ...getAxiosConfig() }
-          );
+          //);
           const detay = detayRes.data;
           if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
             const rows = [];
