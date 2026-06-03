@@ -271,41 +271,82 @@ async function loginWithBrowser(username, password) {
   }
 }
 
+// ─── Browser ile token kullanarak fetch ───────────────────────────────────
+async function fetchWithBrowser(token) {
+  console.log("[Bubilet] Browser fetch baslatiliyor (token ile)...");
+  const isRender = !!process.env.RENDER;
+  const proxyHost = process.env.BUBILET_PROXY_HOST || process.env.PROXY_HOST;
+  const proxyPort = process.env.BUBILET_PROXY_PORT || process.env.PROXY_PORT;
+  const proxyUser = process.env.BUBILET_PROXY_USER || process.env.PROXY_USER;
+  const proxyPass = process.env.BUBILET_PROXY_PASS || process.env.PROXY_PASS;
+  const args = [
+    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+  ];
+  if (proxyHost && proxyPort) args.push(`--proxy-server=http://${proxyHost}:${proxyPort}`);
+  const browser = await require("rebrowser-puppeteer").launch({
+    headless: true,
+    executablePath: isRender ? (process.env.PUPPETEER_EXECUTABLE_PATH || undefined) : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    args
+  });
+  try {
+    const page = await browser.newPage();
+    if (proxyUser && proxyPass) await page.authenticate({ username: proxyUser, password: proxyPass });
+    await page.goto('https://panel.bubilet.com.tr', { waitUntil: "domcontentloaded", timeout: 30000 });
+    const today = new Date(); today.setDate(today.getDate() - 1); today.setHours(0,0,0,0);
+    const future = new Date(); future.setDate(future.getDate() + 31); future.setHours(23,59,59,999);
+    const rawData = await page.evaluate(async function(tok, basDate, bitDate) {
+      const res = await fetch('https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ page: 0, perPage: 100000, order: 'tarih', descending: false,
+          filter: { etkinlikAdi: '', tarih_BasTarih: basDate, tarih_BitTarih: bitDate, seansAktif: null, koltukSecimi: null }
+        })
+      });
+      return res.json();
+    }, token, today.toISOString(), future.toISOString());
+    console.log("[Bubilet] fetchWithBrowser basarili, kayit:", rawData && rawData.data ? rawData.data.length : 0);
+    _cachedBrowser = browser;
+    _cachedPage = page;
+    return rawData;
+  } catch(e) {
+    await browser.close();
+    throw e;
+  }
+}
+
 // ─── Ana login + fetch fonksiyonu ─────────────────────────────────────────
 async function loginAndFetch(username, password) {
-  // 1. Memory'de geçerli token var mı?
-  if (isTokenValid() && _cachedCookies) {
-    console.log("[Bubilet] Memory token gecerli, axios ile deneniyor...");
+  // 1. Memory'de geçerli token var mı? Browser fetch ile dene
+  if (isTokenValid() && _cachedToken) {
+    console.log("[Bubilet] Memory token gecerli, browser fetch deneniyor...");
     try {
-      const raw = await fetchWithToken(_cachedToken, _cachedCookies);
-      console.log("[Bubilet] Axios basarili (memory token)!");
-      return raw;
+      const raw = await fetchWithBrowser(_cachedToken);
+      if (raw && raw.data) {
+        console.log("[Bubilet] Browser fetch basarili (memory token)!");
+        return raw;
+      }
     } catch(e) {
-      const status = e.response && e.response.status;
-      console.log("[Bubilet] Axios basarisiz (" + (status||e.message) + "), token sifirlaniyor...");
-      _cachedToken = null;
-      _cachedTokenExpiry = null;
-      _cachedCookies = null;
+      console.log("[Bubilet] Browser fetch basarisiz:", e.message, "- yeniden login gerekli...");
+      _cachedToken = null; _cachedTokenExpiry = null; _cachedCookies = null;
     }
   }
 
-  // 2. JSONBin'den token yükle (Render restart sonrası)
+  // 2. JSONBin'den token yükle
   if (!_cachedToken) {
     console.log("[Bubilet] JSONBin'den token yukleniyor...");
     const saved = await loadTokenFromJsonbin();
     if (saved && saved.token && saved.tokenExpiry && Date.now() < saved.tokenExpiry - 60000) {
-      console.log("[Bubilet] JSONBin token gecerli, axios ile deneniyor...");
+      console.log("[Bubilet] JSONBin token gecerli, browser fetch deneniyor...");
       try {
-        const raw = await fetchWithToken(saved.token, saved.cookies);
-        // Başarılı — memory'e al
-        _cachedToken       = saved.token;
-        _cachedTokenExpiry = saved.tokenExpiry;
-        _cachedCookies     = saved.cookies;
-        console.log("[Bubilet] Axios basarili (JSONBin token)!");
-        return raw;
+        const raw = await fetchWithBrowser(saved.token);
+        if (raw && raw.data) {
+          _cachedToken = saved.token; _cachedTokenExpiry = saved.tokenExpiry; _cachedCookies = saved.cookies;
+          console.log("[Bubilet] Browser fetch basarili (JSONBin token)!");
+          return raw;
+        }
       } catch(e) {
-        const status = e.response && e.response.status;
-        console.log("[Bubilet] JSONBin token basarisiz (" + (status||e.message) + "), browser login gerekli...");
+        console.log("[Bubilet] JSONBin token basarisiz:", e.message, "- browser login gerekli...");
       }
     } else {
       console.log("[Bubilet] JSONBin'de gecerli token yok, browser login gerekli.");
