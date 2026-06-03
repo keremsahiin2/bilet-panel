@@ -254,13 +254,11 @@ async function loginWithBrowser(username, password) {
             filter: { etkinlikAdi: '', tarih_BasTarih: basDate, tarih_BitTarih: bitDate, seansAktif: null, koltukSecimi: null }
           })
         });
-        const data = await res.json();
-        console.log('FETCH_STATUS', res.status, 'TOTAL', data.totalCount, 'DATA_LEN', data.data ? data.data.length : 0);
-        return data;
+        return res.json();
       }, capturedToken, today.toISOString(), future.toISOString());
         _cachedBrowser = browser;
       _cachedPage = page;
-      console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0));
+      console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0), "total:", rawData && rawData.totalCount, "success:", rawData && rawData.success);
     } catch(e) {
       console.log("[Bubilet] Browser fetch hatasi:", e.message);
     }
