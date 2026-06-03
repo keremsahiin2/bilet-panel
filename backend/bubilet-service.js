@@ -316,7 +316,7 @@ async function fetchWithBrowser(token) {
   try {
     const page = await browser.newPage();
     if (proxyUser && proxyPass) await page.authenticate({ username: proxyUser, password: proxyPass });
-    await page.goto('about:blank');
+    await page.goto('https://panel.bubilet.com.tr', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(function(){});
     const today = new Date(); today.setDate(today.getDate() - 1); today.setHours(0,0,0,0);
     const future = new Date(); future.setDate(future.getDate() + 31); future.setHours(23,59,59,999);
     const rawData = await page.evaluate(async function(tok, basDate, bitDate) {
