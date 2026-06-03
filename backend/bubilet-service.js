@@ -64,7 +64,6 @@ function getProxyAgent() {
 }
 
 function getAxiosConfig() {
-  console.log("[Bubilet] Proxy config:", process.env.BUBILET_PROXY_HOST, process.env.BUBILET_PROXY_PORT, !!process.env.BUBILET_PROXY_USER);
   const agent = getProxyAgent();
   return agent ? { httpsAgent: agent, proxy: false } : {};
 }
@@ -256,7 +255,6 @@ async function loginWithBrowser(username, password) {
         });
         return res.json();
       }, capturedToken, today.toISOString(), future.toISOString());
-      if (rawData) console.log("[Bubilet] Raw keys:", Object.keys(rawData).join(','), "data sample:", JSON.stringify(rawData).slice(0, 300));
         _cachedBrowser = browser;
       _cachedPage = page;
       console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0), "total:", rawData && rawData.totalCount, "success:", rawData && rawData.success);
