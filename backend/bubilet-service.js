@@ -62,6 +62,7 @@ function getProxyAgent() {
 }
 
 function getAxiosConfig() {
+  console.log("[Bubilet] Proxy config:", process.env.BUBILET_PROXY_HOST, process.env.BUBILET_PROXY_PORT, !!process.env.BUBILET_PROXY_USER);
   const agent = getProxyAgent();
   return agent ? { httpsAgent: agent, proxy: false } : {};
 }
