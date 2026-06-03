@@ -20,6 +20,7 @@ let _fetchPromise = null;
 const CACHE_TTL = 0; // cache yok — her seferinde taze
 
 // ─── Token + Cookie Cache (memory) ────────────────────────────────────────
+let _cachedBrowser     = null;
 let _cachedPage        = null;
 let _cachedToken       = null;
 let _cachedTokenExpiry = null;
@@ -255,6 +256,7 @@ async function loginWithBrowser(username, password) {
         });
         return res.json();
       }, capturedToken, today.toISOString(), future.toISOString());
+        _cachedBrowser = browser;
       _cachedPage = page;
       console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0));
     } catch(e) {
@@ -262,8 +264,9 @@ async function loginWithBrowser(username, password) {
     }
     return { token: capturedToken, cookies: cfCookies, tokenExpiry, rawData };
 
-  } finally {
+  } catch(outerErr) {
     await browser.close();
+    throw outerErr;
   }
 }
 
