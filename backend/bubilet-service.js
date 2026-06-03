@@ -254,7 +254,9 @@ async function loginWithBrowser(username, password) {
             filter: { etkinlikAdi: '', tarih_BasTarih: basDate, tarih_BitTarih: bitDate, seansAktif: null, koltukSecimi: null }
           })
         });
-        return res.json();
+        const data = await res.json();
+        console.log('FETCH_STATUS', res.status, 'TOTAL', data.totalCount, 'DATA_LEN', data.data ? data.data.length : 0);
+        return data;
       }, capturedToken, today.toISOString(), future.toISOString());
         _cachedBrowser = browser;
       _cachedPage = page;
