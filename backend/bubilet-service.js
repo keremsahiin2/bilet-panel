@@ -85,7 +85,7 @@ async function fetchWithToken(token, cookies) {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
-    'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not-A.Brand";v="99"',
+    'sec-ch-ua': '"Opera";v="131", "Not.A/Brand";v="8", "Chromium";v="147"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"macOS"',
     'sec-fetch-dest': 'empty',
@@ -94,7 +94,7 @@ async function fetchWithToken(token, cookies) {
     'Content-Type': 'application/json',
     'Origin': 'https://panel.bubilet.com.tr',
     'Referer': 'https://panel.bubilet.com.tr/',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 OPR/131.0.0.0',
   };
   if (cookies) headers['Cookie'] = cookiesToString(cookies);
 
@@ -159,7 +159,7 @@ async function loginWithBrowser(username, password) {
       Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR','tr','en-US','en'] });
       window.chrome = { runtime: {} };
     });
-    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36");
+    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 OPR/131.0.0.0");
 
     let capturedToken = null;
     page.on("response", async function(res) {
@@ -365,7 +365,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
         'Content-Type': 'application/json',
         'Origin': 'https://panel.bubilet.com.tr',
         'Referer': 'https://panel.bubilet.com.tr/',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 OPR/131.0.0.0',
       };
       if (_cachedCookies) authHeaders['Cookie'] = cookiesToString(_cachedCookies);
 
