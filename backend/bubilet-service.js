@@ -20,6 +20,7 @@ let _fetchPromise = null;
 const CACHE_TTL = 0; // cache yok — her seferinde taze
 
 // ─── Token + Cookie Cache (memory) ────────────────────────────────────────
+let _cachedPage        = null;
 let _cachedToken       = null;
 let _cachedTokenExpiry = null;
 let _cachedCookies     = null;
@@ -254,6 +255,7 @@ async function loginWithBrowser(username, password) {
         });
         return res.json();
       }, capturedToken, today.toISOString(), future.toISOString());
+      _cachedPage = page;
       console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0));
     } catch(e) {
       console.log("[Bubilet] Browser fetch hatasi:", e.message);
@@ -405,10 +407,17 @@ async function fetchBubiletData(forceRefresh, username, password) {
 
       async function fetchWorkshopDetail(s) {
         try {
-          const detayRes = await axios.get(
-            API_BASE + '/api/v2/ticket-list/' + s.seansId,
-            { headers: authHeaders, timeout: 8000, ...getAxiosConfig() }
-          );
+          const detayRes = await _cachedPage.evaluate(async function(token, seansId, apiBase) {
+            const res = await fetch(apiBase + '/api/v2/ticket-list/' + seansId, {
+              method: 'GET',
+              headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              }
+            });
+            return res.json();
+          }, _cachedToken, s.seansId, API_BASE);
           const detay = detayRes.data;
           if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
             const rows = [];
