@@ -256,6 +256,7 @@ async function loginWithBrowser(username, password) {
         });
         return res.json();
       }, capturedToken, today.toISOString(), future.toISOString());
+      if (rawData) console.log("[Bubilet] Raw keys:", Object.keys(rawData).join(','), "data sample:", JSON.stringify(rawData).slice(0, 300));
         _cachedBrowser = browser;
       _cachedPage = page;
       console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0), "total:", rawData && rawData.totalCount, "success:", rawData && rawData.success);
