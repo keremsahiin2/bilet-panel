@@ -274,6 +274,32 @@ async function loginWithBrowser(username, password) {
 // ─── Browser ile token kullanarak fetch ───────────────────────────────────
 async function fetchWithBrowser(token) {
   console.log("[Bubilet] Browser fetch baslatiliyor (token ile)...");
+  // Mevcut browser/page varsa yeni açma
+  if (_cachedBrowser && _cachedPage) {
+    try {
+      console.log("[Bubilet] Mevcut browser kullaniliyor...");
+      const today = new Date(); today.setDate(today.getDate() - 1); today.setHours(0,0,0,0);
+      const future = new Date(); future.setDate(future.getDate() + 31); future.setHours(23,59,59,999);
+      const rawData = await _cachedPage.evaluate(async function(tok, basDate, bitDate) {
+        const res = await fetch('https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ page: 0, perPage: 100000, order: 'tarih', descending: false,
+            filter: { etkinlikAdi: '', tarih_BasTarih: basDate, tarih_BitTarih: bitDate, seansAktif: null, koltukSecimi: null }
+          })
+        });
+        return res.json();
+      }, token, today.toISOString(), future.toISOString());
+      if (rawData && rawData.data) {
+        console.log("[Bubilet] Mevcut browser fetch basarili, kayit:", rawData.data.length);
+        return rawData;
+      }
+    } catch(e) {
+      console.log("[Bubilet] Mevcut browser hatali, yeniden aciliyor:", e.message);
+      try { await _cachedBrowser.close(); } catch(e2) {}
+      _cachedBrowser = null; _cachedPage = null;
+    }
+  }
   const isRender = !!process.env.RENDER;
   const proxyHost = process.env.BUBILET_PROXY_HOST || process.env.PROXY_HOST;
   const proxyPort = process.env.BUBILET_PROXY_PORT || process.env.PROXY_PORT;
