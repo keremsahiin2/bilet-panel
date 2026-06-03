@@ -230,7 +230,35 @@ async function loginWithBrowser(username, password) {
       console.log("[Bubilet] Token expire:", new Date(tokenExpiry).toISOString());
     } catch(e) {}
 
-    return { token: capturedToken, cookies: cfCookies, tokenExpiry };
+    // API isteğini browser içinde yap (TLS fingerprint için)
+    let rawData = null;
+    try {
+      const today = new Date();
+      today.setDate(today.getDate() - 1);
+      today.setHours(0, 0, 0, 0);
+      const future = new Date();
+      future.setDate(future.getDate() + 31);
+      future.setHours(23, 59, 59, 999);
+      rawData = await page.evaluate(async function(token, basDate, bitDate) {
+        const res = await fetch('https://oldpanel.api.bubilet.com.tr/api/Satis/SeansGrupluSatislars', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            page: 0, perPage: 100000, order: 'tarih', descending: false,
+            filter: { etkinlikAdi: '', tarih_BasTarih: basDate, tarih_BitTarih: bitDate, seansAktif: null, koltukSecimi: null }
+          })
+        });
+        return res.json();
+      }, capturedToken, today.toISOString(), future.toISOString());
+      console.log("[Bubilet] Browser fetch basarili, kayit:", (rawData && rawData.data ? rawData.data.length : 0));
+    } catch(e) {
+      console.log("[Bubilet] Browser fetch hatasi:", e.message);
+    }
+    return { token: capturedToken, cookies: cfCookies, tokenExpiry, rawData };
 
   } finally {
     await browser.close();
@@ -280,7 +308,7 @@ async function loginAndFetch(username, password) {
 
   // 3. Puppeteer ile taze login
   console.log("[Bubilet] Browser ile login olunuyor...");
-  const { token, cookies, tokenExpiry } = await loginWithBrowser(username, password);
+  const { token, cookies, tokenExpiry, rawData } = await loginWithBrowser(username, password);
 
   _cachedToken       = token;
   _cachedTokenExpiry = tokenExpiry;
@@ -288,6 +316,11 @@ async function loginAndFetch(username, password) {
 
   // JSONBin'e kaydet (async, bekleme yok)
   saveTokenToJsonbin(token, tokenExpiry, cookies);
+
+  if (rawData) {
+    console.log("[Bubilet] Browser fetch kullaniliyor (axios bypass)");
+    return rawData;
+  }
 
   console.log("[Bubilet] Token alindi, seans verisi cekiliyor...");
   const raw = await fetchWithToken(token, cookies);
