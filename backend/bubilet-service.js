@@ -111,7 +111,7 @@ async function fetchWithToken(token, cookies) {
         return { etkinlikAdi: '', tarih_BasTarih: today.toISOString(), tarih_BitTarih: future.toISOString(), seansAktif: null, koltukSecimi: null };
       })()
     },
-    { headers, timeout: 30000 }
+    { headers, timeout: 30000, ...getAxiosConfig() }
   );
   return res.data;
 }
@@ -373,7 +373,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
         try {
           const detayRes = await axios.get(
             API_BASE + '/api/v2/ticket-list/' + s.seansId,
-            { headers: authHeaders, timeout: 8000 }
+            { headers: authHeaders, timeout: 8000, ...getAxiosConfig() }
           );
           const detay = detayRes.data;
           if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
