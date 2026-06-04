@@ -236,7 +236,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, dailySales: jsonbinCache.dailySales || {}, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales || {}, dailySales: jsonbinCache.dailySales || {}, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
@@ -315,6 +315,9 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
     var sold = Math.max(0, base - (s.stockAmount !== null ? s.stockAmount : base));
     if (sold === 0) return;
+    // Gecmis aya ait kayit zaten varsa uzerine yazma
+    var existingEntry = merged[dateKey] && merged[dateKey][seanceKey];
+    if (existingEntry && existingEntry._sold > 0 && sold < existingEntry._sold) return;
 
     // "YYYY-MM-DD" formatında günlük key
     var dateKey = seanceStart.getFullYear() + '-' +
@@ -2290,7 +2293,7 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     setImmediate(async function() {
       try {
         // Önce baseline'ı kaydet — sonra çekince soldCount doğru hesaplanır
-        var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, ideasoftData, baseline2);
+        var updatedMonthly2 = computeMonthlySalesFromDaily(jsonbinCache.dailySales || {});
         // Cache'i güncelle ve remote'a yaz
         if (jsonbinCache) {
           jsonbinCache.baseline     = baseline2;
