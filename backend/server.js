@@ -47,7 +47,7 @@ let cachedAllOptionsMap  = new Map(); // key: title.trim().toLowerCase() → opt
 // Aynı güne ait tüm saatler tek GET'te gelir ve cache'e dolar.
 // Sonraki seanslarda aynı gün tekrar aranmaz — cache'den bulunur.
 // Aranan günler bir Set'te tutulur: aynı güne ikinci kez API isteği atılmaz.
-var searchedDayKeys = new Set(); // "1 mayıs cuma" gibi normalize edilmiş günler
+// searchedDayKeys artık global değil — her bulk isteği kendi local Set'ini oluşturur (paralel-güvenli)
 
 // title'dan gün anahtarı çıkar: "1 Mayıs Cuma 19:00 - 21:00" → "1 mayıs cuma"
 function extractDayKey(title) {
@@ -56,7 +56,7 @@ function extractDayKey(title) {
   return m ? m[1].toLowerCase() : title.trim().toLowerCase();
 }
 
-async function searchOptionByTitle(title, headersObj) {
+async function searchOptionByTitle(title, headersObj, searchedDayKeys) {
   var titleLower = title.trim().toLowerCase();
 
   // 1) Memory cache'de tam eşleşme var mı? — Map ile O(1) lookup (Array.find O(n) değil)
@@ -68,7 +68,7 @@ async function searchOptionByTitle(title, headersObj) {
 
   // 2) Bu günü daha önce aradık mı? Aradıysak ve cache'de yoksa zaten yok demektir.
   var dayKey = extractDayKey(title);
-  if (searchedDayKeys.has(dayKey)) {
+  if (searchedDayKeys && searchedDayKeys.has(dayKey)) {
     console.log('searchOptionByTitle: gün daha önce arandı, cache miss —', dayKey);
     return null;
   }
@@ -92,7 +92,7 @@ async function searchOptionByTitle(title, headersObj) {
       }
     });
     // Bu günü aramış olarak işaretle — bir daha API'ye gitme
-    searchedDayKeys.add(dayKey);
+    if (searchedDayKeys) searchedDayKeys.add(dayKey);
     console.log('searchOptionByTitle: API hit, dayKey="' + dayKey + '", ' + items.length + ' sonuc cache e eklendi');
     // Tam eşleşmeyi döndür
     var found = items.find(function(o) {
@@ -136,7 +136,7 @@ const CATEGORY_PRICES = {
 const CATEGORY_BASELINE = {
   'Heykel': 10, 'Bez Çanta': 10, 'Resim': 10, '3D Figür': 10,
   'Maske': 10, 'Plak Boyama': 10, 'Seramik': 8, 'Cupcake Mum': 8,
-  'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10
+  'Punch': 8, 'Quiz Night': 50, 'Mekanda Seç': 10, 'Yelpaze Boyama': 10
 };
 
 // Eş zamanlı istek sınırlayıcı — max N istek aynı anda uçar
@@ -169,6 +169,7 @@ const IDEASOFT_PRODUCTS = [
   [4252,'Cupcake Mum'],
   [4278,'Punch'],
   [5135,'Mekanda Seç'],
+  [33531,'Yelpaze Boyama'],
 ];
 
 // ─── JSONBin — kalıcı baseline storage ────────────────────────────────────────
@@ -236,7 +237,7 @@ async function flushJsonbinCache() {
   if (!jsonbinCache) return;
   try {
     await axios.put('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID,
-      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales || {}, dailySales: jsonbinCache.dailySales || {}, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
+      { baseline: jsonbinCache.baseline, monthlySales: jsonbinCache.monthlySales, dailySales: jsonbinCache.dailySales || {}, malzemeStock: jsonbinCache.malzemeStock || {}, quizData: jsonbinCache.quizData || null, bubiletToken: jsonbinCache.bubiletToken || null, bubiletTokenExpiry: jsonbinCache.bubiletTokenExpiry || null, bubiletCookies: jsonbinCache.bubiletCookies || [] },
       { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
     jsonbinCacheDirty = false;
     console.log('JSONBin: cache remote\'a yazildi');
@@ -305,19 +306,19 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
       }
     }
     if (!seanceStart) {
+      console.log('[DEBUG] startDate YOK, fullName:', s.fullName && s.fullName.slice(0,60));
       return;
     }
     if (now < seanceStart) {
+      console.log('[DEBUG] GELECEK seans:', s.fullName && s.fullName.slice(0,50), '| start:', seanceStart.toISOString());
       return;
     }
+    console.log('[DEBUG] KAYDEDILIYOR:', s.category, '| sold:', Math.max(0, (s.baselineStock||0)-(s.stockAmount||0)), '| start:', seanceStart.toISOString());
 
     var cat  = s.category;
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
     var sold = Math.max(0, base - (s.stockAmount !== null ? s.stockAmount : base));
     if (sold === 0) return;
-    // Gecmis aya ait kayit zaten varsa uzerine yazma
-    var existingEntry = merged[dateKey] && merged[dateKey][seanceKey];
-    if (existingEntry && existingEntry._sold > 0 && sold < existingEntry._sold) return;
 
     // "YYYY-MM-DD" formatında günlük key
     var dateKey = seanceStart.getFullYear() + '-' +
@@ -404,6 +405,7 @@ function bubiletBiletAdiToCategory(biletAdi) {
   if (biletAdi.includes('Bez')) return 'Bez Çanta';
   if (biletAdi.includes('Resim')) return 'Resim';
   if (biletAdi.includes('Mekanda')) return 'Mekanda Seç';
+  if (biletAdi.includes('Yelpaze')) return 'Yelpaze Boyama';
   return biletAdi; // tanınmıyorsa biletAdi'ni olduğu gibi döndür
 }
 
@@ -486,15 +488,20 @@ async function fetchBubilet(username, password) {
   todayStart.setHours(0, 0, 0, 0);
 
   // Workshop: bugün/gelecek, biletAdet>0, seansId var
+  // SADECE "Workshop: Etkinlik Takvimi" başlıklı genel seansa kırılım bak.
+  // "Cupcake Mum Workshop:", "3D Figür Boyama Workshop:" vb. başlıklar
+  // kategoriyi zaten açıkça söylüyor, kırılıma gerek yok.
   const workshopSeanslar = seanslar.filter(s => {
-    if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
-    if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
-    return true;
+    if (!s.seansId) return false;
+    const ad = (s.etkinlikAdi || '').toLowerCase();
+    return ad.startsWith('workshop:') && ad.includes('etkinlik takvimi');
   });
 
   const normalSeanslar = seanslar.filter(s => !workshopSeanslar.includes(s));
 
   console.log('Workshop detay cekilecek:', workshopSeanslar.length, 'seans (paralel)');
+  console.log('[DEBUG] Kırılıma giren seanslar:', workshopSeanslar.map(s => s.etkinlikAdi));
+  console.log('[DEBUG] Tüm seans başlıkları:', seanslar.map(s => s.etkinlikAdi));
 
   // Workshop detaylarını eş zamanlı en fazla 8 istekle çek
   async function fetchWorkshopDetail(s) {
@@ -546,6 +553,7 @@ function biletinialTicketTypeToCategory(ticketTypeName) {
   if (ticketTypeName.includes('Bez')) return 'Bez Çanta';
   if (ticketTypeName.includes('Resim')) return 'Resim';
   if (ticketTypeName.includes('Mekanda')) return 'Mekanda Seç';
+  if (ticketTypeName.includes('Yelpaze')) return 'Yelpaze Boyama';
   return null;
 }
 
@@ -1037,7 +1045,7 @@ app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
-    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; searchedDayKeys = new Set(); 
+    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; 
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -1444,7 +1452,7 @@ async function createOneSeance(payload) {
   // ── OPTION ID AL: &s= search ile title bazlı tek GET — liste büyüklüğünden bağımsız ──
   // Strateji: 1) cache'e bak  2) POST dene  3) 400 Tekrarlanan → &s= ile direkt ara
   var newOptionId;
-  var existingOption = await searchOptionByTitle(tarihSaatTitle, headers());
+  var existingOption = await searchOptionByTitle(tarihSaatTitle, headers(), new Set());
   if (existingOption) {
     newOptionId = existingOption.id;
     console.log('✓ Option bulundu (search/cache), ID:', newOptionId, '→', tarihSaatTitle);
@@ -1756,10 +1764,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   if (!parentId) return res.status(400).json({ error:'parent.id gerekli' });
 
 
-  // Her bulk başında searchedDayKeys sıfırla — silinip tekrar yazdırılacak seanslar için
-  // option title'ları "bu günü aradık, yok" diye yanlış atlanmasın.
-  searchedDayKeys = new Set();
-  console.log('Bulk: searchedDayKeys sıfırlandı');
+  // Her bulk isteği için izole local Set — paralel bulk çağrıları birbirinin state'ini bozmaz
+  var searchedDayKeys = new Set();
+  console.log('Bulk: yerel searchedDayKeys oluşturuldu (paralel-güvenli)');
   var cStr = toCookieStr(ideasoftCookies);
   var hdrs = function() {
     return {
@@ -1880,11 +1887,12 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     }
   }
 
-  // ── C) Aşama 1: Tüm option ID'lerini sırayla topla ─────────────────────
-  console.log('Bulk: Aşama 1 — option ID toplama başlıyor,', toWrite.length, 'seans');
+  // ── C) Aşama 1: Tüm option ID'lerini paralel topla ─────────────────────
+  console.log('Bulk: Aşama 1 — option ID toplama başlıyor,', toWrite.length, 'seans (paralel)');
   var seansItems = []; // { payload, tarihSaatTitle, newOptionId, realSku, seansSlug }
-  for (var oi = 0; oi < toWrite.length; oi++) {
-    var payload = toWrite[oi];
+  // searchedDayKeys bu bulk'a özel local Set — paralel çağrılar arasında paylaşılır ama
+  // diğer bulk isteklerinden izole. Aynı gün içinde tekrar API'ye gitmeyi önler.
+  await Promise.all(toWrite.map(async function(payload, oi) {
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
     var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
     var seansSlugSuffix = payload.name.toLowerCase()
@@ -1900,7 +1908,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
     var newOptionId;
     try {
-      var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs());
+      var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs(), searchedDayKeys);
       if (existingOpt) {
         newOptionId = existingOpt.id;
         console.log('Bulk option [' + (oi+1) + '/' + toWrite.length + '] cache/search:', newOptionId, tarihSaatTitle);
@@ -1968,9 +1976,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         bulkProgressMap[jobId].results.push({ success: false, name: tarihSaatTitle, error: optFatalErr.message });
       }
     }
-    // Option istekleri arası kısa bekleme
-    if (oi < toWrite.length - 1) await new Promise(r => setTimeout(r, 150));
-  }
+  }));
   console.log('Bulk: Aşama 1 tamamlandı —', seansItems.length, 'seans için option ID alındı');
 
   // ── C) Aşama 2: Tüm seansları tek batch isteğinde gönder ─────────────────
@@ -2293,7 +2299,7 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
     setImmediate(async function() {
       try {
         // Önce baseline'ı kaydet — sonra çekince soldCount doğru hesaplanır
-        var updatedMonthly2 = computeMonthlySalesFromDaily(jsonbinCache.dailySales || {});
+        var updatedMonthly2 = mergeIdeasoftIntoMonthlySales(monthlySales2, ideasoftData, baseline2);
         // Cache'i güncelle ve remote'a yaz
         if (jsonbinCache) {
           jsonbinCache.baseline     = baseline2;
@@ -2487,6 +2493,7 @@ app.post('/api/send-mail', async function(req, res) {
       'Maske':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Resim':       'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Mekanda Seç': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+      'Yelpaze Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/yelpaze-boyama-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
       'Cupcake Mum': 'https://www.bubilet.com.tr/ankara/etkinlik/cupcake-mum-workshop-sosyal-sanathane-ankara--etkinlik-takvimi',
       'Punch':       'https://www.bubilet.com.tr/ankara/etkinlik/punch-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
       'Seramik':     'https://www.bubilet.com.tr/ankara/etkinlik/seramik-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
@@ -2500,6 +2507,7 @@ app.post('/api/send-mail', async function(req, res) {
       'Maske':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Resim':       'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
       'Mekanda Seç': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+      'Yelpaze Boyama': 'https://biletinial.com/tr-tr/egitim/yelpaze-boyama-workshop-sosyal-sanathane-ankara',
       'Cupcake Mum': 'https://biletinial.com/tr-tr/egitim/cupcake-mum-workshop-sosyal-sanathane-ankara',
       'Seramik':     'https://biletinial.com/tr-tr/egitim/seramik-workshop-sosyal-sanathane-ankara',
       'Punch':       'https://biletinial.com/tr-tr/egitim/punch-workshop-sosyal-sanathane-ankara',

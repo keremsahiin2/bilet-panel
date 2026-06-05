@@ -45,6 +45,7 @@ function eventNameToCategory(name) {
   if (name.includes('Maske')) return 'Maske';
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
+  if (name.includes('Yelpaze')) return 'Yelpaze Boyama';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -65,6 +66,7 @@ function bubiletToCategory(name) {
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
   if (name.includes('Resim')) return 'Resim';
+  if (name.includes('Yelpaze')) return 'Yelpaze Boyama';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -82,6 +84,7 @@ const EVENT_SCHEDULE = {
   'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
   'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
   'Mekanda Seç':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Yelpaze Boyama': { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
 };
 
 // Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
@@ -99,6 +102,7 @@ const EVENT_IDEASOFT_META = {
   'Seramik':     { parentId:12671,price:900, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Mekanda Seç': { parentId:5135, price:550, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Yelpaze Boyama': { parentId:33531, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Quiz Night':  { parentId:4251, price:250, stock:50, tax:10, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Tunalı: Ara Sokak Pub' },
 };
 
@@ -1549,6 +1553,7 @@ export default function App() {
   // Klasik etkinlikler = tek buton, gerisi ayrı
   const MAIL_EVENTS_DISPLAY = [
     { key: 'Klasik Etkinlikler', icon: '🎨', cats: ['Heykel','Bez Çanta','Plak Boyama','Maske','Resim','Mekanda Seç'] },
+    { key: 'Yelpaze Boyama',     icon: '🪭', cats: ['Yelpaze Boyama'] },
     { key: 'Cupcake Mum',        icon: '🧁', cats: ['Cupcake Mum'] },
     { key: 'Seramik',            icon: '☕️', cats: ['Seramik'] },
     { key: 'Punch',              icon: '🧶', cats: ['Punch'] },
@@ -1808,6 +1813,7 @@ export default function App() {
     const PLATFORM_LINKS = {
       bubilet: {
         'Klasik Etkinlikler': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Yelpaze Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/yelpaze-boyama-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
         'Cupcake Mum': 'https://www.bubilet.com.tr/ankara/etkinlik/cupcake-mum-workshop-sosyal-sanathane-ankara--etkinlik-takvimi',
         'Punch':       'https://www.bubilet.com.tr/ankara/etkinlik/punch-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
         'Seramik':     'https://www.bubilet.com.tr/ankara/etkinlik/seramik-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
@@ -1816,6 +1822,7 @@ export default function App() {
       },
       biletinial: {
         'Klasik Etkinlikler': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Yelpaze Boyama': 'https://biletinial.com/tr-tr/egitim/yelpaze-boyama-workshop-sosyal-sanathane-ankara',
         'Cupcake Mum': 'https://biletinial.com/tr-tr/egitim/cupcake-mum-workshop-sosyal-sanathane-ankara',
         'Seramik':     'https://biletinial.com/tr-tr/egitim/seramik-workshop-sosyal-sanathane-ankara',
         'Punch':       'https://biletinial.com/tr-tr/egitim/punch-workshop-sosyal-sanathane-ankara',
@@ -5601,7 +5608,7 @@ function SBadge({label,value,color}){
 const CAT_ICON = {
   'Heykel':'🗿','Resim':'🧑‍🎨','3D Figür':'🪆','Maske':'🎭','Bez Çanta':'👜',
   'Seramik':'☕️','Plak Boyama':'💿','Quiz Night':'🏆','Cupcake Mum':'🧁',
-  'Punch':'🧶','Mekanda Seç':'📍'
+  'Punch':'🧶','Mekanda Seç':'📍','Yelpaze Boyama':'🪭'
 };
 
 // Kategori adı "Quiz Night - Konsept" formatında olabilir, önce tam eşleşme, sonra prefix

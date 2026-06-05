@@ -9,5 +9,25 @@
       ],
       "ts": "19.05.2026 12:00:52"
     }
+  ],
+  "Yelpaze Boyama|5 Haziran Cuma 16:00 - 18:00": [
+    {
+      "islem": "tukendi",
+      "kontenjan": null,
+      "platforms": [
+        "biletinial",
+        "bubilet"
+      ],
+      "ts": "05.06.2026 15:14:36"
+    },
+    {
+      "islem": "tukendi",
+      "kontenjan": null,
+      "platforms": [
+        "bubilet",
+        "biletinial"
+      ],
+      "ts": "05.06.2026 15:14:37"
+    }
   ]
 }
