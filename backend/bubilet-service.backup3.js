@@ -459,9 +459,8 @@ async function fetchBubiletData(forceRefresh, username, password) {
       }
 
       const workshopSeanslar = seanslar.filter(function(s) {
-        if (!s.etkinlikAdi) return false;
-        if (!s.etkinlikAdi.toLowerCase().includes('etkinlik takvimi')) return false;
-        if (!s.seansId) return false;
+        if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
+        if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
         return true;
       });
       console.log('[Bubilet] Workshop detay cekilecek:', workshopSeanslar.length, 'seans');
@@ -488,7 +487,7 @@ async function fetchBubiletData(forceRefresh, username, password) {
             });
             return res.json();
           }, _cachedToken, s.seansId, API_BASE);
-          const detay = detayRes;
+          const detay = detayRes.data;
           if (detay && detay.success && detay.data && Array.isArray(detay.data.detaySatisRaporlar)) {
             const rows = [];
             for (const bilet of detay.data.detaySatisRaporlar) {
