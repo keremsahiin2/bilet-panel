@@ -1062,9 +1062,9 @@ export default function App() {
           if (json.ready) {
             loadSalesWithRetry(false);
           } else {
-            const poll = setInterval(() => {
+            const pollStart = Date.now(); const poll = setInterval(() => {
               fetch('/api/login-status').then(r=>r.json()).then(s => {
-                if (s.ideasoftReady) {
+                if (s.ideasoftReady || (Date.now() - pollStart > 15000 && s.status === 'done')) {
                   clearInterval(poll);
                   loadSalesWithRetry(false);
                 } else if (s.status === 'error') {
@@ -1170,9 +1170,9 @@ export default function App() {
         } catch(e) {}
         setSalesLoading(false);
       };
-      const poll = setInterval(() => {
+      const pollStart = Date.now(); const poll = setInterval(() => {
         fetch('/api/login-status').then(r=>r.json()).then(s => {
-          if (s.ideasoftReady) {
+          if (s.ideasoftReady || (Date.now() - pollStart > 15000 && s.status === 'done')) {
             clearInterval(poll);
             loadAfterLogin();
           } else if (s.status === 'error') {
