@@ -823,7 +823,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
       bubiletData = d;
       lastFetch = new Date().toISOString();
       // Bubilet + Biletinial ikisi de geldiyse ready işaretle
-      if (biletinialData !== null) loginState = { status:'done', error:null };
       console.log('Bubilet tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
       return d;
     });
@@ -832,7 +831,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
     .then(d => {
       biletinialData = d;
       lastFetch = new Date().toISOString();
-      if (bubiletData !== null) loginState = { status:'done', error:null };
       console.log('Biletini Al tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
       return d;
     });
@@ -846,6 +844,7 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
     : Promise.resolve(null);
 
   await Promise.all([bubiletP, biletinialP, ideasoftP]);
+  loginState = { status:'done', error:null };
 
   console.log('Toplam login suresi:', Date.now() - t0, 'ms');
   lastFetch = new Date().toISOString();
