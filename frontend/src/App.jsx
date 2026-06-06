@@ -1064,7 +1064,7 @@ export default function App() {
           } else {
             const pollStart = Date.now(); const poll = setInterval(() => {
               fetch('/api/login-status').then(r=>r.json()).then(s => {
-                if (s.ideasoftReady || (Date.now() - pollStart > 15000 && s.status === 'done')) {
+                if (s.status === 'done') {
                   clearInterval(poll);
                   loadSalesWithRetry(false);
                 } else if (s.status === 'error') {
@@ -1172,7 +1172,7 @@ export default function App() {
       };
       const pollStart = Date.now(); const poll = setInterval(() => {
         fetch('/api/login-status').then(r=>r.json()).then(s => {
-          if (s.ideasoftReady || (Date.now() - pollStart > 15000 && s.status === 'done')) {
+          if (s.status === 'done') {
             clearInterval(poll);
             loadAfterLogin();
           } else if (s.status === 'error') {
