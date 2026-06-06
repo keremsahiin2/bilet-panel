@@ -1048,11 +1048,6 @@ export default function App() {
               const r = await fetch(endpoint, opts);
               const d = await r.json();
               if (!d.error) {
-                const ideasoftOk = (d.ideasoft || []).length > 0;
-                if (!ideasoftOk && retries < 3) {
-                  await new Promise(res => setTimeout(res, 2000));
-                  return loadSalesWithRetry(true, retries + 1);
-                }
                 setSalesData(d);
                 setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
               }
