@@ -306,14 +306,11 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
       }
     }
     if (!seanceStart) {
-      console.log('[DEBUG] startDate YOK, fullName:', s.fullName && s.fullName.slice(0,60));
       return;
     }
     if (now < seanceStart) {
-      console.log('[DEBUG] GELECEK seans:', s.fullName && s.fullName.slice(0,50), '| start:', seanceStart.toISOString());
       return;
     }
-    console.log('[DEBUG] KAYDEDILIYOR:', s.category, '| sold:', Math.max(0, (s.baselineStock||0)-(s.stockAmount||0)), '| start:', seanceStart.toISOString());
 
     var cat  = s.category;
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
@@ -500,8 +497,6 @@ async function fetchBubilet(username, password) {
   const normalSeanslar = seanslar.filter(s => !workshopSeanslar.includes(s));
 
   console.log('Workshop detay cekilecek:', workshopSeanslar.length, 'seans (paralel)');
-  console.log('[DEBUG] Kırılıma giren seanslar:', workshopSeanslar.map(s => s.etkinlikAdi));
-  console.log('[DEBUG] Tüm seans başlıkları:', seanslar.map(s => s.etkinlikAdi));
 
   // Workshop detaylarını eş zamanlı en fazla 8 istekle çek
   async function fetchWorkshopDetail(s) {
