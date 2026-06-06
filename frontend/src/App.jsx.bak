@@ -45,6 +45,7 @@ function eventNameToCategory(name) {
   if (name.includes('Maske')) return 'Maske';
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
+  if (name.includes('Yelpaze')) return 'Yelpaze Boyama';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -65,6 +66,7 @@ function bubiletToCategory(name) {
   if (name.includes('Heykel')) return 'Heykel';
   if (name.includes('Bez')) return 'Bez Çanta';
   if (name.includes('Resim')) return 'Resim';
+  if (name.includes('Yelpaze')) return 'Yelpaze Boyama';
   if (name.includes('Mekanda')) return 'Mekanda Seç';
   return null;
 }
@@ -82,6 +84,7 @@ const EVENT_SCHEDULE = {
   'Seramik':      { weekday:[5], slots:['18:00 - 20:00'],  weekend:[0,6], weekendSlots:['14:30 - 16:30','17:00 - 19:00'] },
   'Punch':        { weekday:[], slots:[], weekend:[0,6], weekendSlots:['12:00 - 14:00','18:30 - 20:30'] },
   'Mekanda Seç':  { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
+  'Yelpaze Boyama': { weekday:[1,2,3,4,5], slots:['16:00 - 18:00','19:00 - 21:00'], weekend:[0,6], weekendSlots:['12:00 - 14:00','14:00 - 16:00','16:30 - 18:30','19:00 - 21:00'] },
 };
 
 // Etkinliğe ait ürün (parent) bilgileri — İdeasoft'ta hangi parent altına ekleneceği
@@ -99,6 +102,7 @@ const EVENT_IDEASOFT_META = {
   'Seramik':     { parentId:12671,price:900, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Punch':       { parentId:4278, price:600, stock:8,  tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Mekanda Seç': { parentId:5135, price:550, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
+  'Yelpaze Boyama': { parentId:33531, price:500, stock:10, tax:20, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Farabi Sokak: Sosyal Sanathane' },
   'Quiz Night':  { parentId:4251, price:250, stock:50, tax:10, currency:{id:3,label:'TL',abbr:'TL'}, mekan:'Tunalı: Ara Sokak Pub' },
 };
 
@@ -1068,7 +1072,7 @@ export default function App() {
                   setSalesLoading(false);
                 }
               }).catch(()=>{});
-            }, 800);
+            }, 500);
           }
         } else {
           fetch('/api/saved-credentials')
@@ -1176,7 +1180,7 @@ export default function App() {
             setSalesLoading(false);
           }
         }).catch(()=>{});
-      }, 800);
+      }, 500);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
@@ -1492,21 +1496,39 @@ export default function App() {
     setSeansYazCats(prev => prev.includes(cat) ? prev.filter(c=>c!==cat) : [...prev, cat]);
   };
 
-  const handleSeansYazPreview = () => {
-    // Seçili tüm kategoriler için seansları birleştir
+    const handleSeansYazPreview = async () => {
     const SEANS_CATS_ALL = Object.keys(EVENT_SCHEDULE);
     const activeCats = seansYazCats.length === 0 ? SEANS_CATS_ALL : seansYazCats;
-    const allItems = activeCats.flatMap(cat => 
+    const allItems = activeCats.flatMap(cat =>
       generateSeansListForCat(cat, seansYazStart, seansYazEnd).map(item => ({...item, cat}))
     );
-    // Tarihe göre sırala
     allItems.sort((a,b) => a.date - b.date);
-
-    // Duplicate kontrolü backend'e bırakıldı — salesData sadece satışlı seansları
-    // içerdiğinden frontend kontrolü hatalı "zaten mevcut" sonucu veriyordu.
     const filtered = allItems.filter(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot) !== null);
-    setSeansYazSkipped(0);
-    setSeansYazList(filtered);
+
+    // Backend'e sor: hangileri zaten mevcut?
+    const parentIds = [...new Set(activeCats.map(cat => EVENT_IDEASOFT_META[cat]?.parentId).filter(Boolean))];
+    let existingSet = new Set();
+    try {
+      const checkRes = await fetch('/api/ideasoft/check-existing-seances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentIds })
+      });
+      const checkJson = await checkRes.json();
+      existingSet = new Set((checkJson.existingNames || []).map(n => n.trim().toLowerCase()));
+    } catch(e) {
+      console.warn('check-existing-seances hatası, atlanıyor:', e.message);
+    }
+
+    // Yeni olanlar vs zaten mevcutlar
+    const toWrite = filtered.filter(item => {
+      const payload = buildIdeasoftPayload(item.cat, item.dateKey, item.slot);
+      return payload && !existingSet.has(payload.name.trim().toLowerCase());
+    });
+    const skipped = filtered.length - toWrite.length;
+
+    setSeansYazSkipped(skipped);
+    setSeansYazList(toWrite);
     setSeansYazStep(3);
   };
 
@@ -1531,6 +1553,7 @@ export default function App() {
   // Klasik etkinlikler = tek buton, gerisi ayrı
   const MAIL_EVENTS_DISPLAY = [
     { key: 'Klasik Etkinlikler', icon: '🎨', cats: ['Heykel','Bez Çanta','Plak Boyama','Maske','Resim','Mekanda Seç'] },
+    { key: 'Yelpaze Boyama',     icon: '🪭', cats: ['Yelpaze Boyama'] },
     { key: 'Cupcake Mum',        icon: '🧁', cats: ['Cupcake Mum'] },
     { key: 'Seramik',            icon: '☕️', cats: ['Seramik'] },
     { key: 'Punch',              icon: '🧶', cats: ['Punch'] },
@@ -1710,8 +1733,8 @@ export default function App() {
     setStockMailSending(false);
   };
 
-  const handleSeansYazCreate = async () => {
-    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0 });
+    const handleSeansYazCreate = async () => {
+    setSeansYazProgress({ done: 0, total: seansYazList.length, errors: 0, written: 0, skipped: 0 });
     setSeansYazErrors([]);
     setSeansYazCurrentName('');
 
@@ -1721,8 +1744,9 @@ export default function App() {
       catGroups[item.cat].push(item);
     });
 
-    let totalDone = 0;
-    let totalErrors = 0;
+    let totalWritten = 0;
+    let totalSkipped = 0;
+    let totalErrors  = 0;
     const allErrorList = [];
 
     for (const [cat, items] of Object.entries(catGroups)) {
@@ -1733,7 +1757,7 @@ export default function App() {
         try {
           const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
           if (pr.found) {
-            setSeansYazProgress({ done: totalDone + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors });
+            setSeansYazProgress({ done: totalWritten + totalSkipped + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors, written: totalWritten, skipped: totalSkipped });
             setSeansYazCurrentName(pr.current || '');
           }
         } catch {}
@@ -1747,25 +1771,30 @@ export default function App() {
         });
         const json = await res.json();
         clearInterval(pollInterval);
+
         if (json.error) {
           totalErrors += seances.length;
           allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
         } else {
-          totalDone += json.total || seances.length;
-          totalErrors += json.errors || 0;
-          (json.results || []).filter(r => !r.success).forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
+          totalWritten += json.success  || 0;
+          totalSkipped += json.skipped  || 0;
+          totalErrors  += json.errors   || 0;
+          // Sadece gerçek hataları göster — skipped olanları değil
+          (json.results || [])
+            .filter(r => !r.success && !r.skipped)
+            .forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
         }
-        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
+        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
         setSeansYazCurrentName('');
       } catch(e) {
         clearInterval(pollInterval);
         totalErrors += seances.length;
         allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
-        setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
+        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
       }
     }
 
-    setSeansYazProgress({ done: totalDone, total: seansYazList.length, errors: totalErrors });
+    setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
     setSeansYazErrors(allErrorList);
     setSeansYazCurrentName('');
     setSeansYazDone(true);
@@ -1784,6 +1813,7 @@ export default function App() {
     const PLATFORM_LINKS = {
       bubilet: {
         'Klasik Etkinlikler': 'https://www.bubilet.com.tr/ankara/etkinlik/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Yelpaze Boyama': 'https://www.bubilet.com.tr/ankara/etkinlik/yelpaze-boyama-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
         'Cupcake Mum': 'https://www.bubilet.com.tr/ankara/etkinlik/cupcake-mum-workshop-sosyal-sanathane-ankara--etkinlik-takvimi',
         'Punch':       'https://www.bubilet.com.tr/ankara/etkinlik/punch-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
         'Seramik':     'https://www.bubilet.com.tr/ankara/etkinlik/seramik-workshop-sosyal-sanathane-ankara-etkinlik-takvimi',
@@ -1792,6 +1822,7 @@ export default function App() {
       },
       biletinial: {
         'Klasik Etkinlikler': 'https://biletinial.com/tr-tr/egitim/workshop-etkinlik-takvimi-sosyal-sanathane-ankara',
+        'Yelpaze Boyama': 'https://biletinial.com/tr-tr/egitim/yelpaze-boyama-workshop-sosyal-sanathane-ankara',
         'Cupcake Mum': 'https://biletinial.com/tr-tr/egitim/cupcake-mum-workshop-sosyal-sanathane-ankara',
         'Seramik':     'https://biletinial.com/tr-tr/egitim/seramik-workshop-sosyal-sanathane-ankara',
         'Punch':       'https://biletinial.com/tr-tr/egitim/punch-workshop-sosyal-sanathane-ankara',
@@ -2294,8 +2325,13 @@ export default function App() {
                     {seansYazProgress.errors===0?'Tüm seanslar oluşturuldu!':'İşlem tamamlandı'}
                   </div>
                   <div style={{fontSize:14,color:'#22c55e',marginBottom:4}}>
-                    ✓ {seansYazProgress.done - seansYazProgress.errors} seans başarıyla oluşturuldu
+                    ✓ {seansYazProgress.written ?? (seansYazProgress.done - seansYazProgress.errors)} seans başarıyla oluşturuldu
                   </div>
+                  {(seansYazProgress.skipped ?? 0) > 0 && (
+                    <div style={{fontSize:13,color:'#f59e0b',marginBottom:4}}>
+                      ⚠️ {seansYazProgress.skipped} seans zaten mevcuttu — atlandı
+                    </div>
+                  )}
                   {seansYazProgress.errors > 0 && (
                     <div style={{fontSize:13,color:'#f87171',marginBottom:12}}>
                       ✗ {seansYazProgress.errors} seans oluşturulamadı
@@ -5572,7 +5608,7 @@ function SBadge({label,value,color}){
 const CAT_ICON = {
   'Heykel':'🗿','Resim':'🧑‍🎨','3D Figür':'🪆','Maske':'🎭','Bez Çanta':'👜',
   'Seramik':'☕️','Plak Boyama':'💿','Quiz Night':'🏆','Cupcake Mum':'🧁',
-  'Punch':'🧶','Mekanda Seç':'📍'
+  'Punch':'🧶','Mekanda Seç':'📍','Yelpaze Boyama':'🪭'
 };
 
 // Kategori adı "Quiz Night - Konsept" formatında olabilir, önce tam eşleşme, sonra prefix

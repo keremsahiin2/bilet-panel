@@ -1064,7 +1064,7 @@ export default function App() {
           } else {
             const poll = setInterval(() => {
               fetch('/api/login-status').then(r=>r.json()).then(s => {
-                if (s.ready) {
+                if (s.ideasoftReady) {
                   clearInterval(poll);
                   loadSalesWithRetry(false);
                 } else if (s.status === 'error') {
@@ -1072,7 +1072,7 @@ export default function App() {
                   setSalesLoading(false);
                 }
               }).catch(()=>{});
-            }, 800);
+            }, 500);
           }
         } else {
           fetch('/api/saved-credentials')
@@ -1172,7 +1172,7 @@ export default function App() {
       };
       const poll = setInterval(() => {
         fetch('/api/login-status').then(r=>r.json()).then(s => {
-          if (s.ready) {
+          if (s.ideasoftReady) {
             clearInterval(poll);
             loadAfterLogin();
           } else if (s.status === 'error') {
@@ -1180,7 +1180,7 @@ export default function App() {
             setSalesLoading(false);
           }
         }).catch(()=>{});
-      }, 800);
+      }, 500);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
