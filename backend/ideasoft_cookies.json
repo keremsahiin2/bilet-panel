@@ -5,28 +5,12 @@
       "value": "GA1.2.1495947764.1781106143"
     },
     {
-      "name": "_ga_SMNRXVRWPF",
-      "value": "GS2.1.s1781106143$o21$g1$t1781107302$j30$l0$h0"
-    },
-    {
-      "name": "_ga",
-      "value": "GA1.1.647345356.1779964543"
-    },
-    {
-      "name": "NOTIFICATION_TOKEN",
-      "value": "VUgxVXFmQit1VUhScWZEUHZ0WEdZdz09OjpoQ0J4NWtTSVlLbUxhalRp"
-    },
-    {
-      "name": "CHAT_AI_TOKEN",
-      "value": "cnZiTXR2UDdJVU1mNHNjSHpsQ093UT09OjpKR2NPZHk3Sit6M0F1RUxr"
+      "name": "PHPSESSID",
+      "value": "9aa93daa1595793a412b199fd8905dde"
     },
     {
       "name": "X-CSRF-TOKEN",
       "value": "6f3ed26640e066fd06cbb827999c750d1f3153e51b03463ee7b627bef35c1346"
-    },
-    {
-      "name": "PHPSESSID",
-      "value": "9aa93daa1595793a412b199fd8905dde"
     }
   ],
   "csrfToken": "6f3ed26640e066fd06cbb827999c750d1f3153e51b03463ee7b627bef35c1346"
