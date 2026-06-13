@@ -47,7 +47,7 @@ let cachedAllOptionsMap  = new Map(); // key: title.trim().toLowerCase() → opt
 // Aynı güne ait tüm saatler tek GET'te gelir ve cache'e dolar.
 // Sonraki seanslarda aynı gün tekrar aranmaz — cache'den bulunur.
 // Aranan günler bir Set'te tutulur: aynı güne ikinci kez API isteği atılmaz.
-// searchedDayKeys artık global değil — her bulk isteği kendi local Set'ini oluşturur (paralel-güvenli)
+var searchedDayKeys = new Set(); // "1 mayıs cuma" gibi normalize edilmiş günler
 
 // title'dan gün anahtarı çıkar: "1 Mayıs Cuma 19:00 - 21:00" → "1 mayıs cuma"
 function extractDayKey(title) {
@@ -56,7 +56,7 @@ function extractDayKey(title) {
   return m ? m[1].toLowerCase() : title.trim().toLowerCase();
 }
 
-async function searchOptionByTitle(title, headersObj, searchedDayKeys) {
+async function searchOptionByTitle(title, headersObj) {
   var titleLower = title.trim().toLowerCase();
 
   // 1) Memory cache'de tam eşleşme var mı? — Map ile O(1) lookup (Array.find O(n) değil)
@@ -68,7 +68,7 @@ async function searchOptionByTitle(title, headersObj, searchedDayKeys) {
 
   // 2) Bu günü daha önce aradık mı? Aradıysak ve cache'de yoksa zaten yok demektir.
   var dayKey = extractDayKey(title);
-  if (searchedDayKeys && searchedDayKeys.has(dayKey)) {
+  if (searchedDayKeys.has(dayKey)) {
     console.log('searchOptionByTitle: gün daha önce arandı, cache miss —', dayKey);
     return null;
   }
@@ -92,7 +92,7 @@ async function searchOptionByTitle(title, headersObj, searchedDayKeys) {
       }
     });
     // Bu günü aramış olarak işaretle — bir daha API'ye gitme
-    if (searchedDayKeys) searchedDayKeys.add(dayKey);
+    searchedDayKeys.add(dayKey);
     console.log('searchOptionByTitle: API hit, dayKey="' + dayKey + '", ' + items.length + ' sonuc cache e eklendi');
     // Tam eşleşmeyi döndür
     var found = items.find(function(o) {
@@ -177,7 +177,6 @@ const JSONBIN_BIN_ID  = '69cef0d036566621a8740cdb';
 const JSONBIN_API_KEY = '$2a$10$cip66R4w.2tIzZWE8g9YkO1PUm.m8qnmKKKb0lZFEFGAoXyxqIPZm';
 // Seramik için AYRI bin — quiz/baseline ile çakışmaz, daha hızlı
 const CERAMICS_BIN_ID = '69e7b2a4856a6821895a1d4b';
-const COOKIES_BIN_ID  = '6a2996bbf5f4af5e29d96f87';
 var ceramicsBinId = CERAMICS_BIN_ID;
 var ceramicsCache = null; // { records:[], nextNo:1 }
 
@@ -307,11 +306,14 @@ function mergeIdeasoftIntoDailySales(existing, ideasoftSeances, baseline) {
       }
     }
     if (!seanceStart) {
+      console.log('[DEBUG] startDate YOK, fullName:', s.fullName && s.fullName.slice(0,60));
       return;
     }
     if (now < seanceStart) {
+      console.log('[DEBUG] GELECEK seans:', s.fullName && s.fullName.slice(0,50), '| start:', seanceStart.toISOString());
       return;
     }
+    console.log('[DEBUG] KAYDEDILIYOR:', s.category, '| sold:', Math.max(0, (s.baselineStock||0)-(s.stockAmount||0)), '| start:', seanceStart.toISOString());
 
     var cat  = s.category;
     var base = (baseline && baseline[s.seanceId]) || CATEGORY_BASELINE[cat] || DEFAULT_BASELINE;
@@ -383,24 +385,6 @@ function loadJson(file) {
 function saveJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
-async function loadCookiesFromJsonBin() {
-  try {
-    var res = await axios.get(`https://api.jsonbin.io/v3/b/${COOKIES_BIN_ID}/latest`, { headers: { 'X-Master-Key': JSONBIN_API_KEY } });
-    var d = res.data.record;
-    if (d && d.cookies && d.cookies.length > 0) {
-      console.log('JSONBin: ideasoft cookie yuklendi, sayi:', d.cookies.length);
-      return d;
-    }
-  } catch(e) { console.warn('JSONBin cookie okuma hatasi:', e.message); }
-  return null;
-}
-async function saveCookiesToJsonBin(cookies, csrfToken) {
-  try {
-    await axios.put(`https://api.jsonbin.io/v3/b/${COOKIES_BIN_ID}`, { cookies, csrfToken },
-      { headers: { 'X-Master-Key': JSONBIN_API_KEY, 'Content-Type': 'application/json' } });
-    console.log('JSONBin: cookie kaydedildi');
-  } catch(e) { console.warn('JSONBin cookie kaydetme hatasi:', e.message); }
-}
 function toCookieStr(cookies) {
   return cookies.map(c => c.name+'='+c.value).join('; ');
 }
@@ -422,7 +406,8 @@ function bubiletBiletAdiToCategory(biletAdi) {
   if (biletAdi.includes('Resim')) return 'Resim';
   if (biletAdi.includes('Mekanda')) return 'Mekanda Seç';
   if (biletAdi.includes('Yelpaze')) return 'Yelpaze Boyama';
-  return biletAdi; // tanınmıyorsa biletAdi'ni olduğu gibi döndür
+  // Tanınmayan biletAdi — etkinlikAdi'nden kategori türet
+  return null; // tanınmıyorsa biletAdi'ni olduğu gibi döndür
 }
 
 async function fetchBubilet(username, password) {
@@ -504,13 +489,10 @@ async function fetchBubilet(username, password) {
   todayStart.setHours(0, 0, 0, 0);
 
   // Workshop: bugün/gelecek, biletAdet>0, seansId var
-  // SADECE "Workshop: Etkinlik Takvimi" başlıklı genel seansa kırılım bak.
-  // "Cupcake Mum Workshop:", "3D Figür Boyama Workshop:" vb. başlıklar
-  // kategoriyi zaten açıkça söylüyor, kırılıma gerek yok.
   const workshopSeanslar = seanslar.filter(s => {
-    if (!s.seansId) return false;
-    const ad = (s.etkinlikAdi || '').toLowerCase();
-    return ad.startsWith('workshop:') && ad.includes('etkinlik takvimi');
+    if (!s.etkinlikAdi || !s.etkinlikAdi.toLowerCase().includes('workshop')) return false;
+    if (!s.seansId || !s.biletAdet || s.biletAdet === 0) return false;
+    return true;
   });
 
   const normalSeanslar = seanslar.filter(s => !workshopSeanslar.includes(s));
@@ -530,7 +512,10 @@ async function fetchBubilet(username, password) {
         const rows = [];
         for (const bilet of detay.data.detaySatisRaporlar) {
           if (!bilet.biletAdet || bilet.biletAdet === 0) continue;
-          const cat = bubiletBiletAdiToCategory(bilet.biletAdi);
+          // biletAdi'nden kategori türet; null gelirse etkinlikAdi'nden dene
+          const cat = bubiletBiletAdiToCategory(bilet.biletAdi)
+                   || bubiletBiletAdiToCategory(s.etkinlikAdi)
+                   || bilet.biletAdi;
           rows.push({ ...s, _workshopCat: cat, _workshopBiletAdi: bilet.biletAdi,
             biletAdet: bilet.biletAdet, etkinlikAdi: cat });
         }
@@ -814,11 +799,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
   let ideasoftPromise = Promise.resolve(null);
   if (ideasoftUser && ideasoftPass) {
     var savedCookies = loadJson(COOKIES_FILE);
-    if (!savedCookies || !savedCookies.cookies || savedCookies.cookies.length === 0) {
-      console.log("Ideasoft: dosyada cookie yok, JSONBin deneniyor...");
-      savedCookies = await loadCookiesFromJsonBin();
-      if (savedCookies) saveJson(COOKIES_FILE, savedCookies);
-    }
     if (savedCookies && savedCookies.cookies && savedCookies.cookies.length > 0) {
       ideasoftCookies   = savedCookies.cookies;
       ideasoftCsrfToken = savedCookies.csrfToken;
@@ -847,6 +827,7 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
       bubiletData = d;
       lastFetch = new Date().toISOString();
       // Bubilet + Biletinial ikisi de geldiyse ready işaretle
+      if (biletinialData !== null) loginState = { status:'done', error:null };
       console.log('Bubilet tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
       return d;
     });
@@ -855,6 +836,7 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
     .then(d => {
       biletinialData = d;
       lastFetch = new Date().toISOString();
+      if (bubiletData !== null) loginState = { status:'done', error:null };
       console.log('Biletini Al tamamlandi:', d.length, 'kayit,', Date.now()-t0, 'ms');
       return d;
     });
@@ -868,7 +850,6 @@ async function doLogin(bubiletUser, bubiletPass, biletToken, ideasoftUser, ideas
     : Promise.resolve(null);
 
   await Promise.all([bubiletP, biletinialP, ideasoftP]);
-  loginState = { status:'done', error:null };
 
   console.log('Toplam login suresi:', Date.now() - t0, 'ms');
   lastFetch = new Date().toISOString();
@@ -893,6 +874,18 @@ app.get('/api/saved-credentials', function(req, res) {
 });
 
 // DEBUG: Biletini Al workshop kırılım ham yanıtı
+// DEBUG: Bubilet ham verisini goster — Yelpaze esleme sorunu icin
+app.get('/api/debug/bubilet-raw', function(req, res) {
+  if (!bubiletData) return res.json({ error: 'Bubilet verisi yok, once giris yapin' });
+  const yelpaze = bubiletData.filter(s => s.etkinlikAdi && s.etkinlikAdi.toLowerCase().includes('yelpaze'));
+  const ideasoftYelpaze = (ideasoftData || []).filter(s => s.category === 'Yelpaze Boyama');
+  res.json({
+    bubilet_yelpaze: yelpaze,
+    ideasoft_yelpaze: ideasoftYelpaze,
+    bubilet_tum_etkinlikler: [...new Set(bubiletData.map(s => s.etkinlikAdi))].sort(),
+  });
+});
+
 app.get('/api/debug/workshop-counts', async function(req, res) {
   var seanceId = req.query.seanceId || 17749527;
   var creds = loadJson(SAVED_CREDS_FILE);
@@ -1013,7 +1006,7 @@ app.get('/api/login-status', function(req, res) {
   res.json({
     status: loginState.status,
     ready:  coreReady,
-    ideasoftReady: ideasoftData !== null && ideasoftData.length > 0,
+    ideasoftReady: ideasoftData !== null,
     error:  loginState.error
   });
 });
@@ -1058,31 +1051,12 @@ app.post('/api/login', function(req, res) {
   }
 });
 
-// İdeasoft cookie güncelle (tarayıcıdan manuel)
-app.post("/api/ideasoft/update-cookies", async function(req, res) {
-  try {
-    var { cookieString, csrfToken } = req.body;
-    if (!cookieString) return res.status(400).json({ error: "cookieString gerekli" });
-    var cookies = cookieString.split(";").map(function(c) {
-      var idx = c.indexOf("=");
-      return { name: c.substring(0, idx).trim(), value: c.substring(idx+1).trim() };
-    });
-    var csrf = csrfToken || cookies.find(function(c){return c.name==="X-CSRF-TOKEN";})?.value || "";
-    saveJson(COOKIES_FILE, { cookies: cookies, csrfToken: csrf });
-    await saveCookiesToJsonBin(cookies, csrf);
-    ideasoftCookies = cookies;
-    ideasoftCsrfToken = csrf;
-    ideasoftData = null;
-    res.json({ success: true, cookieCount: cookies.length });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
 // İdeasoft oturumu sıfırla
 app.post('/api/ideasoft/reset-session', function(req, res) {
   try {
     if (fs.existsSync(COOKIES_FILE)) fs.unlinkSync(COOKIES_FILE);
     ideasoftCookies = null; ideasoftCsrfToken = null; ideasoftData = null;
-    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; 
+    cachedAllOptions = []; cachedAllOptionsTime = 0; parentDataCache = {}; searchedDayKeys = new Set(); 
     res.json({ success:true });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
@@ -1111,7 +1085,7 @@ async function doToggleSeance(seanceId, active, retries) {
   );
   var sc = (productRes.headers['set-cookie']||[]).join(' ');
   var m  = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-  if (m) { ideasoftCsrfToken=m[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+  if (m) { ideasoftCsrfToken=m[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
   try {
     await axios.put(
@@ -1232,7 +1206,7 @@ app.delete('/api/ideasoft/delete-option/:seanceId', async function(req, res) {
     var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
     if (cm) {
       ideasoftCsrfToken = cm[1];
-      saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken);
+      saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken });
     }
     var csrf = ideasoftCsrfToken || '';
 
@@ -1366,7 +1340,7 @@ async function fetchAllOptions(headersObj, forceRefresh) {
       );
       var sc = (res.headers['set-cookie'] || []).join(' ');
       var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+      if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       return res;
     } catch(e) {
       var status = e.response && e.response.status;
@@ -1434,7 +1408,7 @@ async function createOneSeance(payload) {
   );
   var sc1 = (parentRes.headers['set-cookie'] || []).join(' ');
   var cm1 = sc1.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-  if (cm1) { ideasoftCsrfToken = cm1[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+  if (cm1) { ideasoftCsrfToken = cm1[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
 
   var parentData = parentRes.data;
 
@@ -1449,7 +1423,7 @@ async function createOneSeance(payload) {
       );
       var sc1b = (opRes.headers['set-cookie'] || []).join(' ');
       var cm1b = sc1b.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cm1b) { ideasoftCsrfToken = cm1b[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+      if (cm1b) { ideasoftCsrfToken = cm1b[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       // optioned-products yanıtı: { data: [...seanslar...] } — her seansta optionGroups var
       var opBody = opRes.data;
       var opSeances = [];
@@ -1489,7 +1463,7 @@ async function createOneSeance(payload) {
   // ── OPTION ID AL: &s= search ile title bazlı tek GET — liste büyüklüğünden bağımsız ──
   // Strateji: 1) cache'e bak  2) POST dene  3) 400 Tekrarlanan → &s= ile direkt ara
   var newOptionId;
-  var existingOption = await searchOptionByTitle(tarihSaatTitle, headers(), new Set());
+  var existingOption = await searchOptionByTitle(tarihSaatTitle, headers());
   if (existingOption) {
     newOptionId = existingOption.id;
     console.log('✓ Option bulundu (search/cache), ID:', newOptionId, '→', tarihSaatTitle);
@@ -1508,7 +1482,7 @@ async function createOneSeance(payload) {
       );
       var scOpt = (optionRes.headers['set-cookie'] || []).join(' ');
       var cmOpt = scOpt.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-      if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+      if (cmOpt) { ideasoftCsrfToken = cmOpt[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
       newOptionId = optionRes.data && optionRes.data.id;
       if (!newOptionId) throw new Error('Option ID alınamadı — yanıt: ' + JSON.stringify(optionRes.data).slice(0, 200));
       var _newOpt1 = { id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 };
@@ -1712,7 +1686,7 @@ async function createOneSeance(payload) {
   // CSRF güncelle
   var sc3 = (batchRes.headers['set-cookie'] || []).join(' ');
   var cm3 = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-  if (cm3) { ideasoftCsrfToken = cm3[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+  if (cm3) { ideasoftCsrfToken = cm3[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
 
   // Batch response'u parse et — 200 olsa da içinde hata olabilir
   var batchResponseStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
@@ -1747,7 +1721,7 @@ async function createOneSeance(payload) {
     );
     var sc5 = (putRes.headers['set-cookie'] || []).join(' ');
     var cm5 = sc5.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm5) { ideasoftCsrfToken = cm5[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+    if (cm5) { ideasoftCsrfToken = cm5[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
     console.log('✓ Parent ürün güncellendi:', parentId, 'status:', putRes.status);
   } catch(e) {
     // PUT başarısız olsa bile seans batch'te oluştu — sadece logla
@@ -1801,9 +1775,10 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
   if (!parentId) return res.status(400).json({ error:'parent.id gerekli' });
 
 
-  // Her bulk isteği için izole local Set — paralel bulk çağrıları birbirinin state'ini bozmaz
-  var searchedDayKeys = new Set();
-  console.log('Bulk: yerel searchedDayKeys oluşturuldu (paralel-güvenli)');
+  // Her bulk başında searchedDayKeys sıfırla — silinip tekrar yazdırılacak seanslar için
+  // option title'ları "bu günü aradık, yok" diye yanlış atlanmasın.
+  searchedDayKeys = new Set();
+  console.log('Bulk: searchedDayKeys sıfırlandı');
   var cStr = toCookieStr(ideasoftCookies);
   var hdrs = function() {
     return {
@@ -1848,7 +1823,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         );
         var sc = (opRes.headers['set-cookie'] || []).join(' ');
         var cm = sc.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-        if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+        if (cm) { ideasoftCsrfToken = cm[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
         var opBody = opRes.data;
         var pageSeances = Array.isArray(opBody.data) ? opBody.data : Array.isArray(opBody) ? opBody : opBody.data ? [opBody.data] : [];
         opSeances = opSeances.concat(pageSeances);
@@ -1924,12 +1899,11 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     }
   }
 
-  // ── C) Aşama 1: Tüm option ID'lerini paralel topla ─────────────────────
-  console.log('Bulk: Aşama 1 — option ID toplama başlıyor,', toWrite.length, 'seans (paralel)');
+  // ── C) Aşama 1: Tüm option ID'lerini sırayla topla ─────────────────────
+  console.log('Bulk: Aşama 1 — option ID toplama başlıyor,', toWrite.length, 'seans');
   var seansItems = []; // { payload, tarihSaatTitle, newOptionId, realSku, seansSlug }
-  // searchedDayKeys bu bulk'a özel local Set — paralel çağrılar arasında paylaşılır ama
-  // diğer bulk isteklerinden izole. Aynı gün içinde tekrar API'ye gitmeyi önler.
-  await Promise.all(toWrite.map(async function(payload, oi) {
+  for (var oi = 0; oi < toWrite.length; oi++) {
+    var payload = toWrite[oi];
     var tarihSaatTitle = payload.name.replace(/^[^-]*- /, '').trim();
     var realSku = (parentData.sku || 'bilet') + '_' + Math.floor(Math.random() * 90000 + 10000);
     var seansSlugSuffix = payload.name.toLowerCase()
@@ -1945,7 +1919,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
 
     var newOptionId;
     try {
-      var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs(), searchedDayKeys);
+      var existingOpt = await searchOptionByTitle(tarihSaatTitle, hdrs());
       if (existingOpt) {
         newOptionId = existingOpt.id;
         console.log('Bulk option [' + (oi+1) + '/' + toWrite.length + '] cache/search:', newOptionId, tarihSaatTitle);
@@ -1994,7 +1968,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         if (optRes !== null) {
           var scOr = (optRes.headers['set-cookie'] || []).join(' ');
           var cmOr = scOr.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-          if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+          if (cmOr) { ideasoftCsrfToken = cmOr[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
           newOptionId = optRes.data && optRes.data.id;
           if (!newOptionId) throw new Error('Option ID alınamadı: ' + JSON.stringify(optRes.data).slice(0,200));
           var _newOpt = { id: newOptionId, title: tarihSaatTitle, sortOrder: 9999 };
@@ -2013,7 +1987,9 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
         bulkProgressMap[jobId].results.push({ success: false, name: tarihSaatTitle, error: optFatalErr.message });
       }
     }
-  }));
+    // Option istekleri arası kısa bekleme
+    if (oi < toWrite.length - 1) await new Promise(r => setTimeout(r, 150));
+  }
   console.log('Bulk: Aşama 1 tamamlandı —', seansItems.length, 'seans için option ID alındı');
 
   // ── C) Aşama 2: Tüm seansları tek batch isteğinde gönder ─────────────────
@@ -2112,7 +2088,7 @@ app.post('/api/ideasoft/create-seances-bulk', async function(req, res) {
     }
     var sc4 = (batchRes.headers['set-cookie'] || []).join(' ');
     var cm4 = sc4.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (cm4) { ideasoftCsrfToken = cm4[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+    if (cm4) { ideasoftCsrfToken = cm4[1]; saveJson(COOKIES_FILE, { cookies: ideasoftCookies, csrfToken: ideasoftCsrfToken }); }
 
     var batchStr = typeof batchRes.data === 'string' ? batchRes.data : JSON.stringify(batchRes.data);
     console.log('Bulk: batch yaniti (ilk 1000 karakter):', batchStr.slice(0, 1000));
@@ -2300,7 +2276,7 @@ app.post('/api/ideasoft/update-stock', async function(req, res) {
 
     var sc3 = (productRes.headers['set-cookie']||[]).join(' ');
     var m3  = sc3.match(/X-CSRF-TOKEN=([a-f0-9]{64})/);
-    if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); saveCookiesToJsonBin(ideasoftCookies, ideasoftCsrfToken); }
+    if (m3) { ideasoftCsrfToken=m3[1]; saveJson(COOKIES_FILE, { cookies:ideasoftCookies, csrfToken:ideasoftCsrfToken }); }
 
     // 2) İdeasoft'a stok yaz
     await axios.put(

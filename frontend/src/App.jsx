@@ -270,7 +270,9 @@ function buildSeanceMap(data) {
 
     let cat;
     if (s._workshopCat) {
-      cat = s._workshopCat;
+      // _workshopCat bazen ham biletAdi olabilir ("Yelpaze Boyama Workshop" gibi)
+      // bubiletToCategory'den geçirerek normalize et
+      cat = bubiletToCategory(s._workshopCat) || s._workshopCat;
     } else if (isQuiz) {
       cat = 'Quiz Night';
     } else {
@@ -341,10 +343,10 @@ function buildSeanceMap(data) {
     const isQuiz = s.etkinlikAdi && s.etkinlikAdi.includes('Quiz');
 
     // Workshop alt kırılımı server tarafında zaten çözüldü:
-    // _workshopCat varsa direkt kullan (ör. "Mekanda Seç", "Seramik" vb.)
+    // _workshopCat varsa bubiletToCategory'den normalize et (ör. "Yelpaze Boyama Workshop" → "Yelpaze Boyama")
     let cat;
     if (s._workshopCat) {
-      cat = s._workshopCat;
+      cat = bubiletToCategory(s._workshopCat) || bubiletToCategory(s.etkinlikAdi) || s._workshopCat;
     } else if (isQuiz) {
       cat = 'Quiz Night';
     } else {
@@ -352,7 +354,7 @@ function buildSeanceMap(data) {
     }
     if (!cat) return;
 
-    // Tam eşleşme
+    // Tam eşleşme: aynı gün + saat başlangıcı
     let matchKey = Object.keys(map).find(k => {
       const [kDate, kSlot] = k.split('|');
       return kDate === dateKey && kSlot.startsWith(time);
@@ -369,6 +371,15 @@ function buildSeanceMap(data) {
     // Quiz için kategori adını İdeasoft'takiyle eşitle
     if (isQuiz && matchKey && map[matchKey]._quizCat) {
       cat = map[matchKey]._quizCat;
+    }
+
+    // Workshop: matchKey bulunamadıysa ama aynı gün+saat başka bir slot varsa ona ekle
+    // (İdeasoft'ta seans yazılmamış olsa bile slot boşa gitmesin)
+    if (!matchKey && s._workshopCat) {
+      matchKey = Object.keys(map).find(k => {
+        const [kDate, kSlot] = k.split('|');
+        return kDate === dateKey && kSlot.startsWith(time);
+      });
     }
 
     const key = matchKey || ensureSeance(dateKey, time, new Date(s.tarih));
@@ -1048,6 +1059,11 @@ export default function App() {
               const r = await fetch(endpoint, opts);
               const d = await r.json();
               if (!d.error) {
+                const ideasoftOk = (d.ideasoft || []).length > 0;
+                if (!ideasoftOk && retries < 3) {
+                  await new Promise(res => setTimeout(res, 2000));
+                  return loadSalesWithRetry(true, retries + 1);
+                }
                 setSalesData(d);
                 setLastUpdated(new Date().toLocaleTimeString("tr-TR"));
               }
@@ -1057,9 +1073,9 @@ export default function App() {
           if (json.ready) {
             loadSalesWithRetry(false);
           } else {
-            const pollStart = Date.now(); const poll = setInterval(() => {
+            const poll = setInterval(() => {
               fetch('/api/login-status').then(r=>r.json()).then(s => {
-                if (s.status === 'done') {
+                if (s.ready) {
                   clearInterval(poll);
                   loadSalesWithRetry(false);
                 } else if (s.status === 'error') {
@@ -1067,7 +1083,7 @@ export default function App() {
                   setSalesLoading(false);
                 }
               }).catch(()=>{});
-            }, 500);
+            }, 800);
           }
         } else {
           fetch('/api/saved-credentials')
@@ -1165,9 +1181,9 @@ export default function App() {
         } catch(e) {}
         setSalesLoading(false);
       };
-      const pollStart = Date.now(); const poll = setInterval(() => {
+      const poll = setInterval(() => {
         fetch('/api/login-status').then(r=>r.json()).then(s => {
-          if (s.status === 'done') {
+          if (s.ready) {
             clearInterval(poll);
             loadAfterLogin();
           } else if (s.status === 'error') {
@@ -1175,7 +1191,7 @@ export default function App() {
             setSalesLoading(false);
           }
         }).catch(()=>{});
-      }, 500);
+      }, 800);
     } catch(e) { setLoginError(e.message); }
     finally { setLoginLoading(false); }
   };
@@ -1739,20 +1755,25 @@ export default function App() {
       catGroups[item.cat].push(item);
     });
 
-    let totalWritten = 0;
-    let totalSkipped = 0;
-    let totalErrors  = 0;
+    // Tüm kategoriler paralel — her biri bağımsız, biter bitirmez UI güncellenir
+    const progressRef = { written: 0, skipped: 0, errors: 0 };
     const allErrorList = [];
 
-    for (const [cat, items] of Object.entries(catGroups)) {
-      const jobId = 'job_' + Date.now() + '_' + cat.replace(/\s/g, '_');
+    await Promise.all(Object.entries(catGroups).map(async ([cat, items]) => {
+      const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '_' + cat.replace(/\s/g, '_');
       const seances = items.map(item => buildIdeasoftPayload(item.cat, item.dateKey, item.slot));
 
       const pollInterval = setInterval(async () => {
         try {
           const pr = await fetch('/api/ideasoft/bulk-progress/' + jobId).then(r => r.json());
           if (pr.found) {
-            setSeansYazProgress({ done: totalWritten + totalSkipped + pr.done, total: seansYazList.length, errors: totalErrors + pr.errors, written: totalWritten, skipped: totalSkipped });
+            setSeansYazProgress({
+              done:    progressRef.written + progressRef.skipped + progressRef.errors,
+              total:   seansYazList.length,
+              errors:  progressRef.errors,
+              written: progressRef.written,
+              skipped: progressRef.skipped,
+            });
             setSeansYazCurrentName(pr.current || '');
           }
         } catch {}
@@ -1768,28 +1789,44 @@ export default function App() {
         clearInterval(pollInterval);
 
         if (json.error) {
-          totalErrors += seances.length;
+          progressRef.errors += seances.length;
           allErrorList.push({ seans: cat + ' (tümü)', hata: json.error });
         } else {
-          totalWritten += json.success  || 0;
-          totalSkipped += json.skipped  || 0;
-          totalErrors  += json.errors   || 0;
-          // Sadece gerçek hataları göster — skipped olanları değil
+          progressRef.written += json.success || 0;
+          progressRef.skipped += json.skipped || 0;
+          progressRef.errors  += json.errors  || 0;
           (json.results || [])
             .filter(r => !r.success && !r.skipped)
             .forEach(r => allErrorList.push({ seans: r.name, hata: r.error }));
         }
-        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
-        setSeansYazCurrentName('');
+        setSeansYazProgress({
+          done:    progressRef.written + progressRef.skipped + progressRef.errors,
+          total:   seansYazList.length,
+          errors:  progressRef.errors,
+          written: progressRef.written,
+          skipped: progressRef.skipped,
+        });
       } catch(e) {
         clearInterval(pollInterval);
-        totalErrors += seances.length;
+        progressRef.errors += seances.length;
         allErrorList.push({ seans: cat + ' (tümü)', hata: e.message });
-        setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
+        setSeansYazProgress({
+          done:    progressRef.written + progressRef.skipped + progressRef.errors,
+          total:   seansYazList.length,
+          errors:  progressRef.errors,
+          written: progressRef.written,
+          skipped: progressRef.skipped,
+        });
       }
-    }
+    }));
 
-    setSeansYazProgress({ done: totalWritten + totalSkipped, total: seansYazList.length, errors: totalErrors, written: totalWritten, skipped: totalSkipped });
+    setSeansYazProgress({
+      done:    progressRef.written + progressRef.skipped + progressRef.errors,
+      total:   seansYazList.length,
+      errors:  progressRef.errors,
+      written: progressRef.written,
+      skipped: progressRef.skipped,
+    });
     setSeansYazErrors(allErrorList);
     setSeansYazCurrentName('');
     setSeansYazDone(true);
